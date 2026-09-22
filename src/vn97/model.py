@@ -36,6 +36,7 @@ class VN97LanguageCore(nn.Module):
             self.lm_head = FactorizedLMHead(
                 self.embedding
             )
+
         self.layers = nn.ModuleList(
             [
                 VN97Block(
@@ -65,19 +66,28 @@ class VN97LanguageCore(nn.Module):
             for layer in self.layers
         ]
 
-    def forward(
+    def forward_embeddings(
         self,
-        input_ids: torch.Tensor,
+        inputs_embeds: torch.Tensor,
         states: Optional[
             Sequence[Optional[torch.Tensor]]
         ] = None,
     ) -> tuple[torch.Tensor, VN97States]:
-        if input_ids.ndim != 2:
+        if (
+            inputs_embeds.ndim != 3
+            or inputs_embeds.shape[-1]
+            != self.config.d_model
+        ):
             raise ValueError(
-                "input_ids must have shape [batch, seq]"
+                "inputs_embeds must have shape "
+                f"[batch, seq, {self.config.d_model}]"
             )
-        x = self.embedding(input_ids)
+        if inputs_embeds.shape[1] == 0:
+            raise ValueError(
+                "inputs_embeds sequence length must be positive"
+            )
 
+        x = inputs_embeds
         if states is None:
             layer_states: Sequence[
                 Optional[torch.Tensor]
@@ -100,6 +110,22 @@ class VN97LanguageCore(nn.Module):
             self.final_norm(x)
         )
         return logits, new_states
+
+    def forward(
+        self,
+        input_ids: torch.Tensor,
+        states: Optional[
+            Sequence[Optional[torch.Tensor]]
+        ] = None,
+    ) -> tuple[torch.Tensor, VN97States]:
+        if input_ids.ndim != 2:
+            raise ValueError(
+                "input_ids must have shape [batch, seq]"
+            )
+        return self.forward_embeddings(
+            self.embedding(input_ids),
+            states,
+        )
 
     @torch.no_grad()
     def generate_greedy(
@@ -132,4 +158,6 @@ class VN97LanguageCore(nn.Module):
             )
             generated.append(token)
 
-        return torch.cat(generated, dim=1)
+        return torch.cat(
+            generated, dim=1
+        )
