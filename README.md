@@ -14,7 +14,8 @@ multimodal frontends and explicit sovereign memory.
 - M3A: VN97TK1 lossless tokenizer + native codec + optional factorized tied embeddings;
 - M3B: audio/vision modality adapters + native preprocessing + dense embedding ingress;
 - M4A: VN97MEM1 sovereign memory journal + bounded working memory + deterministic retrieval;
-- M4B: mmap native memory store + incremental zero-copy index + native append/retrieve/compact.
+- M4B: mmap native memory store + incremental zero-copy index + native append/retrieve/compact;
+- M5A: bounded reasoning/planning state machine + VN97PLN1 safe checkpoints.
 
 ## M3 multimodal contract
 
@@ -33,28 +34,35 @@ The native runtime provides equivalent audio framing and vision patch extraction
 libvn97_modality.a. Projection weights can reuse VN97T2 packed matvec rather than introducing a
 second modality-specific weight format.
 
-## M4A sovereign memory contract
+## M4 sovereign memory contract
 
-Recurrent state is not used as a substitute for persistent memory. M4A separates:
-
-- bounded in-process working memory;
-- append-only episodic records for events/observations;
-- append-only semantic records for distilled knowledge.
+Recurrent state is not used as a substitute for persistent memory. M4 separates bounded working
+memory from append-only episodic/semantic VN97MEM1 storage.
 
 VN97MEM1 records carry stable IDs, timestamp, importance, source provenance, optional retrieval
-vectors, optional parent ancestry and SHA-256 content identity. Frames are CRC32 protected.
-Explicit torn-tail recovery truncates only an incomplete final frame; complete corrupt records
-fail closed.
+vectors, parent ancestry and SHA-256 content identity. Frames are CRC32 protected. The native
+MemoryStore adds exclusive single-writer locking, mmap-backed records, incremental suffix
+indexing, exact deterministic retrieval, torn-tail recovery and atomic provenance-preserving
+compaction without duplicating journal vectors into a second resident vector table.
 
-Reference retrieval is deterministic and model-agnostic: exact cosine similarity can be combined
-with half-life recency and importance. Retention/compaction is atomic, preserves the highest ID
-to prevent ID reuse and preserves parent ancestry for retained derived records.
+## M5A reasoning/planning contract
 
-The native runtime adds libvn97_memory.a. M4B extends it with a file-backed MemoryStore:
-exclusive single-writer locking, mmap-backed records, incremental suffix indexing, native
-SHA-256 record creation, exact deterministic retrieval, torn-tail recovery and atomic
-provenance-preserving compaction. The index stores metadata/offsets and inverse norms rather
-than duplicating journal vectors in a second RAM table.
+PlanController provides a deterministic bounded state machine above model inference:
+
+- ordered dependency graph with stable step IDs;
+- stable plan ID derived from canonical goal + step graph + budget;
+- bounded transitions, retries, memory queries and retrieved hits;
+- confidence thresholds and explicit verification state;
+- interruption/pause that requeues unfinished internal reasoning;
+- VN97MEM1 retrieval context with stable evidence record IDs;
+- EXTERNAL steps stop at WAITING_EXTERNAL instead of executing a side effect.
+
+VN97PLN1 checkpoints store the immutable plan definition plus runtime lifecycle at safe points.
+A checkpoint cannot contain a RUNNING internal step. Payload bytes are canonical JSON protected
+by SHA-256 and saved with atomic replace/fsync. The digest is an integrity mechanism, not an
+authority grant or author signature.
+
+M5A does not execute tools or device actions. M6 remains the authority/capability boundary.
 
 ## Native execution libraries
 
@@ -72,6 +80,7 @@ See:
 - docs/EMBEDDING_COMPRESSION_M3A.md
 - docs/MODALITY_ADAPTERS_M3B.md
 - docs/MEMORY_V1.md
+- docs/PLANNER_M5A.md
 - docs/NATIVE_SELECTIVE_M2C.md
 
 ## Local verification
