@@ -43,6 +43,21 @@ from .capabilities import (
     SovereignHttpsFetcher,
     register_m6b_capabilities,
 )
+from .capability_package import (
+    CapabilityDataSection,
+    CapabilityManifest,
+    CapabilityManifestError,
+    CapabilityPackageError,
+    CapabilityPackageFormatError,
+    CapabilityPackageIntegrityError,
+    CapabilitySource,
+    CapabilityStageError,
+    CapabilityStager,
+    ParsedCapabilityPackage,
+    StagedCapability,
+    build_capability_package,
+    parse_capability_package,
+)
 from .cognition import (
     CognitionBackend,
     CognitionContractError,
@@ -164,6 +179,19 @@ from .tokenizer import (
 )
 
 __all__ = [
+    "CapabilityDataSection",
+    "CapabilityManifest",
+    "CapabilityManifestError",
+    "CapabilityPackageError",
+    "CapabilityPackageFormatError",
+    "CapabilityPackageIntegrityError",
+    "CapabilitySource",
+    "CapabilityStageError",
+    "CapabilityStager",
+    "ParsedCapabilityPackage",
+    "StagedCapability",
+    "build_capability_package",
+    "parse_capability_package",
     "ApprovalPrompt",
     "ApprovalSessionError",
     "ExternalApprovalCoordinator",
