@@ -390,6 +390,36 @@ change model weights in-place, mutate M6 policy or make the package executable. 
 and provenance fields are metadata/integrity claims, not cryptographic publisher trust.
 Signature/trust policy and typed activation belong to later M9 milestones.
 
+## M9B publisher trust + compatibility planning
+
+M9B adds a second gate after M9A staging. A staged package is re-opened with no-follow semantics,
+re-parsed as VN97CAP1 and checked against its staged digest/manifest before publisher trust is
+evaluated.
+
+`VN97SIG1` is a bounded canonical JSON detached signature envelope. Its domain-separated
+signing message binds algorithm, publisher key ID, full VN97CAP1 package SHA-256, capability ID
+and capability version. `CapabilityTrustStore` scopes each Ed25519 publisher key by canonical
+capability namespace, capability kind, version range and revocation state. Namespace matching is
+segment-aware: a trust scope for `vision` permits `vision.edge` but not `visionevil`.
+
+`Ed25519Verifier` is the production adapter and loads the optional crypto backend lazily. If the
+backend is absent, verification fails closed rather than silently accepting an unsigned package.
+
+Only a successfully revalidated and signature-verified package becomes a `VerifiedCapability`.
+That object still does not activate anything.
+
+Compatibility is a separate pure planning step. `CompatibilityProfile` declares supported kinds,
+version range and accepted formats per section role. `AdapterSpec` may provide one explicit
+format conversion path. Direct sections remain unchanged; incompatible sections require exactly
+one matching adapter. Ambiguous paths fail closed and lossy adaptation is denied by default.
+
+`CompatibilityPlan` binds the package digest, publisher key ID, signature-envelope digest,
+runtime profile ID/fingerprint and runtime API version. This prevents M9C from activating a plan
+against different trust evidence or a silently changed compatibility profile.
+
+M9B still performs no activation, rollback, runtime mutation, M6 handler registration or policy
+change. Those transactional state changes remain M9C work.
+
 ## Native execution libraries
 
 - libvn97_packed_ternary.a
@@ -446,3 +476,4 @@ Avatar integration:
 - docs/SPEECH_AVATAR_M8B.md
 - docs/AVATAR_ASSET_M8C.md
 - docs/CAPABILITY_PACKAGE_M9A.md
+- docs/CAPABILITY_TRUST_M9B.md
