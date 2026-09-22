@@ -168,4 +168,32 @@ int vn97_runtime_checkpoint_write(
     std::size_t capacity,
     std::size_t* written);
 
+int vn97_runtime_infer_step(
+    std::uint64_t handle,
+    const vn97::LanguageModelView* language_model_view,
+    const std::uint32_t* input_ids,
+    std::size_t input_count,
+    float* logits,
+    std::size_t logits_count);
+
+int vn97_runtime_prefill(
+    std::uint64_t handle,
+    const vn97::LanguageModelView* language_model_view,
+    const std::uint32_t* input_ids,
+    std::size_t input_count,
+    std::size_t step_count,
+    float* final_logits,
+    std::size_t logits_count);
+
+int vn97_runtime_generate_greedy(
+    std::uint64_t handle,
+    const vn97::LanguageModelView* language_model_view,
+    const std::uint32_t* prompt_ids,
+    std::size_t prompt_count,
+    std::size_t max_new_tokens,
+    std::uint32_t eos_token,
+    std::uint32_t* output_ids,
+    std::size_t output_capacity,
+    std::size_t* output_count);
+
 }

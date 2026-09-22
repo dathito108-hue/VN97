@@ -19,7 +19,10 @@ KOTLINC="${KOTLINC:-kotlinc}"
     "$ROOT/native/src/selective.cpp" \
     "$ROOT/native/src/recurrent.cpp" \
     "$ROOT/native/src/packed_ternary.cpp" \
+    "$ROOT/native/src/tokenizer.cpp" \
+    "$ROOT/native/src/model_image.cpp" \
     "$ROOT/android/runtime/src/main/cpp/vn97_jni.cpp" \
+    "$ROOT/android/runtime/src/main/cpp/vn97_model_jni.cpp" \
     -pthread \
     -o "$WORK/libvn97_jni.so"
 

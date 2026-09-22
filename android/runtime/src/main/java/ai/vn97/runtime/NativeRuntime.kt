@@ -79,6 +79,11 @@ data class NativeRuntimeInfo(
     val sequencePosition: Long,
 )
 
+data class RuntimeModelBinding(
+    val bound: Boolean,
+    val modelId: ByteArray,
+)
+
 internal object NativeRuntimeBindings {
     init {
         System.loadLibrary("vn97_jni")
@@ -97,6 +102,68 @@ internal object NativeRuntimeBindings {
     external fun nativeCheckpointSize(handle: Long, out: LongArray): Int
     external fun nativeCheckpointWrite(handle: Long, out: ByteArray, writtenOut: LongArray): Int
     external fun nativeFsyncDirectory(path: String): Int
+
+    external fun nativeModelOpen(
+        fd: Int,
+        offset: Long,
+        length: Long,
+        expectedModelId: ByteArray,
+        handleOut: LongArray,
+    ): Int
+    external fun nativeModelDestroy(handle: Long): Int
+    external fun nativeModelInfo(
+        handle: Long,
+        intsOut: IntArray,
+        longsOut: LongArray,
+        modelIdOut: ByteArray,
+    ): Int
+    external fun nativeModelEncode(
+        handle: Long,
+        input: ByteArray,
+        flags: Int,
+        output: IntArray,
+        countOut: IntArray,
+    ): Int
+    external fun nativeModelDecodedSize(
+        handle: Long,
+        tokenIds: IntArray,
+        skipControl: Boolean,
+        sizeOut: LongArray,
+    ): Int
+    external fun nativeModelDecode(
+        handle: Long,
+        tokenIds: IntArray,
+        skipControl: Boolean,
+        output: ByteArray,
+        writtenOut: LongArray,
+    ): Int
+    external fun nativeInferStep(
+        runtimeHandle: Long,
+        modelHandle: Long,
+        inputIds: IntArray,
+        logits: FloatArray,
+    ): Int
+    external fun nativePrefill(
+        runtimeHandle: Long,
+        modelHandle: Long,
+        inputIds: IntArray,
+        stepCount: Int,
+        finalLogits: FloatArray,
+    ): Int
+    external fun nativeGenerateGreedy(
+        runtimeHandle: Long,
+        modelHandle: Long,
+        promptIds: IntArray,
+        maxNewTokens: Int,
+        eosToken: Int,
+        outputIds: IntArray,
+        countOut: IntArray,
+    ): Int
+    external fun nativeModelBinding(
+        runtimeHandle: Long,
+        boundOut: IntArray,
+        modelIdOut: ByteArray,
+    ): Int
 }
 
 class NativeRuntimeSession private constructor(private var handle: Long) : AutoCloseable {
@@ -179,6 +246,115 @@ class NativeRuntimeSession private constructor(private var handle: Long) : AutoC
         }
     }
 
+    fun modelBinding(): RuntimeModelBinding = withHandle { h ->
+        val bound = IntArray(1)
+        val modelId = ByteArray(32)
+        checkStatus(
+            NativeRuntimeBindings.nativeModelBinding(h, bound, modelId),
+            "runtime model binding",
+        )
+        RuntimeModelBinding(bound[0] != 0, modelId)
+    }
+
+    fun inferStep(model: NativeActivatedModel, inputIds: IntArray): FloatArray {
+        require(inputIds.all { it >= 0 }) { "token IDs must be non-negative" }
+        val runtimeInfo = info()
+        require(inputIds.size == runtimeInfo.config.batch) {
+            "inference step requires exactly one token per batch item"
+        }
+        require(model.info.layers == runtimeInfo.config.layers &&
+            model.info.dModel == runtimeInfo.config.dModel &&
+            model.info.dState == runtimeInfo.config.dState) {
+            "activated model geometry does not match runtime session"
+        }
+        val logits = FloatArray(
+            checkedMultiplyArrayCount(runtimeInfo.config.batch, model.info.vocabSize, "logits")
+        )
+        model.withHandle { modelHandle ->
+            withHandle<Unit> { runtimeHandle ->
+                checkStatus(
+                    NativeRuntimeBindings.nativeInferStep(
+                        runtimeHandle,
+                        modelHandle,
+                        inputIds,
+                        logits,
+                    ),
+                    "runtime inference step",
+                )
+            }
+        }
+        return logits
+    }
+
+    fun prefill(model: NativeActivatedModel, inputIds: IntArray): FloatArray {
+        require(inputIds.isNotEmpty()) { "prefill input must not be empty" }
+        require(inputIds.all { it >= 0 }) { "token IDs must be non-negative" }
+        val runtimeInfo = info()
+        val batch = runtimeInfo.config.batch
+        require(inputIds.size % batch == 0) { "prefill token layout must be [steps, batch]" }
+        require(model.info.layers == runtimeInfo.config.layers &&
+            model.info.dModel == runtimeInfo.config.dModel &&
+            model.info.dState == runtimeInfo.config.dState) {
+            "activated model geometry does not match runtime session"
+        }
+        val stepCount = inputIds.size / batch
+        val logits = FloatArray(checkedMultiplyArrayCount(batch, model.info.vocabSize, "logits"))
+        model.withHandle { modelHandle ->
+            withHandle<Unit> { runtimeHandle ->
+                checkStatus(
+                    NativeRuntimeBindings.nativePrefill(
+                        runtimeHandle,
+                        modelHandle,
+                        inputIds,
+                        stepCount,
+                        logits,
+                    ),
+                    "runtime prefill",
+                )
+            }
+        }
+        return logits
+    }
+
+    fun generateGreedy(
+        model: NativeActivatedModel,
+        promptIds: IntArray,
+        maxNewTokens: Int,
+        eosToken: Int = 2,
+    ): IntArray {
+        require(maxNewTokens >= 0) { "maxNewTokens must be non-negative" }
+        require(promptIds.isNotEmpty()) { "generation prompt must not be empty" }
+        require(promptIds.all { it >= 0 }) { "token IDs must be non-negative" }
+        require(eosToken >= -1) { "eosToken must be -1 or non-negative" }
+        val runtimeInfo = info()
+        require(runtimeInfo.config.batch == 1) { "native greedy generation currently requires batch=1" }
+        require(model.info.layers == runtimeInfo.config.layers &&
+            model.info.dModel == runtimeInfo.config.dModel &&
+            model.info.dState == runtimeInfo.config.dState) {
+            "activated model geometry does not match runtime session"
+        }
+        val output = IntArray(maxNewTokens)
+        val count = IntArray(1)
+        model.withHandle { modelHandle ->
+            withHandle<Unit> { runtimeHandle ->
+                checkStatus(
+                    NativeRuntimeBindings.nativeGenerateGreedy(
+                        runtimeHandle,
+                        modelHandle,
+                        promptIds,
+                        maxNewTokens,
+                        eosToken,
+                        output,
+                        count,
+                    ),
+                    "runtime greedy generation",
+                )
+            }
+        }
+        check(count[0] in 0..output.size) { "native generation returned invalid token count" }
+        return output.copyOf(count[0])
+    }
+
     fun readState(): FloatArray = withHandle { h ->
         val count = checkedArrayCount(infoForHandle(h).stateCount, "stateCount")
         FloatArray(count).also { state ->
@@ -242,9 +418,16 @@ private fun backendFromCode(code: Int): NativeBackend =
     NativeBackend.entries.firstOrNull { it.code == code }
         ?: throw IllegalStateException("unknown native backend: $code")
 
-private fun checkedArrayCount(value: Long, label: String): Int {
+internal fun checkedArrayCount(value: Long, label: String): Int {
     require(value in 0..Int.MAX_VALUE.toLong()) { "$label does not fit a JVM array" }
     return value.toInt()
+}
+
+private fun checkedMultiplyArrayCount(a: Int, b: Int, label: String): Int {
+    require(a >= 0 && b >= 0 && (a == 0 || b <= Int.MAX_VALUE / a)) {
+        "$label does not fit a JVM array"
+    }
+    return a * b
 }
 
 private fun checkStatus(code: Int, operation: String) {
