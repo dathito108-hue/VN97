@@ -32,6 +32,10 @@ data class AvatarCommand(
     val mode: AssistantMode,
     val gesture: AvatarGesture = AvatarGesture.NONE,
     val speakingLevel: Float = 0f,
+    val listeningLevel: Float = 0f,
+    val jawOpen: Float = 0f,
+    val mouthWide: Float = 0f,
+    val lipRound: Float = 0f,
     val blink: Float = 0f,
     val gazeX: Float = 0f,
     val gazeY: Float = 0f,
@@ -41,6 +45,10 @@ data class AvatarCommand(
         require(sourceSequence >= 0) { "sourceSequence must be non-negative" }
         listOf(
             speakingLevel to "speakingLevel",
+            listeningLevel to "listeningLevel",
+            jawOpen to "jawOpen",
+            mouthWide to "mouthWide",
+            lipRound to "lipRound",
             blink to "blink",
             energy to "energy",
         ).forEach { (value, label) ->
@@ -59,6 +67,10 @@ data class AvatarFrameState(
     val mode: AssistantMode,
     val gesture: AvatarGesture,
     val speakingLevel: Float,
+    val listeningLevel: Float,
+    val jawOpen: Float,
+    val mouthWide: Float,
+    val lipRound: Float,
     val blink: Float,
     val gazeX: Float,
     val gazeY: Float,
@@ -70,6 +82,10 @@ data class AvatarFrameState(
             mode = AssistantMode.IDLE,
             gesture = AvatarGesture.NONE,
             speakingLevel = 0f,
+            listeningLevel = 0f,
+            jawOpen = 0f,
+            mouthWide = 0f,
+            lipRound = 0f,
             blink = 0f,
             gazeX = 0f,
             gazeY = 0f,
@@ -94,6 +110,10 @@ class AvatarStateBridge(initial: AvatarFrameState = AvatarFrameState.initial()) 
             mode = command.mode,
             gesture = command.gesture,
             speakingLevel = command.speakingLevel,
+            listeningLevel = command.listeningLevel,
+            jawOpen = command.jawOpen,
+            mouthWide = command.mouthWide,
+            lipRound = command.lipRound,
             blink = command.blink,
             gazeX = command.gazeX,
             gazeY = command.gazeY,
@@ -106,6 +126,10 @@ class AvatarStateBridge(initial: AvatarFrameState = AvatarFrameState.initial()) 
 
 data class AvatarRenderState(
     val speakingLevel: Float,
+    val listeningLevel: Float,
+    val jawOpen: Float,
+    val mouthWide: Float,
+    val lipRound: Float,
     val blink: Float,
     val gazeX: Float,
     val gazeY: Float,
@@ -120,7 +144,7 @@ class AvatarMotionFilter(
     }
 
     private var initialized = false
-    private var value = AvatarRenderState(0f, 0f, 0f, 0f, 0.5f)
+    private var value = AvatarRenderState(0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0.5f)
 
     fun reset(target: AvatarFrameState): AvatarRenderState {
         value = target.toRenderState()
@@ -136,6 +160,10 @@ class AvatarMotionFilter(
         val targetState = target.toRenderState()
         value = AvatarRenderState(
             speakingLevel = mix(value.speakingLevel, targetState.speakingLevel, alpha),
+            listeningLevel = mix(value.listeningLevel, targetState.listeningLevel, alpha),
+            jawOpen = mix(value.jawOpen, targetState.jawOpen, alpha),
+            mouthWide = mix(value.mouthWide, targetState.mouthWide, alpha),
+            lipRound = mix(value.lipRound, targetState.lipRound, alpha),
             blink = mix(value.blink, targetState.blink, alpha),
             gazeX = mix(value.gazeX, targetState.gazeX, alpha),
             gazeY = mix(value.gazeY, targetState.gazeY, alpha),
@@ -146,6 +174,10 @@ class AvatarMotionFilter(
 
     private fun AvatarFrameState.toRenderState() = AvatarRenderState(
         speakingLevel = speakingLevel,
+        listeningLevel = listeningLevel,
+        jawOpen = jawOpen,
+        mouthWide = mouthWide,
+        lipRound = lipRound,
         blink = blink,
         gazeX = gazeX,
         gazeY = gazeY,

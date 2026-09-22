@@ -18,3 +18,13 @@ KOTLINC="${KOTLINC:-kotlinc}"
     -d "$WORK/m8a-avatar-state.jar"
 
 java -jar "$WORK/m8a-avatar-state.jar"
+
+"$KOTLINC" \
+    "$ROOT/android/avatar/src/main/java/ai/vn97/avatar/AvatarState.kt" \
+    "$ROOT/android/avatar/src/main/java/ai/vn97/avatar/SpeechSync.kt" \
+    "$HERE/M8BSpeechSyncTest.kt" \
+    -Werror \
+    -include-runtime \
+    -d "$WORK/m8b-speech-sync.jar"
+
+java -jar "$WORK/m8b-speech-sync.jar"
