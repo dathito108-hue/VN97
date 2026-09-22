@@ -10,7 +10,9 @@ KOTLINC="${KOTLINC:-kotlinc}"
 
 "$KOTLINC" \
     "$ROOT/android/platform/src/main/java/ai/vn97/platform/M6Approval.kt" \
+    "$ROOT/android/platform/src/main/java/ai/vn97/platform/ComputePolicy.kt" \
     "$HERE/ApprovalCompatibility.kt" \
+    "$HERE/ComputePolicy.kt" \
     -Werror \
     -include-runtime \
     -d "$WORK/m7b2-approval-test.jar"
