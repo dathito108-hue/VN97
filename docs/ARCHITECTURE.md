@@ -183,6 +183,26 @@ not the definition of AGI by itself.
 90. M7 native lifecycle/checkpoint code does not bypass M6. External side effects remain reachable
     only through the completed M6 capability/authority/approval/audit path.
 
+91. Android managed code receives only an opaque signed-Long representation of the M7A handle;
+    JNI rejects native handles that cannot be represented without sign wrap.
+92. JNI validates required array lengths and signed numeric inputs before crossing into the M7A
+    C ABI; native RuntimeStatus values remain the canonical lifecycle/checkpoint failure contract.
+93. Kotlin serializes session-handle use against close, while native in-flight calls independently
+    retain session lifetime through the M7A shared handle registry.
+94. The M7B1 Android runtime library declares no permissions and does not implement network,
+    app-launch, clipboard or other M6 side-effect capabilities.
+95. Runtime checkpoint persistence is scoped to a trusted app-internal root, rejects symlink
+    root/target paths, enforces a byte bound, fsyncs temporary data, requires same-filesystem
+    atomic replace and fsyncs the parent directory.
+96. NativeRuntimeOwner never silently discards a present checkpoint. Restore corruption fails
+    closed, and a successfully restored checkpoint must exactly match the requested runtime config.
+97. Android runtime persistence occurs only from the M7A SUSPENDED safe boundary; cold restore
+    returns SUSPENDED and requires an explicit resume.
+98. Android build/JNI integration links against the canonical vn97_runtime library rather than
+    copying or reimplementing recurrent-state semantics in Kotlin.
+99. M7B1 remains compute/lifecycle infrastructure. Android permissions, Keystore approval secrets
+    and AppDeviceAdapter side effects must remain behind the completed M6 authority contract.
+
 ## System layers
 
     Text tokenizer / audio frontend / vision frontend
@@ -294,11 +314,15 @@ M7A adds the platform-neutral native runtime session ABI: opaque JNI-safe handle
 CREATED/ACTIVE/SUSPENDED lifecycle, bounded recurrent state, backend-profile resolution and
 VN97RUN1 safe checkpoint/restore. Restored sessions remain SUSPENDED.
 
-M7B will add Android JNI wrappers, concrete AppDeviceAdapter, platform permission broker and
-Keystore-backed M6 approval-secret integration without changing the M6 trust contract.
+M7B1 adds the permission-free Android/Kotlin ↔ JNI wrapper around M7A, typed runtime ownership and
+bounded atomic VN97RUN1 checkpoint persistence. Host regression exercises create/state/lifecycle/
+checkpoint/restore without requiring an emulator.
 
-M7C will add lifecycle-aware checkpoint persistence, background continuation within Android OS
-limits, hardware scheduling and battery/thermal governance.
+M7B2 will add the concrete Android AppDeviceAdapter, platform permission broker and
+Keystore-backed M6 approval-secret provider without changing the M6 trust contract.
+
+M7C will add OS-lifecycle-aware continuation, background scheduling within Android limits,
+hardware scheduling and battery/thermal governance.
 
 ### M8 - Interactive 3D assistant
 Low-latency avatar shell, speech/vision hooks and continuity with the sovereign cognition state.
