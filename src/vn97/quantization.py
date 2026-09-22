@@ -1,23 +1,43 @@
 from __future__ import annotations
 
 import math
+from typing import TYPE_CHECKING
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+if TYPE_CHECKING:
+    from .packing import PackedTernaryMatrix
+
+
+def ternary_symbols_and_scales(
+    weight: torch.Tensor,
+    threshold: float = 0.5,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Return int8 {-1, 0, +1} symbols and one positive scale per output row."""
+    if weight.ndim != 2:
+        raise ValueError(
+            "ternary linear weights must be rank-2 [out_features, in_features]"
+        )
+    if not 0.0 <= threshold <= 1.0:
+        raise ValueError("threshold must be in [0, 1]")
+
+    scales = weight.abs().mean(dim=1).clamp_min(1e-8)
+    normalized = weight / scales.unsqueeze(1)
+    symbols = torch.where(
+        normalized.abs() >= threshold,
+        normalized.sign(),
+        torch.zeros_like(normalized),
+    ).to(torch.int8)
+    return symbols, scales
+
 
 class _PerChannelTernarySTE(torch.autograd.Function):
     @staticmethod
     def forward(ctx, weight: torch.Tensor, threshold: float) -> torch.Tensor:
-        scale = weight.abs().mean(dim=1, keepdim=True).clamp_min(1e-8)
-        normalized = weight / scale
-        ternary = torch.where(
-            normalized.abs() >= threshold,
-            normalized.sign(),
-            torch.zeros_like(normalized),
-        )
-        return ternary * scale
+        symbols, scales = ternary_symbols_and_scales(weight, float(threshold))
+        return symbols.to(dtype=weight.dtype) * scales.unsqueeze(1)
 
     @staticmethod
     def backward(ctx, grad_output: torch.Tensor):
@@ -27,15 +47,11 @@ class _PerChannelTernarySTE(torch.autograd.Function):
 def quantize_ternary_per_channel(
     weight: torch.Tensor, threshold: float = 0.5
 ) -> torch.Tensor:
-    if weight.ndim != 2:
-        raise ValueError(
-            "ternary linear weights must be rank-2 [out_features, in_features]"
-        )
     return _PerChannelTernarySTE.apply(weight, float(threshold))
 
 
 class TernaryLinear(nn.Module):
-    """Numerical reference for a future packed ternary native linear layer."""
+    """Training/reference linear layer whose deployment representation is packed ternary."""
 
     def __init__(
         self,
@@ -65,6 +81,21 @@ class TernaryLinear(nn.Module):
 
     def quantized_weight(self) -> torch.Tensor:
         return quantize_ternary_per_channel(self.weight, self.threshold)
+
+    def export_packed(
+        self,
+        *,
+        tile_rows: int = 16,
+        tile_cols: int = 16,
+    ) -> "PackedTernaryMatrix":
+        from .packing import pack_ternary_weight
+
+        return pack_ternary_weight(
+            self.weight.detach(),
+            threshold=self.threshold,
+            tile_rows=tile_rows,
+            tile_cols=tile_cols,
+        )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return F.linear(x, self.quantized_weight(), self.bias)
