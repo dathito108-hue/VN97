@@ -22,6 +22,9 @@ set(VN97_MEMORY_SOURCES
     src/memory_index.cpp
     src/memory_store.cpp
 )
+set(VN97_RUNTIME_SOURCES
+    src/runtime.cpp
+)
 
 set(VN97_ARM64 FALSE)
 string(TOLOWER "${CMAKE_SYSTEM_PROCESSOR}" VN97_SYSTEM_PROCESSOR_LOWER)
@@ -66,6 +69,11 @@ add_library(vn97_memory STATIC ${VN97_MEMORY_SOURCES})
 target_include_directories(vn97_memory PUBLIC include)
 target_compile_features(vn97_memory PUBLIC cxx_std_17)
 
+add_library(vn97_runtime STATIC ${VN97_RUNTIME_SOURCES})
+target_include_directories(vn97_runtime PUBLIC include)
+target_compile_features(vn97_runtime PUBLIC cxx_std_17)
+target_link_libraries(vn97_runtime PUBLIC vn97_recurrent vn97_packed_ternary)
+
 if(VN97_ARM64)
     target_compile_definitions(vn97_packed_ternary PRIVATE VN97_HAS_ARM64_NEON=1)
     target_compile_definitions(vn97_recurrent PRIVATE VN97_HAS_ARM64_NEON=1)
@@ -103,6 +111,10 @@ if(VN97_BUILD_TESTS)
     add_executable(vn97_memory_store_test tests/memory_store_test.cpp)
     target_link_libraries(vn97_memory_store_test PRIVATE vn97_memory)
     add_test(NAME vn97_memory_store_test COMMAND vn97_memory_store_test)
+
+    add_executable(vn97_runtime_test tests/runtime_test.cpp)
+    target_link_libraries(vn97_runtime_test PRIVATE vn97_runtime)
+    add_test(NAME vn97_runtime_test COMMAND vn97_runtime_test)
 
     add_library(vn97_recurrent_test_bridge SHARED ${VN97_RECURRENT_SOURCES})
     target_include_directories(vn97_recurrent_test_bridge PRIVATE include)

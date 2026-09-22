@@ -163,6 +163,26 @@ not the definition of AGI by itself.
 80. Android approval UI and Keystore-backed secret storage must preserve the M6C exact-request
     binding and remain outside cognition/model execution.
 
+81. Android/JNI integration uses opaque runtime handles rather than model-owned raw pointers;
+    stale handles fail closed and in-flight operations retain session lifetime independently.
+82. A native runtime session owns an exact finite recurrent-state shape across layers, batch,
+    d_model and d_state; allocation arithmetic is overflow checked and bounded for mobile use.
+83. Runtime lifecycle is explicit: CREATED may activate, ACTIVE may suspend, and SUSPENDED may
+    resume. Checkpoint creation is valid only at a SUSPENDED safe boundary.
+84. Host recurrent-state replacement is prohibited while ACTIVE and requires exact element count
+    plus finite float values.
+85. Runtime sequence position is monotonic and overflow checked; restore preserves the exact
+    checkpointed position.
+86. VN97RUN1 is a versioned exact-length little-endian runtime checkpoint with header/payload
+    CRC32 integrity, exact state count and requested backend profile.
+87. Runtime checkpoint CRC32 is corruption detection only; it is not an author signature,
+    capability grant, approval token or substitute for the M6 authority boundary.
+88. Restore re-resolves requested recurrent and packed-ternary backends on the current device.
+    An explicit unavailable backend fails closed; AUTO may resolve to the local supported backend.
+89. Restored runtime sessions always enter SUSPENDED and never resume computation implicitly.
+90. M7 native lifecycle/checkpoint code does not bypass M6. External side effects remain reachable
+    only through the completed M6 capability/authority/approval/audit path.
+
 ## System layers
 
     Text tokenizer / audio frontend / vision frontend
@@ -269,9 +289,16 @@ final action request is rebuilt from the active WAITING_EXTERNAL planner step, t
 through bounded one-shot exact-digest approval sessions. Cognition cannot mint policy grants,
 approval tokens or leases. Android presentation/Keystore integration remains M7 work.
 
-### M7 - Android native runtime
-JNI/NDK runtime, hardware-aware scheduling, checkpoint/recovery, background continuation and
-battery/thermal governance.
+### M7 - Android native runtime - in progress
+M7A adds the platform-neutral native runtime session ABI: opaque JNI-safe handles, explicit
+CREATED/ACTIVE/SUSPENDED lifecycle, bounded recurrent state, backend-profile resolution and
+VN97RUN1 safe checkpoint/restore. Restored sessions remain SUSPENDED.
+
+M7B will add Android JNI wrappers, concrete AppDeviceAdapter, platform permission broker and
+Keystore-backed M6 approval-secret integration without changing the M6 trust contract.
+
+M7C will add lifecycle-aware checkpoint persistence, background continuation within Android OS
+limits, hardware scheduling and battery/thermal governance.
 
 ### M8 - Interactive 3D assistant
 Low-latency avatar shell, speech/vision hooks and continuity with the sovereign cognition state.
