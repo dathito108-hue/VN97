@@ -271,6 +271,35 @@ The `:platform` manifest requests no permission by itself. A host may configure 
 permission requirements, but M6 policy + explicit approval + lease remain mandatory before a
 side-effect handler is invoked.
 
+## M7F hardware-aware tiled ternary execution
+
+M7F makes the Code-2 hardware-aware upgrade part of the production Code-1 language path rather
+than a parallel model implementation. VN97T2 already stores ternary weights in tile-major order;
+M7F changes the native executor to consume that layout by **tile row**.
+
+For each physical weight tile, one contiguous input tile is reused across all valid output rows in
+that tile before execution advances. This removes the old per-element `SymbolIndex` work from the
+scalar hot loop and improves locality for the default 16×16 layout. ARM64 keeps the same traversal
+but applies the existing 16-wide NEON ternary dot product whenever packed symbols are byte aligned,
+with an exact scalar tail for partial tiles.
+
+`PackedTernaryExecutionPlan` exposes the resolved backend, physical row/column blocks, effective
+SIMD width, fixed accumulator size, tile count and estimated per-tile working set. The plan is
+geometry-only: it never changes model equations or learned values.
+
+The format-v1 tile bound is now enforced natively at 256×256, matching the Python VN97T2 packer.
+The executor uses a fixed 256-float stack accumulator (maximum 1 KiB), performs no heap allocation,
+and preserves per-output-channel scale and optional bias semantics.
+
+Existing callers do not need a new model path. `PackedTernaryMatVecF32WithBackend()` now plans and
+executes the tiled kernel internally, so M7D language inference automatically receives this Code-2
+upgrade for every VN97T2 in/dt/B/C/out projection.
+
+M7F deliberately does **not** claim a generic Android NPU backend. Android phones expose different
+vendor accelerators and not one portable raw-kernel NPU ISA. A future vendor/NPU adapter may consume
+the same VN97T2 geometry and execution-plan contract, but it must preserve identical VN97 math and
+fall back to verified scalar/ARM64 NEON execution.
+
 ## M7D native language inference execution
 
 M7D closes the gap between the native recurrent/checkpoint runtime and the canonical Python
@@ -527,6 +556,7 @@ See:
 - docs/RUNTIME_M7B1.md
 - docs/RUNTIME_M7B2.md
 - docs/NATIVE_LANGUAGE_M7D.md
+- docs/HARDWARE_TILING_M7F.md
 - docs/NATIVE_SELECTIVE_M2C.md
 
 ## Local verification
