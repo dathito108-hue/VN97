@@ -226,6 +226,15 @@ int main() {
             &view) ==
         vn97::PackedTernaryStatus::kInvalidGeometry);
 
+    auto extra_padding = blob;
+    SetU32(extra_padding, 28, 4u);
+    assert(
+        vn97::ParsePackedTernary(
+            extra_padding.data(),
+            extra_padding.size(),
+            &view) ==
+        vn97::PackedTernaryStatus::kInvalidGeometry);
+
     const float input[4] =
         {1.0f, 2.0f, 3.0f, 4.0f};
     float scalar_output[2] = {};
@@ -295,6 +304,16 @@ int main() {
     assert(wide_plan.accumulator_floats == 2u);
     assert(wide_plan.tile_count == 1u);
     assert(wide_plan.vector_width == 1u);
+
+    auto short_view = wide_view;
+    --short_view.packed_data_size;
+    vn97::PackedTernaryExecutionPlan rejected_plan;
+    assert(
+        vn97::PlanPackedTernaryMatVecF32(
+            short_view,
+            vn97::PackedTernaryBackend::kScalar,
+            &rejected_plan) ==
+        vn97::PackedTernaryStatus::kInvalidLength);
 
     auto mismatched_plan = wide_plan;
     ++mismatched_plan.rows;
