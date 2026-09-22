@@ -289,6 +289,34 @@ asks JobScheduler to reschedule.
 The continuation service itself owns no M6 capability authority. App/device/network/file side
 effects still require M6C exact intent/approval and M6A policy/lease/audit.
 
+## M8A interactive 3D avatar foundation
+
+M8A adds a permission-free Android `:avatar` module built directly on OpenGL ES 3.0. It has no
+Unity/Filament/third-party renderer dependency and no capability/tool access.
+
+The visual contract is typed and one-way:
+
+`VN97 cognition/runtime → AvatarCommand → AvatarStateBridge → AvatarRenderer`
+
+Commands carry a strictly increasing source sequence plus bounded mode/gesture/speaking/blink/
+gaze/energy values. Stale state and non-finite animation inputs fail closed. Rendering reads an
+immutable atomic snapshot and applies bounded temporal smoothing.
+
+The reference renderer is a procedural low-poly 3D shell with head/body/eyes/mouth/arms,
+mode-specific visual accents, speaking-mouth motion, blink/gaze motion and bounded gestures.
+It uses one compact cube mesh/VBO and model transforms instead of shipping external 3D assets.
+
+`VN97AvatarView` converts tap/long-press/drag into typed `AvatarInteraction` events only.
+Interactions are observations for the host; they are not M6 approvals, capability requests or
+device actions.
+
+Frame pacing is adaptive: sleeping 5 FPS, idle 15 FPS, thinking/error 30 FPS and active
+listening/speaking/approval/execution 60 FPS. This keeps active interaction responsive without
+forcing permanent 60 FPS rendering while idle.
+
+M8A also repairs the pre-existing Android settings file that contained a literal `\n` between
+module includes, then registers `:runtime`, `:platform` and `:avatar` as separate modules.
+
 ## Native execution libraries
 
 - libvn97_packed_ternary.a
@@ -334,3 +362,10 @@ Production-only native build:
 Android M6 approval compatibility regression:
 
     android/platform/host-test/run.sh
+
+Avatar integration:
+
+- android/avatar — OpenGL ES 3.0 avatar shell, typed state bridge and interactions
+- android/avatar/host-test — deterministic state/filter/frame-policy regression
+
+- docs/AVATAR_M8A.md

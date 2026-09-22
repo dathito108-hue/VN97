@@ -354,8 +354,16 @@ cancellable and do not gain side-effect authority.
 The remaining M7 work is deeper hardware-aware scheduling/telemetry tuning on real Android
 devices; the architecture contract for continuity is now fixed.
 
-### M8 - Interactive 3D assistant
-Low-latency avatar shell, speech/vision hooks and continuity with the sovereign cognition state.
+### M8 - Interactive 3D assistant - in progress
+M8A adds the permission-free OpenGL ES 3.0 avatar shell, monotonic typed visual-state bridge,
+bounded animation smoothing, adaptive frame pacing and typed tap/long-press/drag interactions.
+The renderer is presentation-only and cannot bypass M6 authority.
+
+M8B will connect speech/listening/speaking state, audio-level/viseme timing and cognition-status
+mapping to the avatar without coupling renderer code to the reasoning engine.
+
+M8C will add optional native asset/rig ingestion and richer gesture/face animation while keeping
+the M8A typed-state boundary stable.
 
 ### M9 - Capability acquisition
 Controlled import/adaptation pipeline that converts compatible learned capability into
@@ -380,4 +388,24 @@ VN97-native packages without silently mutating trusted runtime code.
 109. The continuation JobService is non-exported and protected by BIND_JOB_SERVICE.
 110. M7C background execution never bypasses M6; any external effect initiated by continued
     cognition must still pass the existing M6C/M6A authority path.
+
+111. The avatar renderer is presentation only. It receives typed visual state and has
+    no capability registry, approval authority, lease access or device-action adapter.
+112. AvatarCommand sourceSequence must increase monotonically; stale commands fail closed rather
+    than visually overwriting a newer cognition/runtime state.
+113. Avatar animation parameters are finite and bounded before reaching the renderer; render
+    interpolation never expands the trusted input domain.
+114. AvatarStateBridge publishes immutable atomic snapshots so the GL render thread never reads a
+    partially updated semantic state.
+115. Tap, long-press and drag are emitted as typed AvatarInteraction observations only; they are
+    not approvals, external action requests or implicit M6 authority.
+116. M8A uses a procedural OpenGL ES 3.0 shell with no third-party 3D engine dependency.
+117. Frame pacing is mode-aware and bounded from 5 to 60 FPS to reduce idle/sleeping GPU work
+    while preserving low-latency active interaction.
+118. Android avatar lifecycle explicitly starts/stops Choreographer scheduling with view/host
+    lifecycle and uses RENDERMODE_WHEN_DIRTY rather than unconditional continuous rendering.
+119. The avatar module manifest declares no permission and cannot independently access network,
+    files, apps, clipboard, microphone or camera.
+120. Future speech/vision/avatar features may feed typed state or interactions, but any external
+    side effect must still traverse the existing M6C/M6A authority path.
 
