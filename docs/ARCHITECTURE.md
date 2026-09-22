@@ -65,6 +65,19 @@ not the definition of AGI by itself.
     writers fail closed instead of racing record IDs or compaction.
 34. Native append extends the existing index only from the previously validated byte boundary;
     full rebuild is reserved for open/recovery/compaction boundaries.
+35. A reasoning plan has a stable SHA-256 identity over canonical goal, immutable step graph and
+    reasoning budget; creation time and runtime progress do not change plan identity.
+36. Reasoning is bounded by explicit transition, retry, memory-query and memory-hit budgets.
+37. Low-confidence or explicitly protected candidates enter WAITING_VERIFICATION before they can
+    satisfy dependent steps.
+38. M5 never performs external side effects. EXTERNAL plan steps stop at WAITING_EXTERNAL until
+    an authority/tool layer supplies a result.
+39. An interrupted RUNNING internal step is requeued before checkpointing; VN97PLN1 never treats
+    a partial in-flight computation as a durable result.
+40. VN97PLN1 stores canonical JSON with SHA-256 integrity, but its digest is not an authority
+    grant or cryptographic author signature.
+41. Retrieved memory evidence is referenced by stable VN97MEM1 record IDs and is independently
+    bounded by planner retrieval budgets.
 
 ## System layers
 
@@ -108,6 +121,8 @@ not the definition of AGI by itself.
   hidden conversation/process state;
 - memory corruption must fail closed except for explicit recovery of an incomplete final frame;
 - long-term exact recall belongs in explicit memory/retrieval;
+- deliberate reasoning must have finite transition/retry/retrieval budgets;
+- plan checkpoints must be written only at durable lifecycle boundaries;
 - external side effects must pass through an explicit authority boundary;
 - Android background continuity must respect OS scheduling and lifecycle limits.
 
@@ -135,9 +150,13 @@ M4B adds the native file-backed engine: exclusive writer locking, mmap record ac
 incremental suffix indexing without vector duplication, native SHA-256 append, exact retrieval,
 record views and atomic provenance-preserving compaction. VN97MEM1 remains unchanged.
 
-### M5 - Reasoning and planning controller
-Add deliberate reasoning, task decomposition, verification, interruption/resume and
-uncertainty-aware execution.
+### M5 - Reasoning and planning controller - in progress
+M5A adds a deterministic bounded plan state machine, dependency ordering, confidence-driven
+verification, bounded VN97MEM1 retrieval, interruption/resume semantics, an explicit
+WAITING_EXTERNAL boundary and atomic VN97PLN1 safe-point checkpoints.
+
+M5B will connect the state machine to a cognition backend contract for bounded proposal,
+reflection/verification and plan refinement without weakening M5A lifecycle invariants.
 
 ### M6 - Tool and authority fabric
 Internet, files, apps and device actions through typed capabilities, explicit permissions,
