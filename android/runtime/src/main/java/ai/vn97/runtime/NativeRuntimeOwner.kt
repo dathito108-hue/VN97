@@ -17,7 +17,7 @@ class NativeRuntimeOwner(
         try {
             val info = opened.info()
             if (checkpoint != null && info.config != config) {
-                throw IllegalStateException("VN97RUN1 checkpoint configuration does not match requested runtime")
+                throw IllegalStateException("VN97RUN checkpoint configuration does not match requested runtime")
             }
             session = opened
             return info
