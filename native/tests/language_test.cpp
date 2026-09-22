@@ -288,8 +288,90 @@ int main() {
             workspace.data(),
             workspace.size()) ==
         vn97::LanguageStatus::kOk);
-    for (float value : logits) {
-        assert(std::isfinite(value));
+
+    const auto factorized_state = state;
+    const auto factorized_logits = logits;
+
+    std::vector<float> effective(
+        TinyLanguageFixture::kVocab *
+            TinyLanguageFixture::kModel,
+        0.0f);
+    for (std::size_t token_index = 0;
+         token_index < TinyLanguageFixture::kVocab;
+         ++token_index) {
+        for (std::size_t m = 0;
+             m < TinyLanguageFixture::kModel;
+             ++m) {
+            float sum = 0.0f;
+            for (std::size_t r = 0;
+                 r < TinyLanguageFixture::kRank;
+                 ++r) {
+                sum +=
+                    factors[
+                        token_index *
+                            TinyLanguageFixture::kRank +
+                        r] *
+                    projection[
+                        r *
+                            TinyLanguageFixture::kModel +
+                        m];
+            }
+            effective[
+                token_index *
+                    TinyLanguageFixture::kModel +
+                m] = sum;
+        }
+    }
+
+    auto full_equivalent = fixture.model;
+    full_equivalent.embedding_kind =
+        vn97::LanguageEmbeddingKind::kFullF32;
+    full_equivalent.embedding_rank = 0;
+    full_equivalent.embedding = effective.data();
+    full_equivalent.token_factors = nullptr;
+    full_equivalent.projection = nullptr;
+
+    assert(
+        vn97::ValidateLanguageModel(
+            full_equivalent) ==
+        vn97::LanguageStatus::kOk);
+
+    std::vector<float> equivalent_state(
+        TinyLanguageFixture::kModel *
+            TinyLanguageFixture::kState,
+        0.0f);
+    std::vector<float> equivalent_logits(
+        TinyLanguageFixture::kVocab,
+        0.0f);
+    assert(
+        vn97::LanguageStepF32(
+            full_equivalent,
+            &factorized_token,
+            1,
+            equivalent_state.data(),
+            equivalent_logits.data(),
+            equivalent_logits.size(),
+            workspace.data(),
+            workspace.size()) ==
+        vn97::LanguageStatus::kOk);
+
+    for (std::size_t i = 0;
+         i < factorized_state.size();
+         ++i) {
+        assert(
+            std::fabs(
+                factorized_state[i] -
+                equivalent_state[i]) <
+            2e-5f);
+    }
+    for (std::size_t i = 0;
+         i < factorized_logits.size();
+         ++i) {
+        assert(
+            std::fabs(
+                factorized_logits[i] -
+                equivalent_logits[i]) <
+            2e-5f);
     }
 
     fixture.model.model_id[0] = 0;
