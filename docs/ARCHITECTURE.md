@@ -108,6 +108,26 @@ not the definition of AGI by itself.
     retrieval-vector access does not create a second recurrent/model semantics.
 56. M5C reference execution is not a claim of Android-native full-model runtime; JNI/C++ model
     assembly and hardware scheduling remain M7 responsibilities.
+57. An M6 external request is bound to immutable plan ID, step ID and objective plus an exact
+    typed capability, canonical scope and canonical payload; changing any bound field changes the
+    request digest.
+58. The capability registry is sealed before external execution. Unknown, duplicate or
+    post-seal capability registration fails closed.
+59. Authority is deny-by-default. A policy grant matches only the exact principal, capability ID
+    and scope digest; there is no wildcard authority fallback.
+60. Approval, when required, is a time-bounded HMAC-SHA256 token bound to the exact request
+    digest and principal. Cognition output is never itself an approval.
+61. Capability leases are issued only by the authority gate and are bounded by principal,
+    capability, exact scope, lifetime and use count; fabricated, expired or exhausted leases
+    fail closed.
+62. A side effect may run only after registry validation, policy authorization, required approval
+    verification and lease consumption. Cognition never receives the handler, policy table,
+    approval secret or lease mutation API.
+63. M6 writes an immutable success receipt before delivering an external result back to M5.
+    Replaying the exact successful request reuses the receipted result instead of invoking the
+    side effect twice.
+64. M6A receipt SHA-256 chaining provides integrity and idempotency, not an author signature.
+    Authorization authenticity is supplied by the trusted approval/policy boundary.
 
 ## System layers
 
@@ -198,9 +218,14 @@ final normalized hidden state. Strict VN97COG1 JSON schemas fail closed before t
 objects enter M5B. Model-quality reasoning still depends on trained/imported VN97-native
 weights; full Android C++ execution remains M7.
 
-### M6 - Tool and authority fabric
-Internet, files, apps and device actions through typed capabilities, explicit permissions,
-approvals and auditable receipts.
+### M6 - Tool and authority fabric - in progress
+M6A establishes the execution authority contract: sealed typed capability registry,
+deny-by-default exact-scope policy, request-bound HMAC approval, bounded capability leases,
+immutable hash-chained action receipts, crash-safe successful-result replay and the only
+authorized transition from M5 `WAITING_EXTERNAL` to side-effect execution.
+
+M6B will add concrete production capability implementations (internet/files/apps/device actions)
+on top of the M6A boundary without granting cognition a bypass path.
 
 ### M7 - Android native runtime
 JNI/NDK runtime, hardware-aware scheduling, checkpoint/recovery, background continuation and

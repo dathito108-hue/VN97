@@ -17,7 +17,8 @@ multimodal frontends and explicit sovereign memory.
 - M4B: mmap native memory store + incremental zero-copy index + native append/retrieve/compact;
 - M5A: bounded reasoning/planning state machine + VN97PLN1 safe checkpoints;
 - M5B: typed cognition backend loop + bounded retrieval/verification/refinement orchestration;
-- M5C: VN97-owned tokenizer/model cognition adapter + strict structured inference contract.
+- M5C: VN97-owned tokenizer/model cognition adapter + strict structured inference contract;
+- M6A: typed capability registry + deny-by-default authority/approval/lease/audit fabric.
 
 ## M3 multimodal contract
 
@@ -103,6 +104,35 @@ M5 is now complete at the cognition-adapter contract. This does not claim traine
 reasoning quality: capability depends on trained/imported VN97-native weights. Full C++ Android
 model execution remains an M7 runtime concern; external side effects still remain behind M6.
 
+## M6A tool + authority fabric
+
+M6A connects the existing M5 `WAITING_EXTERNAL` boundary to a sealed typed capability registry
+without giving cognition direct tool authority.
+
+An `ExternalActionRequest` binds the immutable plan/step objective to an exact capability,
+canonical scope and canonical JSON payload. Unknown capabilities fail closed. Explicit
+`PolicyGrant` values match the exact principal + capability + scope digest; there is no wildcard
+fallback.
+
+Capabilities that require approval use HMAC-SHA256 `ApprovalToken` values bound to the exact
+request digest and validity window. The authority gate issues process-local capability leases
+bounded by scope, lifetime and use count. A lease not issued by the active gate, or one that is
+expired/exhausted/mismatched, is rejected.
+
+`ExternalExecutionFabric` is the only M6A path from `WAITING_EXTERNAL` to a registered handler.
+It verifies the planner step, registry schema, policy, approval and lease before invoking the
+side effect. Denial leaves the planner waiting; handler failure is auditable and fails closed.
+
+Every authorization decision produces an immutable `ActionReceipt`. Optional local persistence
+uses append-only, fsynced canonical JSONL with a SHA-256 receipt hash chain. A successful receipt
+is written before the planner receives the result; replay of the exact request digest therefore
+returns the receipted result without executing the side effect twice after a crash/restart.
+
+The receipt hash chain is an integrity/idempotency mechanism, not an author signature. Approval
+authenticity comes from the trusted HMAC secret and policy boundary. M6A adds no third-party AI
+or service dependency. Production internet/file/app/device capability implementations remain
+later M6 work.
+
 ## Native execution libraries
 
 - libvn97_packed_ternary.a
@@ -122,6 +152,7 @@ See:
 - docs/PLANNER_M5A.md
 - docs/COGNITION_M5B.md
 - docs/COGNITION_ADAPTER_M5C.md
+- docs/AUTHORITY_M6A.md
 - docs/NATIVE_SELECTIVE_M2C.md
 
 ## Local verification
