@@ -22,16 +22,42 @@ bool MulOverflows(std::size_t a, std::size_t b) {
 }
 
 bool ValidViewGeometry(const PackedTernaryView& matrix) {
-    return matrix.rows != 0 &&
-           matrix.cols != 0 &&
-           matrix.tile_rows != 0 &&
-           matrix.tile_cols != 0 &&
-           matrix.tile_rows <= kMaxTileDimension &&
-           matrix.tile_cols <= kMaxTileDimension &&
-           matrix.padded_rows >= matrix.rows &&
-           matrix.padded_cols >= matrix.cols &&
-           matrix.padded_rows % matrix.tile_rows == 0 &&
-           matrix.padded_cols % matrix.tile_cols == 0;
+    if (matrix.rows == 0 ||
+        matrix.cols == 0 ||
+        matrix.tile_rows == 0 ||
+        matrix.tile_cols == 0 ||
+        matrix.tile_rows > kMaxTileDimension ||
+        matrix.tile_cols > kMaxTileDimension) {
+        return false;
+    }
+
+    const std::uint64_t padded_rows =
+        ((static_cast<std::uint64_t>(matrix.rows) +
+          matrix.tile_rows - 1u) /
+         matrix.tile_rows) *
+        matrix.tile_rows;
+    const std::uint64_t padded_cols =
+        ((static_cast<std::uint64_t>(matrix.cols) +
+          matrix.tile_cols - 1u) /
+         matrix.tile_cols) *
+        matrix.tile_cols;
+
+    return padded_rows <= std::numeric_limits<std::uint32_t>::max() &&
+           padded_cols <= std::numeric_limits<std::uint32_t>::max() &&
+           matrix.padded_rows == padded_rows &&
+           matrix.padded_cols == padded_cols;
+}
+
+bool PackedSizeMatches(const PackedTernaryView& matrix) {
+    if (MulOverflows(matrix.padded_rows, matrix.padded_cols)) {
+        return false;
+    }
+    const std::size_t symbols =
+        static_cast<std::size_t>(matrix.padded_rows) *
+        matrix.padded_cols;
+    const std::size_t expected =
+        symbols / 4u + (symbols % 4u == 0u ? 0u : 1u);
+    return matrix.packed_data_size == expected;
 }
 
 }  // namespace
@@ -156,6 +182,9 @@ PackedTernaryStatus PlanPackedTernaryMatVecF32(
     }
     if (!ValidViewGeometry(matrix)) {
         return PackedTernaryStatus::kInvalidGeometry;
+    }
+    if (!PackedSizeMatches(matrix)) {
+        return PackedTernaryStatus::kInvalidLength;
     }
 
     const PackedTernaryBackend backend =
@@ -325,6 +354,9 @@ PackedTernaryStatus PackedTernaryMatVecF32WithPlan(
     if (!ValidViewGeometry(matrix)) {
         return PackedTernaryStatus::kInvalidGeometry;
     }
+    if (!PackedSizeMatches(matrix)) {
+        return PackedTernaryStatus::kInvalidLength;
+    }
     if (plan.rows != matrix.rows ||
         plan.cols != matrix.cols ||
         plan.row_block !=
@@ -333,6 +365,7 @@ PackedTernaryStatus PackedTernaryMatVecF32WithPlan(
         plan.accumulator_floats != plan.row_block ||
         plan.accumulator_floats == 0 ||
         plan.accumulator_floats > kMaxAccumulatorFloats ||
+        plan.backend == PackedTernaryBackend::kAuto ||
         !PackedTernaryBackendAvailable(plan.backend)) {
         return PackedTernaryStatus::kPlanMismatch;
     }
