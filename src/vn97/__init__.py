@@ -1,12 +1,6 @@
 from .config import VN97Config
-from .embedding import (
-    FactorizedEmbedding,
-    FactorizedLMHead,
-)
-from .model import (
-    VN97LanguageCore,
-    VN97States,
-)
+from .embedding import FactorizedEmbedding, FactorizedLMHead
+from .model import VN97LanguageCore, VN97States
 from .packing import (
     PackedTernaryMatrix,
     pack_ternary_symbols,
@@ -22,11 +16,7 @@ from .scan import (
     affine_prefix_scan,
     affine_scan_rounds,
 )
-from .ssm import (
-    RMSNorm,
-    SelectiveSSM,
-    VN97Block,
-)
+from .ssm import RMSNorm, SelectiveSSM, VN97Block
 from .tokenizer import (
     BYTE_BASE,
     BYTE_COUNT,
