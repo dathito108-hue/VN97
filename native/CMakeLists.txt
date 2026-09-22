@@ -25,6 +25,9 @@ set(VN97_MEMORY_SOURCES
 set(VN97_RUNTIME_SOURCES
     src/runtime.cpp
 )
+set(VN97_AVATAR_ASSET_SOURCES
+    src/avatar_asset.cpp
+)
 
 set(VN97_ARM64 FALSE)
 string(TOLOWER "${CMAKE_SYSTEM_PROCESSOR}" VN97_SYSTEM_PROCESSOR_LOWER)
@@ -74,6 +77,10 @@ target_include_directories(vn97_runtime PUBLIC include)
 target_compile_features(vn97_runtime PUBLIC cxx_std_17)
 target_link_libraries(vn97_runtime PUBLIC vn97_recurrent vn97_packed_ternary)
 
+add_library(vn97_avatar_asset STATIC ${VN97_AVATAR_ASSET_SOURCES})
+target_include_directories(vn97_avatar_asset PUBLIC include)
+target_compile_features(vn97_avatar_asset PUBLIC cxx_std_17)
+
 if(VN97_ARM64)
     target_compile_definitions(vn97_packed_ternary PRIVATE VN97_HAS_ARM64_NEON=1)
     target_compile_definitions(vn97_recurrent PRIVATE VN97_HAS_ARM64_NEON=1)
@@ -115,6 +122,10 @@ if(VN97_BUILD_TESTS)
     add_executable(vn97_runtime_test tests/runtime_test.cpp)
     target_link_libraries(vn97_runtime_test PRIVATE vn97_runtime)
     add_test(NAME vn97_runtime_test COMMAND vn97_runtime_test)
+
+    add_executable(vn97_avatar_asset_test tests/avatar_asset_test.cpp)
+    target_link_libraries(vn97_avatar_asset_test PRIVATE vn97_avatar_asset)
+    add_test(NAME vn97_avatar_asset_test COMMAND vn97_avatar_asset_test)
 
     add_library(vn97_recurrent_test_bridge SHARED ${VN97_RECURRENT_SOURCES})
     target_include_directories(vn97_recurrent_test_bridge PRIVATE include)
