@@ -15,7 +15,8 @@ multimodal frontends and explicit sovereign memory.
 - M3B: audio/vision modality adapters + native preprocessing + dense embedding ingress;
 - M4A: VN97MEM1 sovereign memory journal + bounded working memory + deterministic retrieval;
 - M4B: mmap native memory store + incremental zero-copy index + native append/retrieve/compact;
-- M5A: bounded reasoning/planning state machine + VN97PLN1 safe checkpoints.
+- M5A: bounded reasoning/planning state machine + VN97PLN1 safe checkpoints;
+- M5B: typed cognition backend loop + bounded retrieval/verification/refinement orchestration.
 
 ## M3 multimodal contract
 
@@ -64,6 +65,25 @@ authority grant or author signature.
 
 M5A does not execute tools or device actions. M6 remains the authority/capability boundary.
 
+## M5B cognition loop contract
+
+CognitionLoop connects M5A to a typed CognitionBackend without giving the backend direct access
+to planner state mutation or external side effects. The backend may propose an immutable plan,
+a retrieval vector, an internal step result and a verification decision.
+
+The loop validates plan size, external-step count, UTF-8 context/result budgets, retrieval vector
+shape and response schema. VN97MEM1 evidence IDs are attached by the controller from actual
+retrieval results and propagated through dependencies; the cognition backend cannot invent them.
+
+Backend exceptions consume the existing bounded retry policy. Schema/shape/size violations fail
+closed. EXTERNAL steps still stop at WAITING_EXTERNAL before any backend/tool execution.
+
+Plan refinement is allowed only before execution begins. A refinement creates a new immutable
+plan/plan_id rather than mutating the existing graph.
+
+M5B is an orchestration contract. Production model-quality planning/verification still depends
+on a VN97 cognition adapter and trained/native model capability.
+
 ## Native execution libraries
 
 - libvn97_packed_ternary.a
@@ -81,6 +101,7 @@ See:
 - docs/MODALITY_ADAPTERS_M3B.md
 - docs/MEMORY_V1.md
 - docs/PLANNER_M5A.md
+- docs/COGNITION_M5B.md
 - docs/NATIVE_SELECTIVE_M2C.md
 
 ## Local verification

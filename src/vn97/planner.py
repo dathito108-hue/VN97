@@ -522,7 +522,11 @@ class PlanController:
         if not reason:
             raise ValueError("failure reason must not be empty")
         step = self.plan.step(step_id)
-        if step.status not in {StepStatus.RUNNING, StepStatus.WAITING_EXTERNAL}:
+        if step.status not in {
+            StepStatus.RUNNING,
+            StepStatus.WAITING_EXTERNAL,
+            StepStatus.WAITING_VERIFICATION,
+        }:
             raise PlannerError("step is not active")
         self._consume_transition()
         if retryable:
