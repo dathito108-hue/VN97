@@ -447,3 +447,28 @@ def test_retrieval_without_journal_fails_step_closed():
     result = CognitionLoop(backend).run_until_boundary(controller)
     assert result.boundary == LoopBoundary.FAILED
     assert "requires a memory journal" in controller.plan.step(1).failure_reason
+
+
+def test_invalid_verifier_schema_fails_plan_nonretryably():
+    backend = ScriptedBackend(
+        proposals=[StepProposal("candidate", 1.0)],
+        verifications=["not a decision"],
+    )
+    controller = PlanController.create(
+        "goal",
+        (
+            PlanStepSpec(
+                StepKind.RESPOND,
+                "answer",
+                requires_verification=True,
+            ),
+        ),
+        budget=ReasoningBudget(
+            max_transitions=20,
+            max_retries_per_step=10,
+        ),
+    )
+    result = CognitionLoop(backend).run_until_boundary(controller)
+    assert result.boundary == LoopBoundary.FAILED
+    assert controller.plan.step(1).attempts == 1
+    assert "must return VerificationDecision" in controller.plan.step(1).failure_reason
