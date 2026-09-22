@@ -6,6 +6,7 @@ import torch
 import torch.nn as nn
 
 from .config import VN97Config
+from .embedding import FactorizedEmbedding, FactorizedLMHead
 from .ssm import RMSNorm, VN97Block
 
 
@@ -18,9 +19,23 @@ class VN97LanguageCore(nn.Module):
     def __init__(self, config: VN97Config) -> None:
         super().__init__()
         self.config = config
-        self.embedding = nn.Embedding(
-            config.vocab_size, config.d_model
-        )
+        if config.embedding_rank is None:
+            self.embedding = nn.Embedding(
+                config.vocab_size, config.d_model
+            )
+            self.lm_head = nn.Linear(
+                config.d_model, config.vocab_size, bias=False
+            )
+            self.lm_head.weight = self.embedding.weight
+        else:
+            self.embedding = FactorizedEmbedding(
+                config.vocab_size,
+                config.d_model,
+                config.embedding_rank,
+            )
+            self.lm_head = FactorizedLMHead(
+                self.embedding
+            )
         self.layers = nn.ModuleList(
             [
                 VN97Block(
@@ -39,10 +54,6 @@ class VN97LanguageCore(nn.Module):
         self.final_norm = RMSNorm(
             config.d_model, eps=config.rms_eps
         )
-        self.lm_head = nn.Linear(
-            config.d_model, config.vocab_size, bias=False
-        )
-        self.lm_head.weight = self.embedding.weight
 
     def initial_states(
         self, batch_size: int, *, device, dtype

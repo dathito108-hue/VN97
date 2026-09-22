@@ -15,6 +15,7 @@ class VN97Config:
     min_decay: float = 0.01
     max_decay: float = 16.0
     rms_eps: float = 1e-5
+    embedding_rank: int | None = None
 
     def __post_init__(self) -> None:
         if self.vocab_size <= 1:
@@ -27,6 +28,8 @@ class VN97Config:
             raise ValueError("expected 0 < dt_min < dt_max")
         if not 0.0 < self.min_decay <= self.max_decay:
             raise ValueError("expected 0 < min_decay <= max_decay")
+        if self.embedding_rank is not None and not 0 < self.embedding_rank < self.d_model:
+            raise ValueError("embedding_rank must satisfy 0 < rank < d_model")
 
     def recurrent_state_elements(self, batch_size: int = 1) -> int:
         if batch_size <= 0:
@@ -37,3 +40,17 @@ class VN97Config:
         if bytes_per_value <= 0:
             raise ValueError("bytes_per_value must be positive")
         return self.recurrent_state_elements(batch_size) * bytes_per_value
+
+    def tied_embedding_parameters(self) -> int:
+        if self.embedding_rank is None:
+            return self.vocab_size * self.d_model
+        return (
+            self.vocab_size * self.embedding_rank
+            + self.embedding_rank * self.d_model
+        )
+
+    def full_tied_embedding_parameters(self) -> int:
+        return self.vocab_size * self.d_model
+
+    def embedding_compression_ratio(self) -> float:
+        return self.tied_embedding_parameters() / self.full_tied_embedding_parameters()

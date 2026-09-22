@@ -10,6 +10,9 @@ set(VN97_RECURRENT_SOURCES
 set(VN97_SELECTIVE_SOURCES
     src/selective.cpp
 )
+set(VN97_TOKENIZER_SOURCES
+    src/tokenizer.cpp
+)
 
 set(VN97_ARM64 FALSE)
 string(TOLOWER "${CMAKE_SYSTEM_PROCESSOR}" VN97_SYSTEM_PROCESSOR_LOWER)
@@ -42,6 +45,10 @@ target_include_directories(vn97_selective PUBLIC include)
 target_compile_features(vn97_selective PUBLIC cxx_std_17)
 target_link_libraries(vn97_selective PUBLIC vn97_recurrent)
 
+add_library(vn97_tokenizer STATIC ${VN97_TOKENIZER_SOURCES})
+target_include_directories(vn97_tokenizer PUBLIC include)
+target_compile_features(vn97_tokenizer PUBLIC cxx_std_17)
+
 if(VN97_ARM64)
     target_compile_definitions(vn97_packed_ternary PRIVATE VN97_HAS_ARM64_NEON=1)
     target_compile_definitions(vn97_recurrent PRIVATE VN97_HAS_ARM64_NEON=1)
@@ -64,6 +71,10 @@ if(VN97_BUILD_TESTS)
     target_link_libraries(vn97_selective_test PRIVATE vn97_selective)
     add_test(NAME vn97_selective_test COMMAND vn97_selective_test)
 
+    add_executable(vn97_tokenizer_test tests/tokenizer_test.cpp)
+    target_link_libraries(vn97_tokenizer_test PRIVATE vn97_tokenizer)
+    add_test(NAME vn97_tokenizer_test COMMAND vn97_tokenizer_test)
+
     add_library(vn97_recurrent_test_bridge SHARED ${VN97_RECURRENT_SOURCES})
     target_include_directories(vn97_recurrent_test_bridge PRIVATE include)
     target_compile_features(vn97_recurrent_test_bridge PRIVATE cxx_std_17)
@@ -84,6 +95,10 @@ if(VN97_BUILD_TESTS)
             vn97_selective_test_bridge PRIVATE VN97_HAS_ARM64_NEON=1)
     endif()
 
+    add_library(vn97_tokenizer_test_bridge SHARED ${VN97_TOKENIZER_SOURCES})
+    target_include_directories(vn97_tokenizer_test_bridge PRIVATE include)
+    target_compile_features(vn97_tokenizer_test_bridge PRIVATE cxx_std_17)
+
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
     add_test(
         NAME vn97_recurrent_python_equivalence
@@ -100,5 +115,13 @@ if(VN97_BUILD_TESTS)
                 ${Python3_EXECUTABLE}
                 ${CMAKE_CURRENT_SOURCE_DIR}/tests/selective_python_equivalence.py
                 $<TARGET_FILE:vn97_selective_test_bridge>
+    )
+    add_test(
+        NAME vn97_tokenizer_python_equivalence
+        COMMAND ${CMAKE_COMMAND} -E env
+                "PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}/../src"
+                ${Python3_EXECUTABLE}
+                ${CMAKE_CURRENT_SOURCE_DIR}/tests/tokenizer_python_equivalence.py
+                $<TARGET_FILE:vn97_tokenizer_test_bridge>
     )
 endif()
