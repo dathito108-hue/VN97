@@ -128,6 +128,23 @@ not the definition of AGI by itself.
     side effect twice.
 64. M6A receipt SHA-256 chaining provides integrity and idempotency, not an author signature.
     Authorization authenticity is supplied by the trusted approval/policy boundary.
+65. Concrete tool implementations register only as typed handlers behind the sealed M6A
+    registry; capability code does not gain a second authority path.
+66. File access is confined to trusted runtime-configured root IDs plus canonical relative POSIX
+    paths. Traversal, symlink components and non-regular targets fail closed.
+67. File creation never overwrites an existing target. Replacement requires the caller-bound
+    SHA-256 of the current bounded file and uses fsynced temporary data plus atomic publication.
+68. Web retrieval is HTTPS GET only on port 443. URL credentials, fragments, redirects and any
+    DNS result that is not globally routable are rejected before transport.
+69. HTTPS transport connects to a prevalidated resolved IP while TLS SNI/certificate validation
+    remains bound to the requested hostname, preventing DNS rebinding between validation and
+    connection.
+70. M6B web results are bounded strict text/JSON; arbitrary binary downloads are not accepted by
+    the base fetch capability.
+71. App launch and clipboard mutation are available only through an injected platform adapter;
+    M6B does not add shell-command, arbitrary intent or model-direct device execution.
+72. M6B capability descriptors require explicit M6A approval by default in addition to exact
+    policy grants and bounded leases.
 
 ## System layers
 
@@ -224,8 +241,14 @@ deny-by-default exact-scope policy, request-bound HMAC approval, bounded capabil
 immutable hash-chained action receipts, crash-safe successful-result replay and the only
 authorized transition from M5 `WAITING_EXTERNAL` to side-effect execution.
 
-M6B will add concrete production capability implementations (internet/files/apps/device actions)
-on top of the M6A boundary without granting cognition a bypass path.
+M6B adds the platform-neutral production capability pack: root-confined strict-UTF-8 file
+read/write, SHA-256 compare-and-swap replacement, HTTPS-only bounded text/JSON retrieval with
+DNS/IP SSRF protection and pinned TLS connection, plus exact-package launch and clipboard
+adapter contracts. All handlers remain behind M6A policy/approval/lease/audit. The concrete
+Android platform adapter belongs to M7.
+
+M6C will bind cognition-produced EXTERNAL intent to strict typed capability-request construction
+and approval UX without allowing model output to mint policy, approvals or leases.
 
 ### M7 - Android native runtime
 JNI/NDK runtime, hardware-aware scheduling, checkpoint/recovery, background continuation and
