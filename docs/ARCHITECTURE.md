@@ -356,9 +356,15 @@ RMSNorm, VN97T2 selective projections, fused exact-ZOH recurrence, residual, fin
 tied logits. RuntimeSession now binds executed recurrent state to a 32-byte model identity and
 persists bound sessions as VN97RUN2 while retaining VN97RUN1 restore compatibility.
 
-The remaining M7 work is Android-side activated-model loading/JNI inference wiring plus deeper
-hardware-aware scheduling/telemetry tuning on real devices. The recurrent/language execution
-math and checkpoint model-binding contract are now fixed.
+M7F applies the second prototype's hardware-aware tiling as a direct upgrade of that same M7D
+language path. VN97T2 tile-major weights are executed by tile row so one input tile is reused
+across multiple output rows. Scalar execution avoids per-element geometry lookup; ARM64 NEON uses
+the same cache-local traversal with 16-wide packed ternary dot products and scalar tails. A typed
+execution plan exposes tile geometry/SIMD/working-set information without changing model math.
+
+The remaining M7 work is Android-side activated-model loading/JNI inference wiring plus real-device
+hardware scheduling/telemetry and optional vendor accelerator adapters. The recurrent/language
+math, hardware-aware VN97T2 CPU/NEON path and checkpoint model-binding contract are now fixed.
 
 ### M8 - Interactive 3D assistant - in progress
 M8A adds the permission-free OpenGL ES 3.0 avatar shell, monotonic typed visual-state bridge,
@@ -565,3 +571,25 @@ at the controlled acquisition/trust/compatibility/activation architecture contra
 180. M7D adds no external side-effect authority. Model acquisition/activation remains M9-governed,
     and Android JNI/model-loader wiring must preserve the same M6/M9 boundaries.
 
+
+
+181. M7F is the direct hardware-aware upgrade of the canonical Code-1 VN97 language model; it does
+    not introduce a second model architecture or change Selective-SSM equations.
+182. VN97T2 remains the physical ternary weight format. Its tile-major layout is consumed directly
+    by the production scalar/ARM64 execution path rather than converted to an alternate weight copy.
+183. Native VN97T2 validation caps tile_rows and tile_cols at 256, matching the Python format-v1
+    packer and bounding all fixed tile scratch.
+184. PackedTernaryExecutionPlan binds matrix rows/cols, physical row/column blocks and resolved
+    backend while exposing effective vector width, tile count and estimated tile working set.
+185. Tiled matvec processes one physical input tile across every valid output row in the tile row;
+    the hot scalar loop no longer recomputes full matrix SymbolIndex geometry per element.
+186. The tiled executor performs no heap allocation. Its maximum accumulator is 256 F32 values
+    (1 KiB), bounded solely by validated VN97T2 tile geometry.
+187. ARM64 NEON preserves the same tile-row traversal and uses 16-symbol vector dots only where
+    packed-symbol byte alignment permits; all tails/unaligned spans use the exact scalar semantics.
+188. Per-output-channel scale and optional bias are applied only after the complete row dot product,
+    preserving canonical VN97T2 numerical semantics across scalar and NEON backends.
+189. M7D language inference uses the existing PackedTernaryMatVec API, so M7F upgrades all
+    in/dt/B/C/out projections transparently without a parallel inference path.
+190. M7F makes no unverified generic-NPU claim. Any future NNAPI/vendor/NPU adapter must implement
+    the same VN97T2/model equations and retain verified scalar/ARM64 fallback behavior.
