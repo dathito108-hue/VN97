@@ -376,8 +376,10 @@ M9A adds the VN97CAP1 data-only package format, strict canonical provenance/sect
 multi-layer integrity validation and content-addressed atomic staging. Staging is explicitly not
 activation and cannot load code, mutate M6 authority or modify live model/runtime state.
 
-M9B will add trust/signature policy plus typed compatibility/adaptation planning for staged
-VN97CAP1 packages before any learned section can become active.
+M9B adds canonical VN97SIG1 detached publisher signatures, scoped/revocable Ed25519 trust,
+staged-byte revalidation, runtime compatibility profiles and deterministic typed adaptation
+planning. A compatibility plan is bound to package, signature and profile fingerprints but still
+cannot activate or mutate live VN97 state.
 
 M9C will add transactional activation/rollback and provenance-visible capability inventory while
 preserving the single VN97 runtime and M6 external-authority boundary.
@@ -484,4 +486,27 @@ preserving the single VN97 runtime and M6 external-authority boundary.
     compatibility/trust decision before any learned data becomes active.
 150. External acquisition/download of VN97CAP1 remains an M6-authorized side effect; M9 package
     validation/staging does not create a parallel network/file authority path.
+
+
+151. VN97SIG1 is a strict canonical detached-signature envelope with bounded exact fields; it
+    is not interpreted until the referenced staged VN97CAP1 bytes have been revalidated.
+152. The signature message is domain separated and binds algorithm, publisher key ID, full package
+    SHA-256, capability ID and capability version.
+153. Trusted publisher keys are Ed25519 public keys scoped by segment-aware capability namespace,
+    allowed capability kind, version interval and explicit revocation state.
+154. Trust verification reopens the staged digest path with no-follow semantics, reparses VN97CAP1
+    and requires staged digest and manifest identity to match before accepting a signature.
+155. The built-in Ed25519 verifier fails closed when its optional crypto backend is unavailable;
+    an unavailable verifier is never treated as successful trust.
+156. VerifiedCapability records publisher key identity and signature-envelope digest but grants no
+    activation, M6 authority, handler registration or runtime mutation power.
+157. CompatibilityProfile is immutable typed policy and exposes a deterministic SHA-256 fingerprint
+    over profile ID, runtime API, supported kinds, version range and ordered format rules.
+158. A non-direct section requires exactly one approved AdapterSpec whose input role/format and
+    output accepted format match; zero matches or multiple matches fail closed.
+159. Lossy adaptation is denied by default and requires an explicit caller policy decision; model
+    output or package metadata cannot turn it on implicitly.
+160. CompatibilityPlan binds package digest, publisher key, signature digest, profile ID/fingerprint
+    and runtime API version. M9B plans are proposals only; M9C must revalidate them transactionally
+    before activation.
 
