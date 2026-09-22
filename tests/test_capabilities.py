@@ -17,6 +17,7 @@ from vn97.capabilities import (
     CAP_FILE_READ,
     CAP_FILE_WRITE,
     CAP_WEB_FETCH,
+    CapabilityImplementationError,
     CapabilityPackConfig,
     CapabilityPayloadError,
     ConfinedFileStore,
@@ -24,6 +25,7 @@ from vn97.capabilities import (
     FileScopeError,
     HttpsResponse,
     NetworkScopeError,
+    PlatformCapabilityError,
     SovereignHttpsFetcher,
     register_m6b_capabilities,
 )
@@ -246,3 +248,29 @@ def test_app_package_segments_must_start_with_ascii_letter():
     register_m6b_capabilities(registry, CapabilityPackConfig(platform=Platform()))
     with pytest.raises(CapabilityPayloadError):
         registry.validate(req(CAP_APP_LAUNCH, {"package":"com._private.app"}))
+
+
+def test_file_read_result_is_bounded(tmp_path: Path):
+    root = tmp_path / "root"; root.mkdir()
+    (root / "large.txt").write_text("x" * (64 * 1024), encoding="utf-8")
+    registry = TypedCapabilityRegistry()
+    register_m6b_capabilities(
+        registry,
+        CapabilityPackConfig(file_store=ConfinedFileStore([FileRoot("docs", root)])),
+    )
+    request = req(CAP_FILE_READ, {"root":"docs", "path":"large.txt"})
+    with pytest.raises(CapabilityImplementationError, match="result exceeds"):
+        execute(registry, request)
+
+
+def test_platform_adapter_result_is_bounded():
+    class OversizedPlatform:
+        def launch_package(self, package): return "x" * 4097
+        def write_clipboard(self, text): return "x" * 4097
+
+    registry = TypedCapabilityRegistry()
+    register_m6b_capabilities(registry, CapabilityPackConfig(platform=OversizedPlatform()))
+    with pytest.raises(PlatformCapabilityError, match="result exceeds"):
+        execute(registry, req(CAP_APP_LAUNCH, {"package":"com.example.app"}))
+    with pytest.raises(PlatformCapabilityError, match="result exceeds"):
+        execute(registry, req(CAP_CLIPBOARD_WRITE, {"channel":"system"}, {"text":"hello"}))
