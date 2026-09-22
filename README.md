@@ -420,6 +420,43 @@ against different trust evidence or a silently changed compatibility profile.
 M9B still performs no activation, rollback, runtime mutation, M6 handler registration or policy
 change. Those transactional state changes remain M9C work.
 
+## M9C transactional activation + provenance inventory
+
+M9C is the first milestone that can make an imported capability active. Activation is deliberately
+host-controlled and transactional; cognition/model output cannot call a backend, mint an
+activation transaction or bypass M6.
+
+Before a transaction is reserved, M9C re-runs M9B staged-byte and publisher-signature verification
+against the **current** stage root, signature envelope and trust store, then recomputes the exact
+compatibility plan. A revoked publisher key, changed staged file, stale plan or silently changed
+profile therefore fails before backend `prepare()`.
+
+`CapabilityActivationBackend` is a trusted host/runtime interface with four operations:
+`prepare`, `commit`, `inspect` and idempotent `rollback`. Prepare must not mutate the live
+runtime. M9C persists a write-ahead `reserved` record before prepare, then persists backend token
+and artifact SHA-256 as `prepared` before commit. Commit returns a bounded runtime revision.
+
+`VN97INV1` is a canonical crash-recoverable inventory. It stores a bounded per-capability
+activation stack, provenance/trust/profile/plan fingerprints, generation history and at most one
+pending transaction. Backend transaction tokens remain internal and are not exposed through the
+public `InventorySnapshot`.
+
+Crash recovery queries the trusted backend with the persisted token. A committed activation is
+finalized into inventory; an uncommitted prepared activation is rolled back; an already-rolled-back
+transaction is cleared/finalized. Rollback pops the current activation stack entry, so rolling back
+v2 restores the prior v1 activation instead of merely marking v2 inactive.
+
+Exact re-activation of the already-active package/plan/backend is idempotent. Same-version
+replacement and downgrades are denied by default and require explicit trusted caller policy.
+
+Inventory persistence uses an existing non-symlink root, no-follow file access, advisory locking,
+canonical JSON, same-directory temporary files, fsync and atomic replace. Reference bounds are
+64 activation records per capability, 4096 history events and 4 MiB inventory size.
+
+M9C does not register M6 external handlers or grant external authority. Acquiring packages remains
+an M6-governed side effect; activation only changes a trusted capability backend through this
+transaction protocol.
+
 ## Native execution libraries
 
 - libvn97_packed_ternary.a
@@ -477,3 +514,4 @@ Avatar integration:
 - docs/AVATAR_ASSET_M8C.md
 - docs/CAPABILITY_PACKAGE_M9A.md
 - docs/CAPABILITY_TRUST_M9B.md
+- docs/CAPABILITY_ACTIVATION_M9C.md
