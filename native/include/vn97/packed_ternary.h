@@ -65,6 +65,13 @@ PackedTernaryStatus PlanPackedTernaryMatVecF32(
     PackedTernaryBackend requested,
     PackedTernaryExecutionPlan* out);
 
+PackedTernaryStatus PackedTernaryMatVecF32WithPlan(
+    const PackedTernaryView& matrix,
+    const float* input,
+    const float* bias,
+    float* output,
+    const PackedTernaryExecutionPlan& plan);
+
 PackedTernaryStatus PackedTernaryMatVecF32WithBackend(
     const PackedTernaryView& matrix,
     const float* input,
