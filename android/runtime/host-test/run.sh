@@ -15,6 +15,8 @@ KOTLINC="${KOTLINC:-kotlinc}"
     -I"$JAVA_HOME/include" \
     -I"$JAVA_HOME/include/linux" \
     "$ROOT/native/src/runtime.cpp" \
+    "$ROOT/native/src/language.cpp" \
+    "$ROOT/native/src/selective.cpp" \
     "$ROOT/native/src/recurrent.cpp" \
     "$ROOT/native/src/packed_ternary.cpp" \
     "$ROOT/android/runtime/src/main/cpp/vn97_jni.cpp" \
