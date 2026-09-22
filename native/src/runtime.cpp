@@ -12,9 +12,13 @@
 namespace vn97 {
 namespace {
 
-constexpr std::array<std::uint8_t, 8> kMagic = {'V','N','9','7','R','U','N','1'};
-constexpr std::uint16_t kVersion = 1;
-constexpr std::uint16_t kHeaderSize = 64;
+constexpr std::array<std::uint8_t, 8> kMagicV1 = {'V','N','9','7','R','U','N','1'};
+constexpr std::array<std::uint8_t, 8> kMagicV2 = {'V','N','9','7','R','U','N','2'};
+constexpr std::uint16_t kVersionV1 = 1;
+constexpr std::uint16_t kVersionV2 = 2;
+constexpr std::uint16_t kHeaderSizeV1 = 64;
+constexpr std::uint16_t kHeaderSizeV2 = 100;
+constexpr std::uint32_t kCheckpointModelBound = 1u << 0;
 constexpr std::size_t kMaxStateBytes = 512ull * 1024ull * 1024ull;
 
 bool MulOverflow(std::size_t a, std::size_t b, std::size_t* out) {
@@ -53,6 +57,40 @@ bool ValidRecurrentBackend(RecurrentBackend backend) {
 bool ValidPackedBackend(PackedTernaryBackend backend) {
     return backend == PackedTernaryBackend::kAuto || backend == PackedTernaryBackend::kScalar ||
            backend == PackedTernaryBackend::kArm64Neon;
+}
+
+bool SameModelId(
+    const std::array<std::uint8_t, 32>& bound,
+    const std::uint8_t candidate[32]) {
+    return std::equal(bound.begin(), bound.end(), candidate);
+}
+
+bool StateAllZero(const std::vector<float>& state) {
+    return std::all_of(
+        state.begin(),
+        state.end(),
+        [](float value) { return value == 0.0f; });
+}
+
+RuntimeStatus MapLanguageStatus(LanguageStatus status) {
+    switch (status) {
+        case LanguageStatus::kOk:
+            return RuntimeStatus::kOk;
+        case LanguageStatus::kNullArgument:
+            return RuntimeStatus::kNullArgument;
+        case LanguageStatus::kOutputTooSmall:
+            return RuntimeStatus::kOutputTooSmall;
+        case LanguageStatus::kSizeOverflow:
+            return RuntimeStatus::kSizeOverflow;
+        case LanguageStatus::kBackendUnavailable:
+            return RuntimeStatus::kBackendUnavailable;
+        case LanguageStatus::kInvalidConfig:
+        case LanguageStatus::kInvalidModel:
+        case LanguageStatus::kInvalidToken:
+        case LanguageStatus::kNonFinite:
+            return RuntimeStatus::kInferenceError;
+    }
+    return RuntimeStatus::kInferenceError;
 }
 
 void WriteU16(std::uint8_t* out, std::uint16_t value) {
@@ -160,6 +198,88 @@ RuntimeStatus RuntimeSession::Advance(std::uint64_t token_count) {
     sequence_position_ += token_count;
     return RuntimeStatus::kOk;
 }
+
+RuntimeStatus RuntimeSession::InferStep(
+    const LanguageModelView& model,
+    const std::uint32_t* input_ids,
+    float* logits,
+    std::size_t logits_count) {
+    if (input_ids == nullptr || logits == nullptr) return RuntimeStatus::kNullArgument;
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (lifecycle_ != RuntimeLifecycle::kActive) return RuntimeStatus::kInvalidLifecycle;
+    if (model.n_layers != config_.layers ||
+        model.d_model != config_.d_model ||
+        model.d_state != config_.d_state) {
+        return RuntimeStatus::kModelMismatch;
+    }
+    if (model_bound_) {
+        if (!SameModelId(model_id_, model.model_id)) {
+            return RuntimeStatus::kModelMismatch;
+        }
+    } else {
+        if (sequence_position_ != 0 || !StateAllZero(state_)) {
+            return RuntimeStatus::kModelMismatch;
+        }
+        const auto model_status = ValidateLanguageModel(model);
+        if (model_status != LanguageStatus::kOk) {
+            return MapLanguageStatus(model_status);
+        }
+    }
+    if (sequence_position_ == std::numeric_limits<std::uint64_t>::max()) {
+        return RuntimeStatus::kCounterOverflow;
+    }
+
+    std::size_t workspace_count = 0;
+    const auto workspace_status =
+        LanguageWorkspaceFloats(model, config_.batch, &workspace_count);
+    if (workspace_status != LanguageStatus::kOk) {
+        return MapLanguageStatus(workspace_status);
+    }
+    try {
+        if (language_workspace_.size() != workspace_count) {
+            language_workspace_.assign(workspace_count, 0.0f);
+        }
+    } catch (...) {
+        return RuntimeStatus::kSizeOverflow;
+    }
+
+    const auto status = LanguageStepF32WithBackends(
+        model,
+        input_ids,
+        config_.batch,
+        state_.data(),
+        logits,
+        logits_count,
+        language_workspace_.data(),
+        language_workspace_.size(),
+        resolved_recurrent_backend_,
+        resolved_packed_backend_);
+    if (status != LanguageStatus::kOk) {
+        return MapLanguageStatus(status);
+    }
+
+    if (!model_bound_) {
+        std::copy(
+            std::begin(model.model_id),
+            std::end(model.model_id),
+            model_id_.begin());
+        model_bound_ = true;
+    }
+    ++sequence_position_;
+    return RuntimeStatus::kOk;
+}
+
+RuntimeStatus RuntimeSession::ModelBinding(
+    bool* bound,
+    std::uint8_t* model_id,
+    std::size_t model_id_capacity) const {
+    if (bound == nullptr || model_id == nullptr) return RuntimeStatus::kNullArgument;
+    if (model_id_capacity < model_id_.size()) return RuntimeStatus::kOutputTooSmall;
+    std::lock_guard<std::mutex> lock(mutex_);
+    *bound = model_bound_;
+    std::copy(model_id_.begin(), model_id_.end(), model_id);
+    return RuntimeStatus::kOk;
+}
 RuntimeStatus RuntimeSession::ReadState(float* out, std::size_t count) const {
     if (out == nullptr) return RuntimeStatus::kNullArgument;
     std::lock_guard<std::mutex> lock(mutex_);
@@ -182,23 +302,33 @@ RuntimeStatus RuntimeSession::CheckpointSize(std::size_t* out) const {
     if (out == nullptr) return RuntimeStatus::kNullArgument;
     std::lock_guard<std::mutex> lock(mutex_);
     if (lifecycle_ != RuntimeLifecycle::kSuspended) return RuntimeStatus::kInvalidLifecycle;
-    if (state_.size() > (std::numeric_limits<std::size_t>::max() - kHeaderSize) / 4) {
+    const std::size_t header_size = model_bound_ ? kHeaderSizeV2 : kHeaderSizeV1;
+    if (state_.size() > (std::numeric_limits<std::size_t>::max() - header_size) / 4) {
         return RuntimeStatus::kSizeOverflow;
     }
-    *out = kHeaderSize + state_.size() * 4;
+    *out = header_size + state_.size() * 4;
     return RuntimeStatus::kOk;
 }
-RuntimeStatus RuntimeSession::WriteCheckpoint(std::uint8_t* out, std::size_t capacity, std::size_t* written) const {
+RuntimeStatus RuntimeSession::WriteCheckpoint(
+    std::uint8_t* out,
+    std::size_t capacity,
+    std::size_t* written) const {
     if (out == nullptr || written == nullptr) return RuntimeStatus::kNullArgument;
     *written = 0;
     std::lock_guard<std::mutex> lock(mutex_);
     if (lifecycle_ != RuntimeLifecycle::kSuspended) return RuntimeStatus::kInvalidLifecycle;
-    const std::size_t required = kHeaderSize + state_.size() * 4;
+
+    const std::size_t header_size = model_bound_ ? kHeaderSizeV2 : kHeaderSizeV1;
+    const std::size_t required = header_size + state_.size() * 4;
     if (capacity < required) return RuntimeStatus::kOutputTooSmall;
+
     std::fill(out, out + required, 0);
-    std::copy(kMagic.begin(), kMagic.end(), out);
-    WriteU16(out + 8, kVersion);
-    WriteU16(out + 10, kHeaderSize);
+    const auto& magic = model_bound_ ? kMagicV2 : kMagicV1;
+    std::copy(magic.begin(), magic.end(), out);
+    WriteU16(out + 8, model_bound_ ? kVersionV2 : kVersionV1);
+    WriteU16(
+        out + 10,
+        static_cast<std::uint16_t>(header_size));
     WriteU32(out + 12, config_.layers);
     WriteU32(out + 16, config_.batch);
     WriteU32(out + 20, config_.d_model);
@@ -208,16 +338,26 @@ RuntimeStatus RuntimeSession::WriteCheckpoint(std::uint8_t* out, std::size_t cap
     WriteU32(out + 36, static_cast<std::uint32_t>(RuntimeLifecycle::kSuspended));
     WriteU64(out + 40, sequence_position_);
     WriteU64(out + 48, static_cast<std::uint64_t>(state_.size()));
+
     for (std::size_t i = 0; i < state_.size(); ++i) {
         std::uint32_t bits = 0;
         static_assert(sizeof(bits) == sizeof(float));
         std::memcpy(&bits, &state_[i], sizeof(bits));
-        WriteU32(out + kHeaderSize + i * 4, bits);
+        WriteU32(out + header_size + i * 4, bits);
     }
-    const std::uint32_t payload_crc = Crc32(out + kHeaderSize, state_.size() * 4);
+
+    const std::uint32_t payload_crc =
+        Crc32(out + header_size, state_.size() * 4);
     WriteU32(out + 56, payload_crc);
-    const std::uint32_t header_crc = Crc32(out, 60);
-    WriteU32(out + 60, header_crc);
+
+    if (model_bound_) {
+        WriteU32(out + 60, kCheckpointModelBound);
+        std::copy(model_id_.begin(), model_id_.end(), out + 64);
+        WriteU32(out + 96, Crc32(out, 96));
+    } else {
+        WriteU32(out + 60, Crc32(out, 60));
+    }
+
     *written = required;
     return RuntimeStatus::kOk;
 }
@@ -233,45 +373,92 @@ RuntimeInfo RuntimeSession::Info() const {
     return info;
 }
 
-RuntimeStatus RuntimeSession::Restore(const std::uint8_t* blob, std::size_t blob_size, RuntimeSession** out) {
+RuntimeStatus RuntimeSession::Restore(
+    const std::uint8_t* blob,
+    std::size_t blob_size,
+    RuntimeSession** out) {
     if (blob == nullptr || out == nullptr) return RuntimeStatus::kNullArgument;
     *out = nullptr;
-    if (blob_size < kHeaderSize) return RuntimeStatus::kCheckpointCorrupt;
-    if (!std::equal(kMagic.begin(), kMagic.end(), blob) || ReadU16(blob + 8) != kVersion || ReadU16(blob + 10) != kHeaderSize) {
-        return RuntimeStatus::kCheckpointCorrupt;
+    if (blob_size < kHeaderSizeV1) return RuntimeStatus::kCheckpointCorrupt;
+
+    const bool is_v1 =
+        std::equal(kMagicV1.begin(), kMagicV1.end(), blob) &&
+        ReadU16(blob + 8) == kVersionV1 &&
+        ReadU16(blob + 10) == kHeaderSizeV1;
+    const bool is_v2 =
+        blob_size >= kHeaderSizeV2 &&
+        std::equal(kMagicV2.begin(), kMagicV2.end(), blob) &&
+        ReadU16(blob + 8) == kVersionV2 &&
+        ReadU16(blob + 10) == kHeaderSizeV2;
+    if (!is_v1 && !is_v2) return RuntimeStatus::kCheckpointCorrupt;
+
+    const std::size_t header_size =
+        is_v2 ? kHeaderSizeV2 : kHeaderSizeV1;
+    if (is_v1) {
+        if (ReadU32(blob + 60) != Crc32(blob, 60)) {
+            return RuntimeStatus::kCheckpointCorrupt;
+        }
+    } else {
+        if (ReadU32(blob + 96) != Crc32(blob, 96)) {
+            return RuntimeStatus::kCheckpointCorrupt;
+        }
+        const std::uint32_t flags = ReadU32(blob + 60);
+        if ((flags & ~kCheckpointModelBound) != 0) {
+            return RuntimeStatus::kCheckpointCorrupt;
+        }
+        const bool bound = (flags & kCheckpointModelBound) != 0;
+        const bool any_id = std::any_of(
+            blob + 64,
+            blob + 96,
+            [](std::uint8_t value) { return value != 0; });
+        if (bound != any_id) {
+            return RuntimeStatus::kCheckpointCorrupt;
+        }
     }
-    if (ReadU32(blob + 60) != Crc32(blob, 60)) return RuntimeStatus::kCheckpointCorrupt;
+
     RuntimeConfig config;
     config.layers = ReadU32(blob + 12);
     config.batch = ReadU32(blob + 16);
     config.d_model = ReadU32(blob + 20);
     config.d_state = ReadU32(blob + 24);
-    config.recurrent_backend = static_cast<RecurrentBackend>(ReadU32(blob + 28));
-    config.packed_backend = static_cast<PackedTernaryBackend>(ReadU32(blob + 32));
+    config.recurrent_backend =
+        static_cast<RecurrentBackend>(ReadU32(blob + 28));
+    config.packed_backend =
+        static_cast<PackedTernaryBackend>(ReadU32(blob + 32));
     if (!ValidRecurrentBackend(config.recurrent_backend) ||
         !ValidPackedBackend(config.packed_backend)) {
         return RuntimeStatus::kCheckpointCorrupt;
     }
-    if (ReadU32(blob + 36) != static_cast<std::uint32_t>(RuntimeLifecycle::kSuspended)) {
+    if (ReadU32(blob + 36) !=
+        static_cast<std::uint32_t>(RuntimeLifecycle::kSuspended)) {
         return RuntimeStatus::kCheckpointCorrupt;
     }
+
     std::size_t count = 0;
     RuntimeStatus status = StateCount(config, &count);
-    if (status != RuntimeStatus::kOk) return RuntimeStatus::kCheckpointCorrupt;
-    if (ReadU64(blob + 48) != count) return RuntimeStatus::kCheckpointMismatch;
-    if (count > (std::numeric_limits<std::size_t>::max() - kHeaderSize) / 4 || blob_size != kHeaderSize + count * 4) {
-        return RuntimeStatus::kCheckpointMismatch;
-    }
-    if (ReadU32(blob + 56) != Crc32(blob + kHeaderSize, count * 4)) {
+    if (status != RuntimeStatus::kOk) {
         return RuntimeStatus::kCheckpointCorrupt;
     }
+    if (ReadU64(blob + 48) != count) {
+        return RuntimeStatus::kCheckpointMismatch;
+    }
+    if (count >
+            (std::numeric_limits<std::size_t>::max() - header_size) / 4 ||
+        blob_size != header_size + count * 4) {
+        return RuntimeStatus::kCheckpointMismatch;
+    }
+    if (ReadU32(blob + 56) !=
+        Crc32(blob + header_size, count * 4)) {
+        return RuntimeStatus::kCheckpointCorrupt;
+    }
+
     RuntimeSession* session = nullptr;
     status = Create(config, &session);
     if (status != RuntimeStatus::kOk) return status;
-    // The restored session is not published to the handle registry yet, so no lock is
-    // required while hydrating its private state.
+
     for (std::size_t i = 0; i < count; ++i) {
-        const std::uint32_t bits = ReadU32(blob + kHeaderSize + i * 4);
+        const std::uint32_t bits =
+            ReadU32(blob + header_size + i * 4);
         float value = 0.0f;
         std::memcpy(&value, &bits, sizeof(bits));
         if (!std::isfinite(value)) {
@@ -280,8 +467,14 @@ RuntimeStatus RuntimeSession::Restore(const std::uint8_t* blob, std::size_t blob
         }
         session->state_[i] = value;
     }
+
     session->sequence_position_ = ReadU64(blob + 40);
     session->lifecycle_ = RuntimeLifecycle::kSuspended;
+    if (is_v2 &&
+        (ReadU32(blob + 60) & kCheckpointModelBound) != 0) {
+        session->model_bound_ = true;
+        std::copy(blob + 64, blob + 96, session->model_id_.begin());
+    }
     *out = session;
     return RuntimeStatus::kOk;
 }
@@ -341,6 +534,7 @@ int vn97_runtime_activate(std::uint64_t h){ auto s=Lookup(h); return s?static_ca
 int vn97_runtime_suspend(std::uint64_t h){ auto s=Lookup(h); return s?static_cast<int>(s->Suspend()):static_cast<int>(vn97::RuntimeStatus::kInvalidHandle); }
 int vn97_runtime_resume(std::uint64_t h){ auto s=Lookup(h); return s?static_cast<int>(s->Resume()):static_cast<int>(vn97::RuntimeStatus::kInvalidHandle); }
 int vn97_runtime_advance(std::uint64_t h,std::uint64_t n){ auto s=Lookup(h); return s?static_cast<int>(s->Advance(n)):static_cast<int>(vn97::RuntimeStatus::kInvalidHandle); }
+int vn97_runtime_model_binding_get(std::uint64_t h,int* bound,std::uint8_t* model_id,std::size_t capacity){ if(!bound||!model_id) return static_cast<int>(vn97::RuntimeStatus::kNullArgument); auto s=Lookup(h); if(!s) return static_cast<int>(vn97::RuntimeStatus::kInvalidHandle); bool cpp_bound=false; const auto status=s->ModelBinding(&cpp_bound,model_id,capacity); if(status==vn97::RuntimeStatus::kOk) *bound=cpp_bound?1:0; return static_cast<int>(status); }
 int vn97_runtime_info_get(std::uint64_t h,vn97_runtime_info* out){ if(!out) return static_cast<int>(vn97::RuntimeStatus::kNullArgument); auto s=Lookup(h); if(!s) return static_cast<int>(vn97::RuntimeStatus::kInvalidHandle); const auto i=s->Info(); out->layers=i.config.layers; out->batch=i.config.batch; out->d_model=i.config.d_model; out->d_state=i.config.d_state; out->requested_recurrent_backend=static_cast<int>(i.config.recurrent_backend); out->requested_packed_backend=static_cast<int>(i.config.packed_backend); out->resolved_recurrent_backend=static_cast<int>(i.resolved_recurrent_backend); out->resolved_packed_backend=static_cast<int>(i.resolved_packed_backend); out->lifecycle=static_cast<int>(i.lifecycle); out->state_count=i.state_count; out->sequence_position=i.sequence_position; return 0; }
 int vn97_runtime_state_read(std::uint64_t h,float* out,std::size_t n){ auto s=Lookup(h); return s?static_cast<int>(s->ReadState(out,n)):static_cast<int>(vn97::RuntimeStatus::kInvalidHandle); }
 int vn97_runtime_state_write(std::uint64_t h,const float* in,std::size_t n){ auto s=Lookup(h); return s?static_cast<int>(s->WriteState(in,n)):static_cast<int>(vn97::RuntimeStatus::kInvalidHandle); }
