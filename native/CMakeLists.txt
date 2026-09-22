@@ -18,6 +18,9 @@ set(VN97_MODALITY_SOURCES
 )
 set(VN97_MEMORY_SOURCES
     src/memory.cpp
+    src/memory_crypto.cpp
+    src/memory_index.cpp
+    src/memory_store.cpp
 )
 
 set(VN97_ARM64 FALSE)
@@ -97,6 +100,10 @@ if(VN97_BUILD_TESTS)
     target_link_libraries(vn97_memory_test PRIVATE vn97_memory)
     add_test(NAME vn97_memory_test COMMAND vn97_memory_test)
 
+    add_executable(vn97_memory_store_test tests/memory_store_test.cpp)
+    target_link_libraries(vn97_memory_store_test PRIVATE vn97_memory)
+    add_test(NAME vn97_memory_store_test COMMAND vn97_memory_store_test)
+
     add_library(vn97_recurrent_test_bridge SHARED ${VN97_RECURRENT_SOURCES})
     target_include_directories(vn97_recurrent_test_bridge PRIVATE include)
     target_compile_features(vn97_recurrent_test_bridge PRIVATE cxx_std_17)
@@ -168,6 +175,14 @@ if(VN97_BUILD_TESTS)
                 "PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}/../src"
                 ${Python3_EXECUTABLE}
                 ${CMAKE_CURRENT_SOURCE_DIR}/tests/memory_python_equivalence.py
+                $<TARGET_FILE:vn97_memory_test_bridge>
+    )
+    add_test(
+        NAME vn97_memory_store_python_equivalence
+        COMMAND ${CMAKE_COMMAND} -E env
+                "PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}/../src"
+                ${Python3_EXECUTABLE}
+                ${CMAKE_CURRENT_SOURCE_DIR}/tests/memory_store_python_equivalence.py
                 $<TARGET_FILE:vn97_memory_test_bridge>
     )
 endif()
