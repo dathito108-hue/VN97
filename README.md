@@ -1,8 +1,8 @@
 # VN97
 
 VN97 is a mobile-first sovereign intelligence project built around a recurrent selective
-state-space core, physically packed ternary execution, a lossless native tokenizer and compact
-multimodal frontends.
+state-space core, physically packed ternary execution, a lossless native tokenizer, compact
+multimodal frontends and explicit sovereign memory.
 
 ## Completed foundations
 
@@ -12,7 +12,8 @@ multimodal frontends.
 - M2B: native fused recurrent state update/readout for prefill and token-step;
 - M2C: native fused selective ZOH dynamics without expanded decay/drive tensors;
 - M3A: VN97TK1 lossless tokenizer + native codec + optional factorized tied embeddings;
-- M3B: audio/vision modality adapters + native preprocessing + dense embedding ingress.
+- M3B: audio/vision modality adapters + native preprocessing + dense embedding ingress;
+- M4A: VN97MEM1 sovereign memory journal + bounded working memory + deterministic retrieval.
 
 ## M3 multimodal contract
 
@@ -31,6 +32,26 @@ The native runtime provides equivalent audio framing and vision patch extraction
 libvn97_modality.a. Projection weights can reuse VN97T2 packed matvec rather than introducing a
 second modality-specific weight format.
 
+## M4A sovereign memory contract
+
+Recurrent state is not used as a substitute for persistent memory. M4A separates:
+
+- bounded in-process working memory;
+- append-only episodic records for events/observations;
+- append-only semantic records for distilled knowledge.
+
+VN97MEM1 records carry stable IDs, timestamp, importance, source provenance, optional retrieval
+vectors, optional parent ancestry and SHA-256 content identity. Frames are CRC32 protected.
+Explicit torn-tail recovery truncates only an incomplete final frame; complete corrupt records
+fail closed.
+
+Reference retrieval is deterministic and model-agnostic: exact cosine similarity can be combined
+with half-life recency and importance. Retention/compaction is atomic, preserves the highest ID
+to prevent ID reuse and preserves parent ancestry for retained derived records.
+
+The native runtime adds libvn97_memory.a with zero-copy journal validation. Native mutation and
+retrieval execution remain the next M4 deployment step.
+
 ## Native execution libraries
 
 - libvn97_packed_ternary.a
@@ -38,6 +59,7 @@ second modality-specific weight format.
 - libvn97_selective.a
 - libvn97_tokenizer.a
 - libvn97_modality.a
+- libvn97_memory.a
 
 See:
 
@@ -45,6 +67,7 @@ See:
 - docs/TOKENIZER_V1.md
 - docs/EMBEDDING_COMPRESSION_M3A.md
 - docs/MODALITY_ADAPTERS_M3B.md
+- docs/MEMORY_V1.md
 - docs/NATIVE_SELECTIVE_M2C.md
 
 ## Local verification

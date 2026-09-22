@@ -45,6 +45,20 @@ not the definition of AGI by itself.
 23. Dense modality embeddings use the same recurrent core and state update contract as text.
 24. Native modality preprocessing must numerically match the reference frontend before device
     optimizations are accepted.
+25. Working memory has explicit item/byte budgets; persistent episodic/semantic memory is not
+    hidden inside the recurrent state or an unbounded process history.
+26. VN97MEM1 persistent memory is append-framed, versioned and integrity checked before records
+    become visible to cognition.
+27. A memory parent_id is valid only when it references an actually present earlier record;
+    provenance ancestry must survive retention compaction.
+28. Only an incomplete final memory frame may be recovered as a torn tail. CRC failure or a
+    malformed complete record fails closed.
+29. Persistent record IDs are stable across compaction; the highest ID is retained so append
+    cannot silently reuse an earlier identity.
+30. Memory retrieval semantics are deterministic and storage/model agnostic. Vector production
+    can evolve without changing persistent record meaning.
+31. CRC32 and content SHA-256 are integrity/content-identity mechanisms, not authority or
+    cryptographic author signatures.
 
 ## System layers
 
@@ -83,6 +97,10 @@ not the definition of AGI by itself.
 - embedding compression must preserve exact input/output weight tying;
 - audio/vision frontend output must be bounded, compact and compatible with packed projection;
 - modality identity must be explicit before shared recurrent reasoning;
+- working memory must have explicit finite budgets;
+- long-term memory must use an explicit persistent VN97-native format rather than unbounded
+  hidden conversation/process state;
+- memory corruption must fail closed except for explicit recovery of an incomplete final frame;
 - long-term exact recall belongs in explicit memory/retrieval;
 - external side effects must pass through an explicit authority boundary;
 - Android background continuity must respect OS scheduling and lifecycle limits.
@@ -104,9 +122,11 @@ vision patch frontends, native preprocessing equivalence, explicit reserved moda
 and dense embedding ingress into the same recurrent core. Speech/vision capability quality is a
 training or capability-package concern and does not require changing the runtime contract.
 
-### M4 - Sovereign memory
-Add bounded working memory plus persistent episodic and semantic memory with retrieval,
-provenance and retention policy.
+### M4 - Sovereign memory - in progress
+M4A establishes bounded working memory, VN97MEM1 append-only episodic/semantic storage,
+provenance, exact deterministic retrieval, retention/atomic compaction, torn-tail recovery and a
+native validation ABI. M4B will move persistent append/retrieval/compaction into the native
+runtime and add an incremental mobile retrieval index without changing VN97MEM1 semantics.
 
 ### M5 - Reasoning and planning controller
 Add deliberate reasoning, task decomposition, verification, interruption/resume and

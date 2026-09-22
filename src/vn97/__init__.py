@@ -1,5 +1,19 @@
 from .config import VN97Config
 from .embedding import FactorizedEmbedding, FactorizedLMHead
+from .memory import (
+    JournalScan,
+    MemoryCorruptionError,
+    MemoryFormatError,
+    MemoryHit,
+    MemoryJournal,
+    MemoryKind,
+    MemoryRecord,
+    MemoryTruncatedTailError,
+    RetentionPolicy,
+    WorkingMemory,
+    WorkingMemoryItem,
+    scan_journal,
+)
 from .model import VN97LanguageCore, VN97States
 from .modality import (
     AudioAdapterConfig,
@@ -44,6 +58,18 @@ __all__ = [
     "VN97States",
     "FactorizedEmbedding",
     "FactorizedLMHead",
+    "JournalScan",
+    "MemoryCorruptionError",
+    "MemoryFormatError",
+    "MemoryHit",
+    "MemoryJournal",
+    "MemoryKind",
+    "MemoryRecord",
+    "MemoryTruncatedTailError",
+    "RetentionPolicy",
+    "WorkingMemory",
+    "WorkingMemoryItem",
+    "scan_journal",
     "AudioAdapterConfig",
     "AudioFrameAdapter",
     "Modality",
