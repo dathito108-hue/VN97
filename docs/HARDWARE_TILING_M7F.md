@@ -49,9 +49,11 @@ working set, excluding already-resident scales/output.
 
 ## Bounded scratch
 
-VN97T2 format v1 already limits tile dimensions to 256 in Python. M7F enforces the same constraint
-in the native parser. The public matvec path therefore uses a fixed `std::array<float,256>`
-accumulator: at most 1 KiB, no heap allocation, deterministic lifetime.
+VN97T2 format v1 already limits tile dimensions to 256 in Python and requires padded geometry to
+be the exact minimal round-up of the logical rows/columns. M7F enforces both rules natively and
+also checks packed-byte length with overflow-safe arithmetic. The public matvec path therefore
+uses a fixed `std::array<float,256>` accumulator: at most 1 KiB, no heap allocation,
+deterministic lifetime.
 
 ## ARM64 NEON
 
