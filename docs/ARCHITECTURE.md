@@ -23,7 +23,7 @@ not the definition of AGI by itself.
 5. Multi-timescale log-spaced dynamics improve memory diversity at initialization.
 6. Full-sequence execution must match token-by-token recurrent execution while carrying state.
 7. Model recurrent state is separated from long-term episodic and semantic memory.
-8. "1.58-bit" is not used as a storage claim: the deployable v1 format stores fixed-width
+8. 1.58-bit is not used as a storage claim: the deployable v1 format stores fixed-width
    2-bit symbols, while log2(3) is only the ternary information lower bound.
 9. Tile geometry is selected by a backend/device profile. Python loops are not treated as NPU
    acceleration and no universal 16x16/32x32 SRAM geometry is assumed.
@@ -32,10 +32,15 @@ not the definition of AGI by itself.
     after those frontends.
 11. Conditional compute must be implemented with an exportable/vectorized routing contract;
     Python data-dependent branches are not part of the production graph.
-12. Backend selection is explicit and testable. `auto` may choose an optimized backend only
+12. Backend selection is explicit and testable. auto may choose an optimized backend only
     when that backend is compiled and available; explicit unavailable requests must fail closed.
-13. Full-sequence SSM execution uses associative affine scan semantics; the sequential path is
-    retained as the numerical oracle until a fused native scan is verified.
+13. Full-sequence training/reference execution uses associative affine scan semantics.
+14. Native deployment recurrence updates caller-owned state in place and must preserve M0/M2A
+    numerical semantics.
+15. Token-dependent exact ZOH discretization is fused in native deployment execution; production
+    prefill must not require materializing decay and drive tensors of shape [B,L,D,N].
+16. The stable diagonal A [D,N] is a model-level cached quantity derived from -exp(a_log);
+    it must be finite and strictly negative before native selective execution begins.
 
 ## System layers
 
@@ -65,7 +70,8 @@ not the definition of AGI by itself.
 - production ternary weights must be physically packed, not merely simulated as FP tensors;
 - optimized kernels must consume packed weights without full-matrix dequantization;
 - backend dispatch must retain a portable correctness fallback;
-- production recurrence must use a native fused/scan implementation, not a Python token loop;
+- production recurrence must use native fused execution, not a Python token loop;
+- deployment prefill must avoid sequence-expanded recurrent intermediates when compact inputs suffice;
 - long-term exact recall must live in explicit memory/retrieval instead of overloading recurrent state;
 - external side effects must pass through an explicit authority boundary;
 - Android background continuity must respect operating-system scheduling and lifecycle limits.
@@ -76,16 +82,18 @@ not the definition of AGI by itself.
 Established the numerical contract, stable SSM dynamics, ternary training path and recurrent invariant tests.
 
 ### M1 - Native packed ternary execution - complete
-M1A defined `VN97T2`: per-channel scales, fixed 2-bit symbols, configurable tile-major layout,
+M1A defined VN97T2: per-channel scales, fixed 2-bit symbols, configurable tile-major layout,
 versioned serialization, Python equivalence tests and a portable C++ packed matvec baseline.
 M1B added explicit backend dispatch and an ARM64 NEON path that consumes VN97T2 directly,
 with scalar fallback and backend-equivalence tests.
 
-### M2 - Parallel training / fused recurrence - in progress
-M2A replaces per-token Python full-sequence recurrence with an associative affine prefix scan.
-B/C/dt projection is vectorized across sequence and the sequential recurrence remains the
-numerical oracle. M2B will fuse the scan/recurrent path into native execution and reduce
-intermediate allocation/work while preserving the same state semantics.
+### M2 - Parallel training / fused recurrence - complete at kernel contract
+M2A provides the associative PyTorch affine scan and sequential numerical oracle. M2B adds
+native in-place recurrence/readout for prefill and token-step. M2C fuses softplus/clamped
+timestep preparation, exact diagonal ZOH discretization, recurrent update and C/gate readout
+from compact projected inputs, avoiding materialized [B,L,D,N] decay/drive tensors.
+Scalar native execution is the correctness oracle; ARM64 NEON is the optimized mobile path.
+Device-specific validation and JNI wiring belong to M7.
 
 ### M3 - Mobile tokenizer, modality adapters and embedding compression
 Design a compact text tokenizer and compressed/tied embedding representation. Keep byte-level
