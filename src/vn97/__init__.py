@@ -17,6 +17,16 @@ from .cognition import (
     VerificationDecision,
     VerificationRequest,
 )
+from .cognition_adapter import (
+    TorchVN97InferenceEngine,
+    VN97CognitionAdapter,
+    VN97CognitionAdapterConfig,
+    VN97CognitionOutputError,
+    VN97InferenceContractError,
+    VN97InferenceEngine,
+    VN97InferenceError,
+    VN97InferenceLimits,
+)
 from .config import VN97Config
 from .embedding import FactorizedEmbedding, FactorizedLMHead
 from .memory import (
@@ -95,6 +105,14 @@ from .tokenizer import (
 )
 
 __all__ = [
+    "TorchVN97InferenceEngine",
+    "VN97CognitionAdapter",
+    "VN97CognitionAdapterConfig",
+    "VN97CognitionOutputError",
+    "VN97InferenceContractError",
+    "VN97InferenceEngine",
+    "VN97InferenceError",
+    "VN97InferenceLimits",
     "CognitionBackend",
     "CognitionContractError",
     "CognitionLimits",
