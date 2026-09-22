@@ -13,7 +13,8 @@ multimodal frontends and explicit sovereign memory.
 - M2C: native fused selective ZOH dynamics without expanded decay/drive tensors;
 - M3A: VN97TK1 lossless tokenizer + native codec + optional factorized tied embeddings;
 - M3B: audio/vision modality adapters + native preprocessing + dense embedding ingress;
-- M4A: VN97MEM1 sovereign memory journal + bounded working memory + deterministic retrieval.
+- M4A: VN97MEM1 sovereign memory journal + bounded working memory + deterministic retrieval;
+- M4B: mmap native memory store + incremental zero-copy index + native append/retrieve/compact.
 
 ## M3 multimodal contract
 
@@ -49,8 +50,11 @@ Reference retrieval is deterministic and model-agnostic: exact cosine similarity
 with half-life recency and importance. Retention/compaction is atomic, preserves the highest ID
 to prevent ID reuse and preserves parent ancestry for retained derived records.
 
-The native runtime adds libvn97_memory.a with zero-copy journal validation. Native mutation and
-retrieval execution remain the next M4 deployment step.
+The native runtime adds libvn97_memory.a. M4B extends it with a file-backed MemoryStore:
+exclusive single-writer locking, mmap-backed records, incremental suffix indexing, native
+SHA-256 record creation, exact deterministic retrieval, torn-tail recovery and atomic
+provenance-preserving compaction. The index stores metadata/offsets and inverse norms rather
+than duplicating journal vectors in a second RAM table.
 
 ## Native execution libraries
 
