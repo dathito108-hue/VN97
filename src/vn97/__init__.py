@@ -1,3 +1,22 @@
+from .cognition import (
+    CognitionBackend,
+    CognitionContractError,
+    CognitionLimits,
+    CognitionLoop,
+    CognitionLoopError,
+    DependencyResult,
+    LoopBoundary,
+    LoopRunResult,
+    MemoryQuery,
+    MemoryQueryRequest,
+    PlanDraft,
+    PlanDraftRequest,
+    PlanRevision,
+    StepProposal,
+    StepReasoningRequest,
+    VerificationDecision,
+    VerificationRequest,
+)
 from .config import VN97Config
 from .embedding import FactorizedEmbedding, FactorizedLMHead
 from .memory import (
@@ -76,6 +95,23 @@ from .tokenizer import (
 )
 
 __all__ = [
+    "CognitionBackend",
+    "CognitionContractError",
+    "CognitionLimits",
+    "CognitionLoop",
+    "CognitionLoopError",
+    "DependencyResult",
+    "LoopBoundary",
+    "LoopRunResult",
+    "MemoryQuery",
+    "MemoryQueryRequest",
+    "PlanDraft",
+    "PlanDraftRequest",
+    "PlanRevision",
+    "StepProposal",
+    "StepReasoningRequest",
+    "VerificationDecision",
+    "VerificationRequest",
     "VN97Config",
     "VN97LanguageCore",
     "VN97States",
