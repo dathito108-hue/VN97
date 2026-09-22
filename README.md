@@ -181,6 +181,35 @@ M6 is complete at the platform-neutral tool/authority contract. Android UI prese
 Keystore-backed approval secrets and concrete platform lifecycle/permission integration belong
 to M7 and must preserve these M6 invariants.
 
+## M7A native runtime session ABI
+
+M7A introduces the native session boundary that Android/JNI will wrap. JNI-facing code uses an
+opaque nonzero `uint64_t` handle registry rather than exporting raw C++ pointers. Registry
+lookups retain a `shared_ptr` for the duration of each call, so destroying a handle invalidates
+future calls without freeing a session that is still in use by an in-flight operation.
+
+A runtime session owns the recurrent state shape
+`[layers, batch, d_model, d_state]`, resolved recurrent/packed backends and a monotonic sequence
+position. State size multiplication is overflow checked and the reference runtime caps recurrent
+state storage at 512 MiB. Imported state must be finite and exact-sized.
+
+Lifecycle is explicit: `CREATED → ACTIVE ↔ SUSPENDED`. State mutation from the host and
+checkpoint creation are prohibited while ACTIVE. A restored session always returns SUSPENDED;
+restore never silently resumes execution.
+
+`VN97RUN1` is a versioned little-endian checkpoint containing exact shape, requested backend
+profile, sequence position and the full recurrent state. Header and payload CRC32 values detect
+corruption and exact blob length/state count are validated. The checkpoint CRC is an integrity
+mechanism, not a cryptographic author signature or M6 authority grant.
+
+AUTO backend selection resolves through the existing VN97 recurrent and packed-ternary backend
+dispatch. An explicitly requested backend that is unavailable on the current device fails closed
+both on create and restore.
+
+M7A intentionally does not implement Android UI, permissions, Keystore, scheduling or background
+services. M7B will wrap this stable ABI with JNI/platform adapters while preserving the completed
+M6 authority path.
+
 ## Native execution libraries
 
 - libvn97_packed_ternary.a
@@ -189,6 +218,7 @@ to M7 and must preserve these M6 invariants.
 - libvn97_tokenizer.a
 - libvn97_modality.a
 - libvn97_memory.a
+- libvn97_runtime.a
 
 See:
 
@@ -203,6 +233,7 @@ See:
 - docs/AUTHORITY_M6A.md
 - docs/CAPABILITIES_M6B.md
 - docs/EXTERNAL_INTENT_M6C.md
+- docs/RUNTIME_M7A.md
 - docs/NATIVE_SELECTIVE_M2C.md
 
 ## Local verification
