@@ -21,6 +21,10 @@ bool MulOverflows(std::size_t a, std::size_t b) {
     return b != 0 && a > std::numeric_limits<std::size_t>::max() / b;
 }
 
+bool AddOverflows(std::size_t a, std::size_t b) {
+    return b > std::numeric_limits<std::size_t>::max() - a;
+}
+
 bool ValidViewGeometry(const PackedTernaryView& matrix) {
     if (matrix.rows == 0 ||
         matrix.cols == 0 ||
@@ -99,7 +103,8 @@ PackedTernaryStatus ParsePackedTernary(
     }
     const std::size_t symbol_count =
         static_cast<std::size_t>(m.padded_rows) * m.padded_cols;
-    const std::size_t expected_packed = (symbol_count + 3) / 4;
+    const std::size_t expected_packed =
+        symbol_count / 4u + (symbol_count % 4u == 0u ? 0u : 1u);
     if (m.packed_data_size != expected_packed) {
         return PackedTernaryStatus::kInvalidLength;
     }
@@ -107,7 +112,16 @@ PackedTernaryStatus ParsePackedTernary(
         return PackedTernaryStatus::kInvalidLength;
     }
     const std::size_t scale_bytes = static_cast<std::size_t>(m.rows) * 4;
-    const std::size_t expected_size = kHeaderSize + scale_bytes + expected_packed;
+    if (AddOverflows(kHeaderSize, scale_bytes)) {
+        return PackedTernaryStatus::kInvalidLength;
+    }
+    const std::size_t header_and_scales =
+        kHeaderSize + scale_bytes;
+    if (AddOverflows(header_and_scales, expected_packed)) {
+        return PackedTernaryStatus::kInvalidLength;
+    }
+    const std::size_t expected_size =
+        header_and_scales + expected_packed;
     if (blob_size != expected_size) {
         return PackedTernaryStatus::kInvalidLength;
     }
