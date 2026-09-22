@@ -55,7 +55,8 @@ bool FiniteArray(const float* values, std::size_t count) {
 
 bool ValidStructure(const LanguageModelView& model) {
     if (!ModelIdPresent(model) || model.vocab_size <= 1 ||
-        model.d_model == 0 || model.n_layers == 0 || model.d_state == 0 ||
+        model.d_model == 0 || model.d_model > std::numeric_limits<std::uint32_t>::max() / 2u ||
+        model.n_layers == 0 || model.d_state == 0 ||
         !std::isfinite(model.dt_min) || !std::isfinite(model.dt_max) ||
         !std::isfinite(model.rms_eps) || model.dt_min <= 0.0f ||
         model.dt_max < model.dt_min || model.rms_eps <= 0.0f ||
@@ -265,12 +266,16 @@ LanguageStatus LanguageWorkspaceFloats(
         return LanguageStatus::kSizeOverflow;
     }
 
-    const std::size_t scratch =
-        static_cast<std::size_t>(6) * model.d_model +
-        static_cast<std::size_t>(2) * model.d_state +
-        model.embedding_rank;
-
-    if (AddOverflow(batch_x, scratch, out)) {
+    std::size_t model_scratch = 0;
+    std::size_t state_scratch = 0;
+    if (MulOverflow(6, model.d_model, &model_scratch) ||
+        MulOverflow(2, model.d_state, &state_scratch)) {
+        return LanguageStatus::kSizeOverflow;
+    }
+    std::size_t scratch = 0;
+    if (AddOverflow(model_scratch, state_scratch, &scratch) ||
+        AddOverflow(scratch, model.embedding_rank, &scratch) ||
+        AddOverflow(batch_x, scratch, out)) {
         return LanguageStatus::kSizeOverflow;
     }
     return LanguageStatus::kOk;
