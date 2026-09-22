@@ -541,4 +541,132 @@ int vn97_runtime_state_read(std::uint64_t h,float* out,std::size_t n){ auto s=Lo
 int vn97_runtime_state_write(std::uint64_t h,const float* in,std::size_t n){ auto s=Lookup(h); return s?static_cast<int>(s->WriteState(in,n)):static_cast<int>(vn97::RuntimeStatus::kInvalidHandle); }
 int vn97_runtime_checkpoint_size(std::uint64_t h,std::size_t* out){ auto s=Lookup(h); return s?static_cast<int>(s->CheckpointSize(out)):static_cast<int>(vn97::RuntimeStatus::kInvalidHandle); }
 int vn97_runtime_checkpoint_write(std::uint64_t h,std::uint8_t* out,std::size_t c,std::size_t* w){ auto s=Lookup(h); return s?static_cast<int>(s->WriteCheckpoint(out,c,w)):static_cast<int>(vn97::RuntimeStatus::kInvalidHandle); }
+int vn97_runtime_infer_step(
+    std::uint64_t handle,
+    const vn97::LanguageModelView* language_model_view,
+    const std::uint32_t* input_ids,
+    std::size_t input_count,
+    float* logits,
+    std::size_t logits_count) {
+    if (language_model_view == nullptr || input_ids == nullptr || logits == nullptr) {
+        return static_cast<int>(vn97::RuntimeStatus::kNullArgument);
+    }
+    const auto session = Lookup(handle);
+    if (!session) return static_cast<int>(vn97::RuntimeStatus::kInvalidHandle);
+    const auto info = session->Info();
+    if (input_count != info.config.batch) {
+        return static_cast<int>(vn97::RuntimeStatus::kInvalidConfig);
+    }
+    return static_cast<int>(session->InferStep(*language_model_view, input_ids, logits, logits_count));
+}
+
+int vn97_runtime_prefill(
+    std::uint64_t handle,
+    const vn97::LanguageModelView* language_model_view,
+    const std::uint32_t* input_ids,
+    std::size_t input_count,
+    std::size_t step_count,
+    float* final_logits,
+    std::size_t logits_count) {
+    if (language_model_view == nullptr || input_ids == nullptr || final_logits == nullptr) {
+        return static_cast<int>(vn97::RuntimeStatus::kNullArgument);
+    }
+    if (step_count == 0) return static_cast<int>(vn97::RuntimeStatus::kInvalidConfig);
+    const auto session = Lookup(handle);
+    if (!session) return static_cast<int>(vn97::RuntimeStatus::kInvalidHandle);
+    const auto info = session->Info();
+    const std::size_t batch = info.config.batch;
+    if (batch == 0 || step_count > std::numeric_limits<std::size_t>::max() / batch) {
+        return static_cast<int>(vn97::RuntimeStatus::kSizeOverflow);
+    }
+    if (input_count != step_count * batch) {
+        return static_cast<int>(vn97::RuntimeStatus::kInvalidConfig);
+    }
+    for (std::size_t step = 0; step < step_count; ++step) {
+        const auto status = session->InferStep(
+            *language_model_view,
+            input_ids + step * batch,
+            final_logits,
+            logits_count);
+        if (status != vn97::RuntimeStatus::kOk) return static_cast<int>(status);
+    }
+    return static_cast<int>(vn97::RuntimeStatus::kOk);
+}
+
+int vn97_runtime_generate_greedy(
+    std::uint64_t handle,
+    const vn97::LanguageModelView* language_model_view,
+    const std::uint32_t* prompt_ids,
+    std::size_t prompt_count,
+    std::size_t max_new_tokens,
+    std::uint32_t eos_token,
+    std::uint32_t* output_ids,
+    std::size_t output_capacity,
+    std::size_t* output_count) {
+    if (output_count == nullptr || language_model_view == nullptr) {
+        return static_cast<int>(vn97::RuntimeStatus::kNullArgument);
+    }
+    *output_count = 0;
+    if (max_new_tokens == 0) return static_cast<int>(vn97::RuntimeStatus::kOk);
+    if (prompt_ids == nullptr || output_ids == nullptr) {
+        return static_cast<int>(vn97::RuntimeStatus::kNullArgument);
+    }
+    if (prompt_count == 0) return static_cast<int>(vn97::RuntimeStatus::kInvalidConfig);
+    if (output_capacity < max_new_tokens) {
+        return static_cast<int>(vn97::RuntimeStatus::kOutputTooSmall);
+    }
+
+    const auto session = Lookup(handle);
+    if (!session) return static_cast<int>(vn97::RuntimeStatus::kInvalidHandle);
+    const auto info = session->Info();
+    if (info.config.batch != 1) {
+        return static_cast<int>(vn97::RuntimeStatus::kInvalidConfig);
+    }
+
+    if (language_model_view->vocab_size <= 1) {
+        return static_cast<int>(vn97::RuntimeStatus::kInferenceError);
+    }
+    std::vector<float> logits;
+    try {
+        logits.assign(language_model_view->vocab_size, 0.0f);
+    } catch (...) {
+        return static_cast<int>(vn97::RuntimeStatus::kSizeOverflow);
+    }
+
+    for (std::size_t i = 0; i < prompt_count; ++i) {
+        const auto status = session->InferStep(
+            *language_model_view,
+            prompt_ids + i,
+            logits.data(),
+            logits.size());
+        if (status != vn97::RuntimeStatus::kOk) return static_cast<int>(status);
+    }
+
+    for (std::size_t generated = 0; generated < max_new_tokens; ++generated) {
+        std::uint32_t token = 0;
+        float best = -std::numeric_limits<float>::infinity();
+        for (std::uint32_t id = 0; id < language_model_view->vocab_size; ++id) {
+            const float value = logits[id];
+            if (!std::isfinite(value)) {
+                return static_cast<int>(vn97::RuntimeStatus::kInferenceError);
+            }
+            if (id == 0 || value > best) {
+                best = value;
+                token = id;
+            }
+        }
+
+        output_ids[generated] = token;
+        const auto status = session->InferStep(
+            *language_model_view,
+            &token,
+            logits.data(),
+            logits.size());
+        if (status != vn97::RuntimeStatus::kOk) return static_cast<int>(status);
+        *output_count = generated + 1;
+        if (token == eos_token) break;
+    }
+    return static_cast<int>(vn97::RuntimeStatus::kOk);
+}
+
 }

@@ -161,6 +161,7 @@ from .memory import (
     scan_journal,
 )
 from .model import VN97LanguageCore, VN97States
+from .model_image import VN97ModelImage, build_model_image
 from .modality import (
     AudioAdapterConfig,
     AudioFrameAdapter,
@@ -353,6 +354,8 @@ __all__ = [
     "VN97Config",
     "VN97LanguageCore",
     "VN97States",
+    "VN97ModelImage",
+    "build_model_image",
     "FactorizedEmbedding",
     "FactorizedLMHead",
     "JournalScan",

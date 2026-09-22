@@ -28,6 +28,9 @@ set(VN97_MEMORY_SOURCES
 set(VN97_RUNTIME_SOURCES
     src/runtime.cpp
 )
+set(VN97_MODEL_IMAGE_SOURCES
+    src/model_image.cpp
+)
 set(VN97_AVATAR_ASSET_SOURCES
     src/avatar_asset.cpp
 )
@@ -85,6 +88,11 @@ target_include_directories(vn97_runtime PUBLIC include)
 target_compile_features(vn97_runtime PUBLIC cxx_std_17)
 target_link_libraries(vn97_runtime PUBLIC vn97_language vn97_recurrent vn97_packed_ternary)
 
+add_library(vn97_model_image STATIC ${VN97_MODEL_IMAGE_SOURCES})
+target_include_directories(vn97_model_image PUBLIC include)
+target_compile_features(vn97_model_image PUBLIC cxx_std_17)
+target_link_libraries(vn97_model_image PUBLIC vn97_runtime vn97_tokenizer)
+
 add_library(vn97_avatar_asset STATIC ${VN97_AVATAR_ASSET_SOURCES})
 target_include_directories(vn97_avatar_asset PUBLIC include)
 target_compile_features(vn97_avatar_asset PUBLIC cxx_std_17)
@@ -138,6 +146,10 @@ if(VN97_BUILD_TESTS)
     add_executable(vn97_runtime_inference_test tests/runtime_inference_test.cpp)
     target_link_libraries(vn97_runtime_inference_test PRIVATE vn97_runtime)
     add_test(NAME vn97_runtime_inference_test COMMAND vn97_runtime_inference_test)
+
+    add_executable(vn97_model_image_test tests/model_image_test.cpp)
+    target_link_libraries(vn97_model_image_test PRIVATE vn97_model_image)
+    add_test(NAME vn97_model_image_test COMMAND vn97_model_image_test)
 
     add_executable(vn97_avatar_asset_test tests/avatar_asset_test.cpp)
     target_link_libraries(vn97_avatar_asset_test PRIVATE vn97_avatar_asset)

@@ -31,6 +31,9 @@ class NativeRuntimeOwner(
     fun info(): NativeRuntimeInfo = requireSession().info()
 
     @Synchronized
+    fun modelBinding(): RuntimeModelBinding = requireSession().modelBinding()
+
+    @Synchronized
     fun activate(): NativeRuntimeInfo {
         val runtime = requireSession()
         runtime.activate()
@@ -50,6 +53,22 @@ class NativeRuntimeOwner(
         runtime.advance(tokenCount)
         return runtime.info()
     }
+
+    @Synchronized
+    fun inferStep(model: NativeActivatedModel, inputIds: IntArray): FloatArray =
+        requireSession().inferStep(model, inputIds)
+
+    @Synchronized
+    fun prefill(model: NativeActivatedModel, inputIds: IntArray): FloatArray =
+        requireSession().prefill(model, inputIds)
+
+    @Synchronized
+    fun generateGreedy(
+        model: NativeActivatedModel,
+        promptIds: IntArray,
+        maxNewTokens: Int,
+        eosToken: Int = 2,
+    ): IntArray = requireSession().generateGreedy(model, promptIds, maxNewTokens, eosToken)
 
     @Synchronized
     fun suspendAndPersist(): NativeRuntimeInfo {
