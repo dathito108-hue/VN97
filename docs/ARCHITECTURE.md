@@ -363,8 +363,13 @@ M8B adds bounded listening/speaking envelopes, PCM16 RMS metering, deterministic
 lookup, presentation-state mapping and continuous jaw/width/round mouth controls. The avatar
 remains permission-free and independent from STT/TTS/cognition execution.
 
-M8C will add optional native asset/rig ingestion and richer gesture/face animation while keeping
-the M8A/M8B typed-state boundary stable.
+M8C adds the bounded VN97AV1 native avatar asset validator, Android JNI validation wrapper and
+semantic rig-pose layer for richer head/jaw/arm/brow/smile animation while keeping the M8A/M8B
+typed-state boundary stable.
+
+M8 is complete at the interactive-avatar architecture contract. Higher-quality meshes, voice,
+animation assets and model behavior are capability/training/package concerns rather than a new
+renderer authority architecture.
 
 ### M9 - Capability acquisition
 Controlled import/adaptation pipeline that converts compatible learned capability into
@@ -430,4 +435,25 @@ VN97-native packages without silently mutating trusted runtime code.
     turn speech/touch presentation into M6 approval or external-action authority.
 130. Any future STT/TTS/audio I/O implementation must remain outside the renderer and preserve the
     existing M6 authority boundary for external side effects.
+
+131. VN97AV1 is the trusted native avatar asset format; the core validator does not execute
+    or embed third-party model/asset parsers.
+132. VN97AV1 requires fixed magic/version/header size, zero reserved fields, exact contiguous
+    offsets/strides/total length and both header/payload CRC32 integrity.
+133. Asset geometry is bounded to 200000 vertices, 600000 triangle indices and 128 joints;
+    allocation arithmetic and offsets are overflow checked before data traversal.
+134. Vertex positions/normals must be finite and bounded, normals have bounded magnitude, and every
+    mesh index must reference an existing vertex.
+135. Rigged vertices require skin-weight sum exactly 255 and every nonzero-weight joint index must
+    exist; unrigged assets require zero total skin weight.
+136. Joint hierarchy is topologically ordered, has a root, validates reserved fields, finite
+    transforms, near-unit quaternions and positive bounded scales.
+137. Native AvatarAssetView references caller-owned bytes only during parsing/read operations;
+    the Android ValidatedAvatarAsset wrapper keeps a defensive immutable byte copy after validation.
+138. The avatar JNI bridge exposes validation metadata only and has no file/network/app/device
+    side effect or M6 approval/policy/lease capability.
+139. AvatarRigAnimator consumes immutable M8 frame state and emits only finite bounded semantic
+    pose controls; it does not mutate cognition, planner or asset bytes.
+140. Future avatar asset acquisition must validate VN97AV1 and use the controlled M9 import/
+    provenance path; CRC32 never substitutes for package authentication or M6 authority.
 

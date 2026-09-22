@@ -344,6 +344,28 @@ The avatar module remains permission-free. Actual microphone capture, speech rec
 speech synthesis and voice-model quality are separate runtime/capability concerns and may not
 bypass M6 authority or the M8 typed presentation boundary.
 
+## M8C native avatar asset + rig contract
+
+M8C adds the sovereign `VN97AV1` avatar asset format and native validator. The trusted runtime
+does not embed glTF/Unity/Filament or another third-party asset parser.
+
+`VN97AV1` uses a fixed little-endian header, exact contiguous vertex/index/joint sections,
+header and payload CRC32, bounded counts/strides and exact total length. The native parser validates
+finite geometry, normal magnitude, index ranges, skin weights, topologically ordered joint
+parents, normalized joint quaternions and positive bounded scale before exposing a view.
+
+The Android `NativeAvatarAsset` wrapper validates a bounded byte array through JNI and returns
+metadata plus a defensive immutable copy. JNI performs validation only; it owns no file/network
+or authority operation.
+
+`AvatarRigAnimator` maps the existing M8A/M8B immutable frame state into bounded semantic rig
+controls for head pitch/yaw, jaw, arm roll, brow raise, smile, mouth width and lip rounding.
+This keeps asset/rig detail below the stable typed avatar-state boundary.
+
+CRC32 is corruption detection only. External asset acquisition/authentication belongs to the
+controlled M9 import pipeline and must still pass the existing M6 authority boundary for any
+external side effects.
+
 ## Native execution libraries
 
 - libvn97_packed_ternary.a
@@ -353,6 +375,7 @@ bypass M6 authority or the M8 typed presentation boundary.
 - libvn97_modality.a
 - libvn97_memory.a
 - libvn97_runtime.a
+- libvn97_avatar_asset.a
 
 See:
 
@@ -397,3 +420,4 @@ Avatar integration:
 
 - docs/AVATAR_M8A.md
 - docs/SPEECH_AVATAR_M8B.md
+- docs/AVATAR_ASSET_M8C.md
