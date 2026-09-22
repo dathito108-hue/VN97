@@ -135,6 +135,10 @@ if(VN97_BUILD_TESTS)
     target_link_libraries(vn97_language_test PRIVATE vn97_language)
     add_test(NAME vn97_language_test COMMAND vn97_language_test)
 
+    add_executable(vn97_runtime_inference_test tests/runtime_inference_test.cpp)
+    target_link_libraries(vn97_runtime_inference_test PRIVATE vn97_runtime)
+    add_test(NAME vn97_runtime_inference_test COMMAND vn97_runtime_inference_test)
+
     add_executable(vn97_avatar_asset_test tests/avatar_asset_test.cpp)
     target_link_libraries(vn97_avatar_asset_test PRIVATE vn97_avatar_asset)
     add_test(NAME vn97_avatar_asset_test COMMAND vn97_avatar_asset_test)
