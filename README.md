@@ -19,7 +19,10 @@ multimodal frontends and explicit sovereign memory.
 - M5B: typed cognition backend loop + bounded retrieval/verification/refinement orchestration;
 - M5C: VN97-owned tokenizer/model cognition adapter + strict structured inference contract;
 - M6A: typed capability registry + deny-by-default authority/approval/lease/audit fabric;
-- M6B: production capability pack for confined files, sovereign HTTPS and platform actions.
+- M6B: production capability pack for confined files, sovereign HTTPS and platform actions;
+- M6C: strict external-intent binding + one-shot exact-request approval sessions;
+- M7A: native runtime session ABI + VN97RUN1 safe checkpoint/restore;
+- M7B1: Android/Kotlin ↔ JNI bridge + atomic runtime checkpoint owner.
 
 ## M3 multimodal contract
 
@@ -210,6 +213,33 @@ M7A intentionally does not implement Android UI, permissions, Keystore, scheduli
 services. M7B will wrap this stable ABI with JNI/platform adapters while preserving the completed
 M6 authority path.
 
+## M7B1 Android JNI runtime bridge
+
+M7B1 adds a permission-free Android library module around the fixed M7A runtime ABI. Kotlin owns
+only an opaque nonzero `Long` handle; JNI translates typed arrays/status values to the M7A C ABI
+and never exposes a native pointer to managed code. Kotlin serializes handle use against
+`close()`, while the M7A registry independently retains native lifetime for an in-flight call.
+
+`NativeRuntimeSession` exposes typed create/restore/info/state/lifecycle/checkpoint operations.
+Native status codes are mapped to explicit `NativeRuntimeStatus` values and failures throw a
+typed `NativeRuntimeException`. A native handle that cannot fit in signed JVM `Long` fails
+closed instead of wrapping negative.
+
+`AtomicCheckpointStore` is for trusted app-internal VN97 runtime state, not arbitrary user file
+access. It rejects symlink roots/targets, bounds checkpoint bytes, writes a same-directory
+temporary file, fsyncs file data, requires atomic replace and fsyncs the parent directory through
+JNI. `NativeRuntimeOwner` restores a checkpoint only if its exact runtime configuration matches
+the requested session, and persistence happens only at the M7A SUSPENDED safe boundary.
+
+The Android runtime module declares no permissions and contains no internet/app/device-action
+handler. M6 remains the sole authority path for external side effects. M7B2 will add the Android
+Keystore-backed approval-secret provider, permission broker and concrete M6B `AppDeviceAdapter`
+behind that existing authority boundary.
+
+A reproducible host regression under `android/runtime/host-test/run.sh` compiles the JNI bridge
+against the real M7A native sources and runs the Kotlin lifecycle/checkpoint flow on a JVM without
+requiring an Android emulator.
+
 ## Native execution libraries
 
 - libvn97_packed_ternary.a
@@ -234,6 +264,7 @@ See:
 - docs/CAPABILITIES_M6B.md
 - docs/EXTERNAL_INTENT_M6C.md
 - docs/RUNTIME_M7A.md
+- docs/RUNTIME_M7B1.md
 - docs/NATIVE_SELECTIVE_M2C.md
 
 ## Local verification
