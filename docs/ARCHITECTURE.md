@@ -577,8 +577,8 @@ at the controlled acquisition/trust/compatibility/activation architecture contra
     not introduce a second model architecture or change Selective-SSM equations.
 182. VN97T2 remains the physical ternary weight format. Its tile-major layout is consumed directly
     by the production scalar/ARM64 execution path rather than converted to an alternate weight copy.
-183. Native VN97T2 validation caps tile_rows and tile_cols at 256, matching the Python format-v1
-    packer and bounding all fixed tile scratch.
+183. Native VN97T2 validation caps tile_rows and tile_cols at 256 and requires canonical minimal
+    round-up padding, matching the Python format-v1 packer and bounding all fixed tile scratch.
 184. PackedTernaryExecutionPlan binds matrix rows/cols, physical row/column blocks and resolved
     backend while exposing effective vector width, tile count and estimated tile working set.
 185. Tiled matvec processes one physical input tile across every valid output row in the tile row;
