@@ -11,6 +11,10 @@ from .quantization import (
     quantize_ternary_per_channel,
     ternary_symbols_and_scales,
 )
+from .scan import (
+    affine_prefix_scan,
+    affine_scan_rounds,
+)
 from .ssm import RMSNorm, SelectiveSSM, VN97Block
 
 __all__ = [
@@ -24,6 +28,8 @@ __all__ = [
     "TernaryLinear",
     "quantize_ternary_per_channel",
     "ternary_symbols_and_scales",
+    "affine_prefix_scan",
+    "affine_scan_rounds",
     "RMSNorm",
     "SelectiveSSM",
     "VN97Block",
