@@ -160,6 +160,27 @@ cognition. Android app/clipboard behavior is injected through `AppDeviceAdapter`
 Android implementation remains an M7 responsibility. No third-party AI or inference service is
 introduced.
 
+## M6C external intent + approval UX contract
+
+M6C connects the M5 `WAITING_EXTERNAL` boundary to M6A requests without turning model output
+into authority. `VN97CognitionAdapter.propose_external_intent()` may propose only a capability
+ID, string-valued scope and JSON payload from a trusted sealed capability catalog.
+
+`ExternalIntentBinder` rebuilds the final `ExternalActionRequest` from the active
+`PlanController`: plan ID, step ID and objective are never copied from model output. The binder
+revalidates the selected capability against the sealed registry and fails closed if the waiting
+step changes while cognition is producing the intent.
+
+`ExternalApprovalCoordinator` creates deterministic presentation data for the exact request
+digest and manages bounded, expiring, thread-safe, one-shot approval sessions. A UI denial,
+expiry, stale/tampered prompt or second concurrent resolution cannot mint an approval token.
+Only an explicit trusted UI resolution calls `ApprovalAuthority.approve()`; cognition never
+receives policy grants, HMAC secrets, approval-token minting or lease mutation APIs.
+
+M6 is complete at the platform-neutral tool/authority contract. Android UI presentation,
+Keystore-backed approval secrets and concrete platform lifecycle/permission integration belong
+to M7 and must preserve these M6 invariants.
+
 ## Native execution libraries
 
 - libvn97_packed_ternary.a
@@ -181,6 +202,7 @@ See:
 - docs/COGNITION_ADAPTER_M5C.md
 - docs/AUTHORITY_M6A.md
 - docs/CAPABILITIES_M6B.md
+- docs/EXTERNAL_INTENT_M6C.md
 - docs/NATIVE_SELECTIVE_M2C.md
 
 ## Local verification
