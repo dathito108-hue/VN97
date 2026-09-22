@@ -15,4 +15,4 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "VN97Android"
-include(":runtime")
+include(":runtime")\ninclude(":platform")

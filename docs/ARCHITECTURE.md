@@ -203,6 +203,31 @@ not the definition of AGI by itself.
 99. M7B1 remains compute/lifecycle infrastructure. Android permissions, Keystore approval secrets
     and AppDeviceAdapter side effects must remain behind the completed M6 authority contract.
 
+100. Android approval HMAC material is generated and retained by AndroidKeyStore; the
+     platform API never exports the secret key as bytes.
+101. Android approval tokens preserve the exact M6 canonical HMAC-SHA256 payload fields and
+     lowercase-hex signature representation, so platform realization does not create a second
+     token format.
+102. Android approval validity uses epoch wall-clock nanoseconds compatible with the M6 reference
+     contract; prompt sessions remain bounded, expiring and process-local.
+103. Raw approval-MAC access, unrestricted token minting and the one-shot coordinator are
+     module-internal. Public Android code resolves only an active prompt or verifies a token.
+104. Android OS permission state is a prerequisite only. A granted permission never substitutes
+     for M6 policy, user approval, capability lease or immutable audit.
+105. Android app/device actions preserve M6B bounds and validation: exact ASCII package IDs and
+     bounded UTF-8 clipboard text.
+106. On API 33+, package launch uses the package-visibility-independent launch IntentSender.
+     Older Android versions use the launch-intent fallback and fail closed when no visible target
+     can be resolved.
+107. VN97 clipboard writes are marked sensitive to suppress unnecessary content previews where
+     supported; this does not change the M6 approval requirement.
+108. The Android platform adapter exposes no shell command, arbitrary Intent URI, accessibility
+     action or unrestricted device-control primitive.
+109. The M7B2 platform library declares no permissions itself. Host-declared permissions are
+     checked by capability ID before platform execution and still remain subordinate to M6.
+110. Android platform side-effect implementation objects are module-internal; trusted runtime
+     assembly must place them behind the completed M6 capability/authority path.
+
 ## System layers
 
     Text tokenizer / audio frontend / vision frontend
@@ -318,8 +343,9 @@ M7B1 adds the permission-free Android/Kotlin ↔ JNI wrapper around M7A, typed r
 bounded atomic VN97RUN1 checkpoint persistence. Host regression exercises create/state/lifecycle/
 checkpoint/restore without requiring an emulator.
 
-M7B2 will add the concrete Android AppDeviceAdapter, platform permission broker and
-Keystore-backed M6 approval-secret provider without changing the M6 trust contract.
+M7B2 adds the AndroidKeyStore-backed M6-compatible approval controller, OS permission prerequisite
+broker and internal exact-package/clipboard platform adapter. It preserves M6 request-digest
+binding, one-shot approval and capability bounds without exposing a side-effect bypass.
 
 M7C will add OS-lifecycle-aware continuation, background scheduling within Android limits,
 hardware scheduling and battery/thermal governance.
