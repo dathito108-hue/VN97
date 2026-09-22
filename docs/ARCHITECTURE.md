@@ -78,6 +78,22 @@ not the definition of AGI by itself.
     grant or cryptographic author signature.
 41. Retrieved memory evidence is referenced by stable VN97MEM1 record IDs and is independently
     bounded by planner retrieval budgets.
+42. Cognition backend outputs are typed proposals, queries and verification decisions; the
+    backend never mutates planner lifecycle state directly.
+43. A retrieval query vector must exactly match the active VN97MEM1 vector dimension before
+    retrieval can run.
+44. Dependency and memory text passed to cognition is bounded by explicit UTF-8 byte budgets;
+    truncation never changes trusted evidence record IDs.
+45. Backend-proposed evidence IDs are not accepted. Evidence is attached only from actual
+    VN97MEM1 retrieval and inherited dependency provenance.
+46. Plan refinement never mutates a started plan graph. Only an unstarted READY plan may be
+    replaced by a new immutable plan with a new plan ID.
+47. Backend runtime exceptions consume bounded retry policy, while schema/shape/size contract
+    violations fail closed without retry.
+48. An EXTERNAL step is never sent through internal cognition execution and remains stopped at
+    WAITING_EXTERNAL until M6 supplies an authorized result.
+49. Per-run cognition yielding occurs only after a safe step/verification boundary; no RUNNING
+    internal step is returned to the caller.
 
 ## System layers
 
@@ -155,8 +171,13 @@ M5A adds a deterministic bounded plan state machine, dependency ordering, confid
 verification, bounded VN97MEM1 retrieval, interruption/resume semantics, an explicit
 WAITING_EXTERNAL boundary and atomic VN97PLN1 safe-point checkpoints.
 
-M5B will connect the state machine to a cognition backend contract for bounded proposal,
-reflection/verification and plan refinement without weakening M5A lifecycle invariants.
+M5B adds the typed CognitionBackend loop for bounded plan proposal, pre-execution refinement,
+memory-query generation, dependency/memory context assembly, proposal execution and
+reflection/verification while preserving M5A budgets and the M6 external-authority boundary.
+
+M5C will provide the production VN97-native cognition adapter over tokenizer/model/native
+inference so the language core can implement CognitionBackend without changing M5A/M5B
+orchestration semantics.
 
 ### M6 - Tool and authority fabric
 Internet, files, apps and device actions through typed capabilities, explicit permissions,
