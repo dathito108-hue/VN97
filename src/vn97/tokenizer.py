@@ -24,6 +24,7 @@ BYTE_COUNT = 256
 LEARNED_BASE = BYTE_BASE + BYTE_COUNT
 _HEADER = struct.Struct("<8sIIII")
 _U32 = struct.Struct("<I")
+_BUCKET_START_COUNT = BYTE_COUNT + 1
 
 
 @dataclass(frozen=True)
@@ -36,23 +37,80 @@ class VN97TokenizerPackage:
             if not isinstance(token, bytes):
                 raise TypeError("learned tokens must be bytes")
             if len(token) < 2:
-                raise ValueError("learned tokens must contain at least two bytes")
+                raise ValueError(
+                    "learned tokens must contain at least two bytes"
+                )
             if token in seen:
-                raise ValueError("learned tokens must be unique")
+                raise ValueError(
+                    "learned tokens must be unique"
+                )
             seen.add(token)
 
     @property
     def vocab_size(self) -> int:
-        return LEARNED_BASE + len(self.learned_tokens)
+        return (
+            LEARNED_BASE
+            + len(self.learned_tokens)
+        )
+
+    def _bucket_tables(
+        self,
+    ) -> tuple[list[int], list[int]]:
+        buckets: list[list[int]] = [
+            []
+            for _ in range(
+                BYTE_COUNT
+            )
+        ]
+        for index, token in enumerate(
+            self.learned_tokens
+        ):
+            buckets[
+                token[0]
+            ].append(index)
+
+        for bucket in buckets:
+            bucket.sort(
+                key=lambda index: (
+                    -len(
+                        self.learned_tokens[
+                            index
+                        ]
+                    ),
+                    index,
+                )
+            )
+
+        starts = [0]
+        indices: list[int] = []
+        for bucket in buckets:
+            indices.extend(bucket)
+            starts.append(
+                len(indices)
+            )
+        return starts, indices
 
     def to_bytes(self) -> bytes:
         offsets = [0]
         token_data = bytearray()
         for token in self.learned_tokens:
             token_data.extend(token)
-            if len(token_data) > 0xFFFFFFFF:
-                raise ValueError("VN97TK1 token payload exceeds uint32 offsets")
-            offsets.append(len(token_data))
+            if (
+                len(token_data)
+                > 0xFFFFFFFF
+            ):
+                raise ValueError(
+                    "VN97TK1 token payload exceeds uint32 offsets"
+                )
+            offsets.append(
+                len(token_data)
+            )
+
+        (
+            bucket_starts,
+            bucket_indices,
+        ) = self._bucket_tables()
+
         header = _HEADER.pack(
             MAGIC,
             VERSION,
@@ -60,18 +118,47 @@ class VN97TokenizerPackage:
             BYTE_BASE,
             len(self.learned_tokens),
         )
-        table = b"".join(_U32.pack(offset) for offset in offsets)
-        return header + table + token_data
+        offset_table = b"".join(
+            _U32.pack(value)
+            for value in offsets
+        )
+        bucket_start_table = b"".join(
+            _U32.pack(value)
+            for value in bucket_starts
+        )
+        bucket_index_table = b"".join(
+            _U32.pack(value)
+            for value in bucket_indices
+        )
+        return (
+            header
+            + offset_table
+            + bucket_start_table
+            + bucket_index_table
+            + token_data
+        )
 
     @classmethod
-    def from_bytes(cls, blob: bytes) -> "VN97TokenizerPackage":
+    def from_bytes(
+        cls,
+        blob: bytes,
+    ) -> "VN97TokenizerPackage":
         if len(blob) < _HEADER.size:
-            raise ValueError("tokenizer package is shorter than the header")
-        magic, version, control_count, byte_base, learned_count = (
-            _HEADER.unpack_from(blob)
-        )
+            raise ValueError(
+                "tokenizer package is shorter than the header"
+            )
+        (
+            magic,
+            version,
+            control_count,
+            byte_base,
+            learned_count,
+        ) = _HEADER.unpack_from(blob)
+
         if magic != MAGIC:
-            raise ValueError("bad VN97TK1 magic")
+            raise ValueError(
+                "bad VN97TK1 magic"
+            )
         if version != VERSION:
             raise ValueError(
                 f"unsupported VN97TK1 version: {version}"
@@ -84,44 +171,168 @@ class VN97TokenizerPackage:
                 "incompatible VN97TK1 control/byte layout"
             )
 
-        table_size = (learned_count + 1) * _U32.size
-        table_end = _HEADER.size + table_size
+        offset_table_size = (
+            learned_count + 1
+        ) * _U32.size
+        bucket_start_size = (
+            _BUCKET_START_COUNT
+            * _U32.size
+        )
+        bucket_index_size = (
+            learned_count
+            * _U32.size
+        )
+        table_end = (
+            _HEADER.size
+            + offset_table_size
+            + bucket_start_size
+            + bucket_index_size
+        )
         if table_end > len(blob):
             raise ValueError(
-                "truncated learned-token offset table"
+                "truncated VN97TK1 index tables"
             )
+
+        offset_base = _HEADER.size
+        bucket_start_base = (
+            offset_base
+            + offset_table_size
+        )
+        bucket_index_base = (
+            bucket_start_base
+            + bucket_start_size
+        )
+        token_data = blob[table_end:]
+
         offsets = [
             _U32.unpack_from(
                 blob,
-                _HEADER.size + i * _U32.size,
+                offset_base
+                + i * _U32.size,
             )[0]
-            for i in range(learned_count + 1)
-        ]
-        if offsets[0] != 0:
-            raise ValueError(
-                "VN97TK1 first learned-token offset must be zero"
+            for i in range(
+                learned_count + 1
             )
-        token_data = blob[table_end:]
-        if offsets[-1] != len(token_data):
+        ]
+        if (
+            offsets[0] != 0
+            or offsets[-1]
+            != len(token_data)
+        ):
             raise ValueError(
-                "VN97TK1 final offset does not match payload size"
+                "VN97TK1 learned-token offsets do not bound payload"
             )
 
         learned: list[bytes] = []
         previous = 0
         for offset in offsets[1:]:
-            if offset < previous or offset > len(token_data):
+            if (
+                offset < previous
+                or offset
+                > len(token_data)
+            ):
                 raise ValueError(
                     "invalid VN97TK1 learned-token offset"
                 )
-            token = bytes(token_data[previous:offset])
+            token = bytes(
+                token_data[
+                    previous:offset
+                ]
+            )
             if len(token) < 2:
                 raise ValueError(
                     "learned tokens must contain at least two bytes"
                 )
             learned.append(token)
             previous = offset
-        return cls(tuple(learned))
+
+        starts = [
+            _U32.unpack_from(
+                blob,
+                bucket_start_base
+                + i * _U32.size,
+            )[0]
+            for i in range(
+                _BUCKET_START_COUNT
+            )
+        ]
+        if (
+            starts[0] != 0
+            or starts[-1]
+            != learned_count
+        ):
+            raise ValueError(
+                "invalid VN97TK1 bucket bounds"
+            )
+        if any(
+            a > b
+            or b > learned_count
+            for a, b in zip(
+                starts,
+                starts[1:],
+            )
+        ):
+            raise ValueError(
+                "non-monotonic VN97TK1 bucket bounds"
+            )
+
+        indices = [
+            _U32.unpack_from(
+                blob,
+                bucket_index_base
+                + i * _U32.size,
+            )[0]
+            for i in range(
+                learned_count
+            )
+        ]
+        if sorted(indices) != list(
+            range(learned_count)
+        ):
+            raise ValueError(
+                "VN97TK1 bucket index is not a token permutation"
+            )
+
+        for first_byte in range(
+            BYTE_COUNT
+        ):
+            previous_key: (
+                tuple[int, int]
+                | None
+            ) = None
+            for position in range(
+                starts[first_byte],
+                starts[first_byte + 1],
+            ):
+                index = indices[
+                    position
+                ]
+                token = learned[index]
+                if (
+                    token[0]
+                    != first_byte
+                ):
+                    raise ValueError(
+                        "VN97TK1 token stored in the wrong byte bucket"
+                    )
+                key = (
+                    -len(token),
+                    index,
+                )
+                if (
+                    previous_key
+                    is not None
+                    and previous_key
+                    > key
+                ):
+                    raise ValueError(
+                        "VN97TK1 byte bucket is not longest-first"
+                    )
+                previous_key = key
+
+        return cls(
+            tuple(learned)
+        )
 
 
 class VN97Tokenizer:
@@ -138,20 +349,36 @@ class VN97Tokenizer:
 
     def __init__(
         self,
-        package: VN97TokenizerPackage | None = None,
+        package: (
+            VN97TokenizerPackage
+            | None
+        ) = None,
     ) -> None:
-        self.package = package or VN97TokenizerPackage()
+        self.package = (
+            package
+            or VN97TokenizerPackage()
+        )
         buckets: dict[
             int,
-            list[tuple[bytes, int]],
+            list[
+                tuple[bytes, int]
+            ],
         ] = {}
+
         for index, token in enumerate(
             self.package.learned_tokens
         ):
-            token_id = LEARNED_BASE + index
+            token_id = (
+                LEARNED_BASE
+                + index
+            )
             buckets.setdefault(
-                token[0], []
-            ).append((token, token_id))
+                token[0],
+                [],
+            ).append(
+                (token, token_id)
+            )
+
         for values in buckets.values():
             values.sort(
                 key=lambda item: (
@@ -175,36 +402,60 @@ class VN97Tokenizer:
     ) -> list[int]:
         output: list[int] = []
         if add_bos:
-            output.append(self.bos_id)
+            output.append(
+                self.bos_id
+            )
         if add_text_tag:
-            output.append(self.text_id)
+            output.append(
+                self.text_id
+            )
 
         offset = 0
         while offset < len(data):
-            matched_id: int | None = None
+            matched_id: (
+                int | None
+            ) = None
             matched_size = 0
-            for token, token_id in self._buckets.get(
-                data[offset], ()
+            for token, token_id in (
+                self._buckets.get(
+                    data[offset],
+                    (),
+                )
             ):
-                end = offset + len(token)
+                end = (
+                    offset
+                    + len(token)
+                )
                 if (
                     end <= len(data)
-                    and data[offset:end] == token
+                    and data[
+                        offset:end
+                    ] == token
                 ):
-                    matched_id = token_id
-                    matched_size = len(token)
+                    matched_id = (
+                        token_id
+                    )
+                    matched_size = (
+                        len(token)
+                    )
                     break
+
             if matched_id is None:
                 output.append(
-                    BYTE_BASE + data[offset]
+                    BYTE_BASE
+                    + data[offset]
                 )
                 offset += 1
             else:
-                output.append(matched_id)
+                output.append(
+                    matched_id
+                )
                 offset += matched_size
 
         if add_eos:
-            output.append(self.eos_id)
+            output.append(
+                self.eos_id
+            )
         return output
 
     def encode(
@@ -229,31 +480,45 @@ class VN97Tokenizer:
         skip_control: bool = True,
     ) -> bytes:
         output = bytearray()
+
         for token_id in token_ids:
-            if not isinstance(token_id, int):
+            if not isinstance(
+                token_id,
+                int,
+            ):
                 raise TypeError(
                     "token IDs must be integers"
                 )
-            if 0 <= token_id < CONTROL_COUNT:
+
+            if (
+                0
+                <= token_id
+                < CONTROL_COUNT
+            ):
                 if skip_control:
                     continue
                 raise ValueError(
                     "control tokens do not map to transport bytes"
                 )
+
             if (
                 BYTE_BASE
                 <= token_id
                 < LEARNED_BASE
             ):
                 output.append(
-                    token_id - BYTE_BASE
+                    token_id
+                    - BYTE_BASE
                 )
                 continue
+
             learned_index = (
-                token_id - LEARNED_BASE
+                token_id
+                - LEARNED_BASE
             )
             if (
-                0 <= learned_index
+                0
+                <= learned_index
                 < len(
                     self.package.learned_tokens
                 )
@@ -264,9 +529,11 @@ class VN97Tokenizer:
                     ]
                 )
                 continue
+
             raise ValueError(
                 f"token ID out of range: {token_id}"
             )
+
         return bytes(output)
 
     def decode(
@@ -301,11 +568,16 @@ def learn_byte_bpe(
             "min_pair_count must be at least 2"
         )
 
-    sequences: list[list[bytes]] = []
+    sequences: list[
+        list[bytes]
+    ] = []
     for sample in corpus:
         data = (
             sample.encode("utf-8")
-            if isinstance(sample, str)
+            if isinstance(
+                sample,
+                str,
+            )
             else bytes(sample)
         )
         if data:
@@ -318,7 +590,11 @@ def learn_byte_bpe(
 
     learned: list[bytes] = []
     learned_set: set[bytes] = set()
-    while len(learned) < max_learned_tokens:
+
+    while (
+        len(learned)
+        < max_learned_tokens
+    ):
         counts: Counter[
             tuple[bytes, bytes]
         ] = Counter()
@@ -336,18 +612,23 @@ def learn_byte_bpe(
             counts.items(),
             key=lambda item: (
                 -item[1],
-                item[0][0] + item[0][1],
+                item[0][0]
+                + item[0][1],
                 item[0][0],
                 item[0][1],
             ),
         )
+
         pair: (
             tuple[bytes, bytes]
             | None
         ) = None
         merged = b""
         for candidate, count in ranked:
-            if count < min_pair_count:
+            if (
+                count
+                < min_pair_count
+            ):
                 break
             candidate_bytes = (
                 candidate[0]
@@ -360,11 +641,16 @@ def learn_byte_bpe(
                 pair = candidate
                 merged = candidate_bytes
                 break
+
         if pair is None:
             break
 
-        learned.append(merged)
-        learned_set.add(merged)
+        learned.append(
+            merged
+        )
+        learned_set.add(
+            merged
+        )
 
         rewritten: list[
             list[bytes]
@@ -374,13 +660,16 @@ def learn_byte_bpe(
                 bytes
             ] = []
             i = 0
+
             while i < len(sequence):
                 if (
                     i + 1
                     < len(sequence)
                     and sequence[i]
                     == pair[0]
-                    and sequence[i + 1]
+                    and sequence[
+                        i + 1
+                    ]
                     == pair[1]
                 ):
                     next_sequence.append(
@@ -392,9 +681,11 @@ def learn_byte_bpe(
                         sequence[i]
                     )
                     i += 1
+
             rewritten.append(
                 next_sequence
             )
+
         sequences = rewritten
 
     return VN97TokenizerPackage(

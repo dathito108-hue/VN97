@@ -8,6 +8,7 @@ namespace vn97 {
 constexpr std::uint32_t kTokenizerControlCount = 8;
 constexpr std::uint32_t kTokenizerByteBase = 8;
 constexpr std::uint32_t kTokenizerLearnedBase = 264;
+constexpr std::uint32_t kTokenizerBucketCount = 256;
 
 enum class TokenizerStatus {
     kOk = 0,
@@ -34,6 +35,8 @@ struct TokenizerView {
     const std::uint8_t* blob = nullptr;
     std::size_t blob_size = 0;
     const std::uint8_t* offset_table = nullptr;
+    const std::uint8_t* bucket_starts = nullptr;
+    const std::uint8_t* bucket_indices = nullptr;
     const std::uint8_t* token_data = nullptr;
     std::size_t token_data_size = 0;
     std::uint32_t learned_count = 0;
