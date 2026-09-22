@@ -58,6 +58,25 @@ from .capability_package import (
     build_capability_package,
     parse_capability_package,
 )
+from .capability_activation import (
+    ActivationConflictError,
+    ActivationRecoveryRequired,
+    BackendStatus,
+    BackendTransactionState,
+    CapabilityActivationBackend,
+    CapabilityActivationCoordinator,
+    PreparedActivation,
+    VersionTransitionError,
+    compatibility_plan_sha256,
+)
+from .capability_inventory import (
+    CapabilityActivationError,
+    CapabilityInventoryItem,
+    CapabilityInventoryStore,
+    InventoryCorruptionError,
+    InventoryEvent,
+    InventorySnapshot,
+)
 from .capability_trust import (
     AdapterSpec,
     CapabilityTrustError,
@@ -203,6 +222,21 @@ from .tokenizer import (
 )
 
 __all__ = [
+    "ActivationConflictError",
+    "ActivationRecoveryRequired",
+    "BackendStatus",
+    "BackendTransactionState",
+    "CapabilityActivationBackend",
+    "CapabilityActivationCoordinator",
+    "PreparedActivation",
+    "VersionTransitionError",
+    "compatibility_plan_sha256",
+    "CapabilityActivationError",
+    "CapabilityInventoryItem",
+    "CapabilityInventoryStore",
+    "InventoryCorruptionError",
+    "InventoryEvent",
+    "InventorySnapshot",
     "AdapterSpec",
     "CapabilityTrustError",
     "CapabilityTrustStore",
