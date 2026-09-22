@@ -19,3 +19,8 @@ android {
         warningsAsErrors = true
     }
 }
+
+
+dependencies {
+    implementation(project(":runtime"))
+}

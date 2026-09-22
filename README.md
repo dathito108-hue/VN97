@@ -271,6 +271,24 @@ The `:platform` manifest requests no permission by itself. A host may configure 
 permission requirements, but M6 policy + explicit approval + lease remain mandatory before a
 side-effect handler is invoked.
 
+## M7C Android continuity + compute governance
+
+M7C adds OS-lifecycle-aware continuation using Android JobScheduler. Jobs are persisted across
+process death and reboot through Android's scheduler contract. The library JobService recreates
+the runtime from VN97RUN1, resumes only at a safe suspended boundary, invokes a host-provided
+`ContinuationWork`, then suspends and atomically persists state again.
+
+The host Application implements `ContinuationWorkProvider`; this keeps task-specific cognition
+outside the platform library while still allowing cold-process reconstruction.
+
+`AndroidComputeGovernor` maps battery/charging and thermal signals into one of four bounded
+profiles: BLOCKED, LOW_POWER, BALANCED or PERFORMANCE. Each profile carries token/run-time and
+retry-delay ceilings. Severe thermal state or critical unplugged battery blocks computation and
+asks JobScheduler to reschedule.
+
+The continuation service itself owns no M6 capability authority. App/device/network/file side
+effects still require M6C exact intent/approval and M6A policy/lease/audit.
+
 ## Native execution libraries
 
 - libvn97_packed_ternary.a
