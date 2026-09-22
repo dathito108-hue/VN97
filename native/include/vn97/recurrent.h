@@ -10,6 +10,7 @@ enum class RecurrentStatus {
     kInvalidShape,
     kSizeOverflow,
     kBackendUnavailable,
+    kInvalidParameter,
 };
 
 enum class RecurrentBackend {
