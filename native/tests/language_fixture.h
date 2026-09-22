@@ -3,6 +3,7 @@
 #include "vn97/language.h"
 #include "vn97/packed_ternary.h"
 
+#include <algorithm>
 #include <cassert>
 #include <cmath>
 #include <cstdint>
