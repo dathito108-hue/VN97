@@ -29,7 +29,9 @@ enum class NativeRuntimeStatus(val code: Int) {
     CHECKPOINT_CORRUPT(7),
     CHECKPOINT_MISMATCH(8),
     COUNTER_OVERFLOW(9),
-    BACKEND_UNAVAILABLE(10);
+    BACKEND_UNAVAILABLE(10),
+    MODEL_MISMATCH(11),
+    INFERENCE_ERROR(12);
 
     companion object {
         internal fun fromCode(code: Int): NativeRuntimeStatus =

@@ -131,3 +131,11 @@ A successful run prints `M7B_JNI_KOTLIN_INTEGRATION_PASS`.
 
 The host regression validates JNI/Kotlin ownership and persistence semantics. Android framework,
 Keystore, permission and OS-lifecycle behavior remains M7B2/M7C work.
+
+
+## M7D compatibility note
+
+M7D preserves VN97RUN1 restore support for unbound/legacy sessions and adds VN97RUN2 for
+model-bound recurrent state. AtomicCheckpointStore remains byte-opaque; its default size ceiling
+is extended from the original 512 MiB + 64-byte RUN1 header to 512 MiB + 100 bytes so the same
+store can persist RUN2 without changing its atomic/no-follow/fsync guarantees.

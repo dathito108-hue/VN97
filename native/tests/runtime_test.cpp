@@ -7,6 +7,7 @@ int main(){
   vn97_runtime_config cfg{2,1,3,2,0,0}; std::uint64_t h=0;
   assert(vn97_runtime_create(&cfg,&h)==0 && h!=0);
   vn97_runtime_info info{}; assert(vn97_runtime_info_get(h,&info)==0); assert(info.state_count==12); assert(info.lifecycle==0); assert(info.resolved_recurrent_backend==1);
+  int model_bound=-1; std::uint8_t model_id[32] = {}; assert(vn97_runtime_model_binding_get(h,&model_bound,model_id,32)==0); assert(model_bound==0);
   std::vector<float> st(12); for(size_t i=0;i<st.size();++i) st[i]=float(i)+0.25f;
   assert(vn97_runtime_state_write(h,st.data(),st.size())==0);
   assert(vn97_runtime_state_write(h,st.data(),st.size()-1)==8);

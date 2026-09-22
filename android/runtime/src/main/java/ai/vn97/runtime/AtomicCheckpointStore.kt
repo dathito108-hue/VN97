@@ -11,7 +11,7 @@ import java.nio.file.StandardCopyOption
 class AtomicCheckpointStore(
     private val root: File,
     fileName: String = "runtime.vn97run1",
-    private val maxCheckpointBytes: Int = 512 * 1024 * 1024 + 64,
+    private val maxCheckpointBytes: Int = 512 * 1024 * 1024 + 100,
 ) {
     private val target: File
 
@@ -20,7 +20,7 @@ class AtomicCheckpointStore(
         require('/' !in fileName && '\\' !in fileName && fileName != "." && fileName != "..") {
             "fileName must be one trusted path component"
         }
-        require(maxCheckpointBytes >= 64) { "maxCheckpointBytes must be at least one VN97RUN1 header" }
+        require(maxCheckpointBytes >= 64) { "maxCheckpointBytes must be at least one VN97RUN header" }
         Files.createDirectories(root.toPath())
         require(Files.isDirectory(root.toPath(), LinkOption.NOFOLLOW_LINKS)) { "checkpoint root must be a directory" }
         require(!Files.isSymbolicLink(root.toPath())) { "checkpoint root must not be a symlink" }

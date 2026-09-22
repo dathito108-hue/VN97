@@ -13,6 +13,9 @@ set(VN97_SELECTIVE_SOURCES
 set(VN97_TOKENIZER_SOURCES
     src/tokenizer.cpp
 )
+set(VN97_LANGUAGE_SOURCES
+    src/language.cpp
+)
 set(VN97_MODALITY_SOURCES
     src/modality.cpp
 )
@@ -64,6 +67,11 @@ add_library(vn97_tokenizer STATIC ${VN97_TOKENIZER_SOURCES})
 target_include_directories(vn97_tokenizer PUBLIC include)
 target_compile_features(vn97_tokenizer PUBLIC cxx_std_17)
 
+add_library(vn97_language STATIC ${VN97_LANGUAGE_SOURCES})
+target_include_directories(vn97_language PUBLIC include)
+target_compile_features(vn97_language PUBLIC cxx_std_17)
+target_link_libraries(vn97_language PUBLIC vn97_selective vn97_packed_ternary)
+
 add_library(vn97_modality STATIC ${VN97_MODALITY_SOURCES})
 target_include_directories(vn97_modality PUBLIC include)
 target_compile_features(vn97_modality PUBLIC cxx_std_17)
@@ -75,7 +83,7 @@ target_compile_features(vn97_memory PUBLIC cxx_std_17)
 add_library(vn97_runtime STATIC ${VN97_RUNTIME_SOURCES})
 target_include_directories(vn97_runtime PUBLIC include)
 target_compile_features(vn97_runtime PUBLIC cxx_std_17)
-target_link_libraries(vn97_runtime PUBLIC vn97_recurrent vn97_packed_ternary)
+target_link_libraries(vn97_runtime PUBLIC vn97_language vn97_recurrent vn97_packed_ternary)
 
 add_library(vn97_avatar_asset STATIC ${VN97_AVATAR_ASSET_SOURCES})
 target_include_directories(vn97_avatar_asset PUBLIC include)
@@ -122,6 +130,14 @@ if(VN97_BUILD_TESTS)
     add_executable(vn97_runtime_test tests/runtime_test.cpp)
     target_link_libraries(vn97_runtime_test PRIVATE vn97_runtime)
     add_test(NAME vn97_runtime_test COMMAND vn97_runtime_test)
+
+    add_executable(vn97_language_test tests/language_test.cpp)
+    target_link_libraries(vn97_language_test PRIVATE vn97_language)
+    add_test(NAME vn97_language_test COMMAND vn97_language_test)
+
+    add_executable(vn97_runtime_inference_test tests/runtime_inference_test.cpp)
+    target_link_libraries(vn97_runtime_inference_test PRIVATE vn97_runtime)
+    add_test(NAME vn97_runtime_inference_test COMMAND vn97_runtime_inference_test)
 
     add_executable(vn97_avatar_asset_test tests/avatar_asset_test.cpp)
     target_link_libraries(vn97_avatar_asset_test PRIVATE vn97_avatar_asset)

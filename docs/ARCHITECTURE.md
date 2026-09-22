@@ -347,12 +347,18 @@ M7B2 adds the AndroidKeyStore-backed M6-compatible approval controller, OS permi
 broker and internal exact-package/clipboard platform adapter. It preserves M6 request-digest
 binding, one-shot approval and capability bounds without exposing a side-effect bypass.
 
-M7C adds persisted JobScheduler continuation, cold-process VN97RUN1 restore/persist handoff and
+M7C adds persisted JobScheduler continuation, cold-process VN97RUN checkpoint restore/persist handoff and
 deterministic battery/thermal compute governance. Host continuation callbacks remain bounded and
 cancellable and do not gain side-effect authority.
 
-The remaining M7 work is deeper hardware-aware scheduling/telemetry tuning on real Android
-devices; the architecture contract for continuity is now fixed.
+M7D adds the native VN97 language execution step: full/factorized tied embedding, per-layer
+RMSNorm, VN97T2 selective projections, fused exact-ZOH recurrence, residual, final RMSNorm and
+tied logits. RuntimeSession now binds executed recurrent state to a 32-byte model identity and
+persists bound sessions as VN97RUN2 while retaining VN97RUN1 restore compatibility.
+
+The remaining M7 work is Android-side activated-model loading/JNI inference wiring plus deeper
+hardware-aware scheduling/telemetry tuning on real devices. The recurrent/language execution
+math and checkpoint model-binding contract are now fixed.
 
 ### M8 - Interactive 3D assistant - in progress
 M8A adds the permission-free OpenGL ES 3.0 avatar shell, monotonic typed visual-state bridge,
@@ -387,7 +393,7 @@ at the controlled acquisition/trust/compatibility/activation architecture contra
 
 101. Android continuation uses JobScheduler persisted jobs and does not emulate an
     always-running process when the OS has suspended or killed the app.
-102. Cold-process continuation reconstructs runtime state only from validated VN97RUN1 through
+102. Cold-process continuation reconstructs runtime state only from validated VN97RUN1/VN97RUN2 through
     NativeRuntimeOwner; restored sessions remain SUSPENDED until the JobService explicitly resumes.
 103. Continuation work is supplied by the host Application through ContinuationWorkProvider;
     the platform library does not embed a second cognition backend or planner.
@@ -397,7 +403,7 @@ at the controlled acquisition/trust/compatibility/activation architecture contra
     hint. Continuation callbacks are required to honor those ceilings and cancellation.
 106. JobService stop signals are propagated through ContinuationContext; onStopJob requests OS
     rescheduling rather than pretending the interrupted wake completed.
-107. A successful continuation wake suspends the runtime and atomically persists VN97RUN1 before
+107. A successful continuation wake suspends the runtime and atomically persists the current VN97RUN checkpoint before
     reporting completion to JobScheduler.
 108. RECEIVE_BOOT_COMPLETED exists solely to support Android persisted JobScheduler continuity;
     it does not grant cognition an external-action capability.
@@ -533,4 +539,29 @@ at the controlled acquisition/trust/compatibility/activation architecture contra
     backend transaction tokens; tokens remain internal solely for rollback/recovery.
 170. M9 activation does not register M6 external capabilities, mint approval/policy/leases or create
     network/file authority. Package acquisition and other external effects remain governed by M6.
+
+
+171. Native language execution follows the canonical VN97LanguageCore math and reuses VN97T2
+    packed projections plus the existing fused selective exact-ZOH recurrence; no second model
+    backend or alternate language architecture is introduced.
+172. LanguageModelView is a non-owning trusted in-memory view and is not a package/file parser.
+    External or persisted model bytes must first pass the M9 trust/activation path before a trusted
+    loader constructs the view.
+173. A language model carries a nonzero 32-byte model identity. RuntimeSession binds to that
+    identity only after the first successful inference step.
+174. Runtime language geometry must exactly match the recurrent session n_layers/d_model/d_state;
+    mismatch fails before state mutation.
+175. Full tied F32 embedding/head and factorized tied embedding/head are both supported; factorized
+    input/output use the same token factors and projection, preserving exact tying.
+176. After model binding, metadata-only RuntimeSession::Advance is rejected so sequence_position
+    cannot diverge from the number of recurrent language steps actually executed.
+177. VN97RUN1 remains the unbound checkpoint format and continues to restore. Model-bound sessions
+    serialize as VN97RUN2 with the same state payload plus model-bound flags/identity and header CRC.
+178. A restored model-bound VN97RUN2 session accepts inference only from the identical model ID.
+    A legacy unbound checkpoint with nonzero sequence position or nonzero recurrent state cannot
+    be rebound implicitly to an arbitrary model.
+179. Language workspace is caller/runtime-owned bounded scratch; learned model memory is never
+    copied into RuntimeSession and RuntimeSession never takes ownership of model-view pointers.
+180. M7D adds no external side-effect authority. Model acquisition/activation remains M9-governed,
+    and Android JNI/model-loader wiring must preserve the same M6/M9 boundaries.
 

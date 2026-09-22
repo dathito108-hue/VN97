@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <vector>
 
 namespace {
@@ -60,6 +61,30 @@ int main() {
 
     vn97::PackedTernaryView view;
     assert(vn97::ParsePackedTernary(blob.data(), blob.size(), &view) == vn97::PackedTernaryStatus::kOk);
+
+    auto bad_scale = blob;
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    std::uint32_t nan_bits = 0;
+    std::memcpy(&nan_bits, &nan, sizeof(nan_bits));
+    for (int i = 0; i < 4; ++i) {
+        bad_scale[40 + i] = static_cast<std::uint8_t>(
+            (nan_bits >> (8 * i)) & 0xffu);
+    }
+    assert(
+        vn97::ParsePackedTernary(
+            bad_scale.data(),
+            bad_scale.size(),
+            &view) ==
+        vn97::PackedTernaryStatus::kInvalidScale);
+
+    bad_scale = blob;
+    std::fill(bad_scale.begin() + 40, bad_scale.begin() + 44, 0);
+    assert(
+        vn97::ParsePackedTernary(
+            bad_scale.data(),
+            bad_scale.size(),
+            &view) ==
+        vn97::PackedTernaryStatus::kInvalidScale);
 
     const float input[4] = {1.0f, 2.0f, 3.0f, 4.0f};
     float scalar_output[2] = {};
