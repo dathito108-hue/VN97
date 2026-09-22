@@ -28,12 +28,25 @@ enum class PackedTernaryStatus {
     kReservedCode,
     kBackendUnavailable,
     kInvalidScale,
+    kPlanMismatch,
 };
 
 enum class PackedTernaryBackend {
     kAuto = 0,
     kScalar,
     kArm64Neon,
+};
+
+struct PackedTernaryExecutionPlan {
+    PackedTernaryBackend backend = PackedTernaryBackend::kScalar;
+    std::uint32_t rows = 0;
+    std::uint32_t cols = 0;
+    std::uint32_t row_block = 0;
+    std::uint32_t col_block = 0;
+    std::uint32_t vector_width = 1;
+    std::size_t accumulator_floats = 0;
+    std::size_t tile_count = 0;
+    std::size_t tile_working_set_bytes = 0;
 };
 
 PackedTernaryStatus ParsePackedTernary(
@@ -46,6 +59,18 @@ const char* PackedTernaryBackendName(PackedTernaryBackend backend);
 bool PackedTernaryBackendAvailable(PackedTernaryBackend backend);
 
 PackedTernaryBackend ResolvePackedTernaryBackend(PackedTernaryBackend requested);
+
+PackedTernaryStatus PlanPackedTernaryMatVecF32(
+    const PackedTernaryView& matrix,
+    PackedTernaryBackend requested,
+    PackedTernaryExecutionPlan* out);
+
+PackedTernaryStatus PackedTernaryMatVecF32WithPlan(
+    const PackedTernaryView& matrix,
+    const float* input,
+    const float* bias,
+    float* output,
+    const PackedTernaryExecutionPlan& plan);
 
 PackedTernaryStatus PackedTernaryMatVecF32WithBackend(
     const PackedTernaryView& matrix,
