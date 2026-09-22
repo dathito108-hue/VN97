@@ -493,10 +493,19 @@ class CognitionLoop:
         )
         try:
             raw = self.backend.verify_step(request)
-            decision = self._validate_verification(raw)
         except Exception as exc:
             note = f"verification backend failure: {type(exc).__name__}"
             controller.verify_step(step.step_id, passed=False, note=note)
+            return
+        try:
+            decision = self._validate_verification(raw)
+        except CognitionContractError as exc:
+            self._safe_fail_active(
+                controller,
+                step.step_id,
+                reason=str(exc),
+                retryable=False,
+            )
             return
         controller.verify_step(
             step.step_id,
