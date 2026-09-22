@@ -33,8 +33,9 @@ CAP_CLIPBOARD_WRITE = "device.clipboard.write"
 
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _ANDROID_PACKAGE_RE = re.compile(
-    r"^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+$"
+    r"^[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+$"
 )
+_MAX_ACTION_RESULT_UTF8_BYTES = 64 * 1024
 
 
 class CapabilityImplementationError(RuntimeError):
@@ -69,6 +70,13 @@ def _canonical_json(value: object) -> str:
 
 def _sha256_bytes(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
+
+
+def _bounded_result_json(value: object) -> str:
+    result = _canonical_json(value)
+    if len(result.encode("utf-8")) > _MAX_ACTION_RESULT_UTF8_BYTES:
+        raise CapabilityImplementationError("capability result exceeds byte limit")
+    return result
 
 
 def _exact_payload(request: ExternalActionRequest, keys: set[str]) -> dict[str, object]:
@@ -626,7 +634,7 @@ def register_m6b_capabilities(
             text, digest, byte_count = store.read_text(root_id, relative)
             return ActionOutcome(
                 True,
-                _canonical_json(
+                _bounded_result_json(
                     {
                         "root": root_id,
                         "path": relative,
@@ -654,7 +662,7 @@ def register_m6b_capabilities(
             )
             return ActionOutcome(
                 True,
-                _canonical_json(
+                _bounded_result_json(
                     {
                         "root": root_id,
                         "path": relative,
@@ -694,7 +702,7 @@ def register_m6b_capabilities(
 
         def web_fetch(action: AuthorizedAction) -> ActionOutcome:
             url = _scope_value(action.request, "url")
-            return ActionOutcome(True, _canonical_json(fetcher.fetch_text(url)))
+            return ActionOutcome(True, _bounded_result_json(fetcher.fetch_text(url)))
 
         def validate_web(request: ExternalActionRequest) -> None:
             _validate_web_fetch(request)
@@ -724,6 +732,8 @@ def register_m6b_capabilities(
                 raise PlatformCapabilityError("app adapter failed") from exc
             if not isinstance(result, str) or not result:
                 raise PlatformCapabilityError("app adapter returned an invalid result")
+            if len(result.encode("utf-8")) > 4096:
+                raise PlatformCapabilityError("app adapter result exceeds byte limit")
             return ActionOutcome(True, result)
 
         def clipboard_write(action: AuthorizedAction) -> ActionOutcome:
@@ -734,6 +744,8 @@ def register_m6b_capabilities(
                 raise PlatformCapabilityError("clipboard adapter failed") from exc
             if not isinstance(result, str) or not result:
                 raise PlatformCapabilityError("clipboard adapter returned an invalid result")
+            if len(result.encode("utf-8")) > 4096:
+                raise PlatformCapabilityError("clipboard adapter result exceeds byte limit")
             return ActionOutcome(True, result)
 
         registry.register(
