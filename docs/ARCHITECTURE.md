@@ -381,8 +381,9 @@ staged-byte revalidation, runtime compatibility profiles and deterministic typed
 planning. A compatibility plan is bound to package, signature and profile fingerprints but still
 cannot activate or mutate live VN97 state.
 
-M9C will add transactional activation/rollback and provenance-visible capability inventory while
-preserving the single VN97 runtime and M6 external-authority boundary.
+M9C adds current-trust revalidation, write-ahead transactional activation, crash recovery,
+bounded per-capability rollback stacks and a provenance-visible VN97INV1 inventory. M9 is complete
+at the controlled acquisition/trust/compatibility/activation architecture contract.
 
 101. Android continuation uses JobScheduler persisted jobs and does not emulate an
     always-running process when the OS has suspended or killed the app.
@@ -509,4 +510,27 @@ preserving the single VN97 runtime and M6 external-authority boundary.
 160. CompatibilityPlan binds package digest, publisher key, signature digest, profile ID/fingerprint
     and runtime API version. M9B plans are proposals only; M9C must revalidate them transactionally
     before activation.
+
+
+161. Activation re-runs M9B staged-byte, detached-signature and current trust-store verification
+    before reserving a transaction; stale VerifiedCapability objects do not bypass revocation or
+    staged-file changes.
+162. Activation recomputes the compatibility plan from fresh verified bytes/profile/adapters and
+    requires exact equality with the submitted plan before any backend prepare call.
+163. CapabilityActivationBackend is host-selected trusted runtime code. prepare must not mutate live
+    runtime state; commit is the mutation boundary; inspect and rollback must support crash recovery.
+164. VN97INV1 persists a reserved write-ahead transaction before backend prepare and persists the
+    prepared backend token/artifact digest before backend commit.
+165. Recovery resolves one durable pending transaction by backend inspection: committed activations
+    finalize, prepared activations roll back, and already rolled-back transactions finalize/clear.
+166. Inventory stores a bounded activation stack per capability so rollback removes the current
+    transaction and restores the previous backend revision/provenance rather than losing history.
+167. Exact already-active package/signature/profile/plan/backend activation is idempotent; same-version
+    replacement and version downgrade are denied by default unless trusted host policy opts in.
+168. VN97INV1 is strict canonical JSON with exact schemas, monotonic generation history, bounded
+    stack/history/size, no-follow access, advisory locking, fsync and atomic same-directory replace.
+169. Public InventorySnapshot exposes active provenance/trust/profile/plan/runtime revision but never
+    backend transaction tokens; tokens remain internal solely for rollback/recovery.
+170. M9 activation does not register M6 external capabilities, mint approval/policy/leases or create
+    network/file authority. Package acquisition and other external effects remain governed by M6.
 
