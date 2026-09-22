@@ -74,6 +74,20 @@ from .cognition_adapter import (
 )
 from .config import VN97Config
 from .embedding import FactorizedEmbedding, FactorizedLMHead
+from .external_intent import (
+    ApprovalPrompt,
+    ApprovalSessionError,
+    ExternalApprovalCoordinator,
+    ExternalApprovalLimits,
+    ExternalCapabilityView,
+    ExternalIntent,
+    ExternalIntentBackend,
+    ExternalIntentBinder,
+    ExternalIntentContractError,
+    ExternalIntentError,
+    ExternalIntentLimits,
+    ExternalIntentRequest,
+)
 from .memory import (
     JournalScan,
     MemoryCorruptionError,
@@ -150,6 +164,18 @@ from .tokenizer import (
 )
 
 __all__ = [
+    "ApprovalPrompt",
+    "ApprovalSessionError",
+    "ExternalApprovalCoordinator",
+    "ExternalApprovalLimits",
+    "ExternalCapabilityView",
+    "ExternalIntent",
+    "ExternalIntentBackend",
+    "ExternalIntentBinder",
+    "ExternalIntentContractError",
+    "ExternalIntentError",
+    "ExternalIntentLimits",
+    "ExternalIntentRequest",
     "CAP_APP_LAUNCH",
     "CAP_CLIPBOARD_WRITE",
     "CAP_FILE_READ",

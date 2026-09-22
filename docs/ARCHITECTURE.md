@@ -145,6 +145,23 @@ not the definition of AGI by itself.
     M6B does not add shell-command, arbitrary intent or model-direct device execution.
 72. M6B capability descriptors require explicit M6A approval by default in addition to exact
     policy grants and bounded leases.
+73. Cognition may propose an external capability ID, string-valued scope and JSON payload,
+    but it never supplies trusted plan ID, step ID or objective fields for an M6A request.
+74. External-intent binding requires a sealed capability registry and a trusted allowlisted
+    catalog derived from registered descriptors; cognition cannot enumerate policy grants,
+    approval secrets or lease state.
+75. The final ExternalActionRequest is rebuilt from the currently WAITING_EXTERNAL planner step
+    and revalidated against the selected registered capability before approval is possible.
+76. If plan/step/objective/catalog state changes while cognition is proposing an intent, binding
+    fails closed rather than rebinding stale intent to a different external step.
+77. Approval UX presentation is generated from the exact bound request digest, objective, scope
+    and canonical payload by trusted runtime code rather than model-authored prose.
+78. Approval prompts are bounded, expiring and one-shot. Denial, expiry, stale/tampered prompts
+    and duplicate/concurrent resolution cannot mint an ApprovalToken.
+79. Only the trusted approval coordinator may call ApprovalAuthority.approve(); model output,
+    notification taps and presentation text are never themselves authority.
+80. Android approval UI and Keystore-backed secret storage must preserve the M6C exact-request
+    binding and remain outside cognition/model execution.
 
 ## System layers
 
@@ -235,7 +252,7 @@ final normalized hidden state. Strict VN97COG1 JSON schemas fail closed before t
 objects enter M5B. Model-quality reasoning still depends on trained/imported VN97-native
 weights; full Android C++ execution remains M7.
 
-### M6 - Tool and authority fabric - in progress
+### M6 - Tool and authority fabric - complete at platform-neutral contract
 M6A establishes the execution authority contract: sealed typed capability registry,
 deny-by-default exact-scope policy, request-bound HMAC approval, bounded capability leases,
 immutable hash-chained action receipts, crash-safe successful-result replay and the only
@@ -247,8 +264,10 @@ DNS/IP SSRF protection and pinned TLS connection, plus exact-package launch and 
 adapter contracts. All handlers remain behind M6A policy/approval/lease/audit. The concrete
 Android platform adapter belongs to M7.
 
-M6C will bind cognition-produced EXTERNAL intent to strict typed capability-request construction
-and approval UX without allowing model output to mint policy, approvals or leases.
+M6C adds a sealed-catalog external-intent binder and VN97COG1 external-intent operation. The
+final action request is rebuilt from the active WAITING_EXTERNAL planner step, then presented
+through bounded one-shot exact-digest approval sessions. Cognition cannot mint policy grants,
+approval tokens or leases. Android presentation/Keystore integration remains M7 work.
 
 ### M7 - Android native runtime
 JNI/NDK runtime, hardware-aware scheduling, checkpoint/recovery, background continuation and

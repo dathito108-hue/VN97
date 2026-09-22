@@ -20,6 +20,7 @@ from .cognition import (
     VerificationDecision,
     VerificationRequest,
 )
+from .external_intent import ExternalIntent, ExternalIntentRequest
 from .memory import MemoryKind
 from .model import VN97LanguageCore
 from .planner import MemoryContext, PlanStepSpec, StepKind
@@ -60,6 +61,7 @@ class VN97CognitionAdapterConfig:
     memory_query_new_tokens: int = 384
     step_new_tokens: int = 1024
     verification_new_tokens: int = 384
+    external_intent_new_tokens: int = 512
 
     def __post_init__(self) -> None:
         values = (
@@ -68,6 +70,7 @@ class VN97CognitionAdapterConfig:
             self.memory_query_new_tokens,
             self.step_new_tokens,
             self.verification_new_tokens,
+            self.external_intent_new_tokens,
         )
         if any(value <= 0 for value in values):
             raise ValueError("all cognition adapter limits must be positive")
@@ -785,3 +788,76 @@ class VN97CognitionAdapter(CognitionBackend):
             passed=passed,
             note=note,
         )
+
+    def propose_external_intent(
+        self,
+        request: ExternalIntentRequest,
+    ) -> ExternalIntent:
+        capability_catalog = [
+            {
+                "capability_id": item.capability_id,
+                "required_scope_keys": list(item.required_scope_keys),
+                "optional_scope_keys": list(item.optional_scope_keys),
+                "approval_required": item.approval_required,
+                "max_payload_utf8_bytes": item.max_payload_utf8_bytes,
+            }
+            for item in request.capabilities
+        ]
+        root = self._generate_object(
+            operation="external_intent",
+            schema=(
+                '{"capability_id":"string","scope":{"key":"string"},'
+                '"payload":{"key":"json-value"}}'
+            ),
+            request={
+                "plan_id": request.plan_id,
+                "goal": request.goal,
+                "step_id": request.step_id,
+                "objective": request.objective,
+                "capabilities": capability_catalog,
+            },
+            max_new_tokens=self.config.external_intent_new_tokens,
+        )
+        _exact_keys(
+            root,
+            {"capability_id", "scope", "payload"},
+            label="external intent",
+        )
+        capability_id = root["capability_id"]
+        scope_raw = root["scope"]
+        payload = root["payload"]
+        if not isinstance(capability_id, str) or not capability_id:
+            raise VN97CognitionOutputError(
+                "external intent capability_id must be a non-empty string"
+            )
+        if not isinstance(scope_raw, dict):
+            raise VN97CognitionOutputError(
+                "external intent scope must be an object"
+            )
+        scope: dict[str, str] = {}
+        for key, value in scope_raw.items():
+            if not isinstance(key, str) or not key:
+                raise VN97CognitionOutputError(
+                    "external intent scope keys must be non-empty strings"
+                )
+            if not isinstance(value, str) or not value:
+                raise VN97CognitionOutputError(
+                    "external intent scope values must be non-empty strings"
+                )
+            scope[key] = value
+        if not isinstance(payload, dict):
+            raise VN97CognitionOutputError(
+                "external intent payload must be an object"
+            )
+        try:
+            payload_json = _json_bytes(payload).decode("utf-8")
+            return ExternalIntent(
+                capability_id=capability_id,
+                scope=tuple(scope.items()),
+                payload_json=payload_json,
+            )
+        except (TypeError, ValueError) as exc:
+            raise VN97CognitionOutputError(
+                "external intent is invalid"
+            ) from exc
+
