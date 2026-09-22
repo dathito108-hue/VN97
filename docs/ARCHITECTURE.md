@@ -359,11 +359,12 @@ M8A adds the permission-free OpenGL ES 3.0 avatar shell, monotonic typed visual-
 bounded animation smoothing, adaptive frame pacing and typed tap/long-press/drag interactions.
 The renderer is presentation-only and cannot bypass M6 authority.
 
-M8B will connect speech/listening/speaking state, audio-level/viseme timing and cognition-status
-mapping to the avatar without coupling renderer code to the reasoning engine.
+M8B adds bounded listening/speaking envelopes, PCM16 RMS metering, deterministic timed viseme
+lookup, presentation-state mapping and continuous jaw/width/round mouth controls. The avatar
+remains permission-free and independent from STT/TTS/cognition execution.
 
 M8C will add optional native asset/rig ingestion and richer gesture/face animation while keeping
-the M8A typed-state boundary stable.
+the M8A/M8B typed-state boundary stable.
 
 ### M9 - Capability acquisition
 Controlled import/adaptation pipeline that converts compatible learned capability into
@@ -408,4 +409,25 @@ VN97-native packages without silently mutating trusted runtime code.
     files, apps, clipboard, microphone or camera.
 120. Future speech/vision/avatar features may feed typed state or interactions, but any external
     side effect must still traverse the existing M6C/M6A authority path.
+
+121. M8 speech synchronization consumes presentation inputs only; it does not own a speech
+    recognizer, speech synthesizer, microphone permission or cognition execution loop.
+122. SpeechTimeline is bounded to at most 4096 sorted non-overlapping cues and at most one hour;
+    invalid ordering, overlap, cue duration or time overflow fails closed.
+123. Viseme playback lookup is deterministic and binary-search based; absent/out-of-range cues
+    produce a REST mouth pose rather than extrapolating untrusted state.
+124. Continuous jaw-open, mouth-width and lip-round parameters are finite and unit-bounded before
+    entering AvatarCommand, immutable frame state or renderer smoothing.
+125. Listening and speaking attack/release envelopes are mode-gated. Audio energy observed outside
+    LISTENING/SPEAKING cannot pre-charge a later avatar state.
+126. PCM16 level metering is a bounded pure computation over caller-owned samples and never opens
+    an Android audio device or implicitly requests RECORD_AUDIO.
+127. CognitionPresentationState is a presentation mapping only; it does not replace or mutate the
+    M5 planner/cognition state machines.
+128. SpeechAvatarSynchronizer serializes envelope/state publication and still relies on the M8A
+    monotonic sourceSequence check to reject stale visual updates.
+129. VN97AvatarView publishSpeech() only updates visual state and requests rendering; it does not
+    turn speech/touch presentation into M6 approval or external-action authority.
+130. Any future STT/TTS/audio I/O implementation must remain outside the renderer and preserve the
+    existing M6 authority boundary for external side effects.
 

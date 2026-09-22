@@ -317,6 +317,33 @@ forcing permanent 60 FPS rendering while idle.
 M8A also repairs the pre-existing Android settings file that contained a literal `\n` between
 module includes, then registers `:runtime`, `:platform` and `:avatar` as separate modules.
 
+## M8B speech + viseme synchronization
+
+M8B connects presentation-level speech timing to the M8A avatar without embedding an STT/TTS
+engine or requesting microphone permission.
+
+`SpeechAvatarSynchronizer` accepts bounded `SpeechAvatarInput` values and maps a small
+presentation-only cognition state into the existing `AssistantMode`. Listening and speaking
+levels use independent attack/release envelopes. Audio levels are gated by mode, so microphone
+or playback energy observed while VN97 is not LISTENING/SPEAKING cannot pre-charge a later
+animation.
+
+`SpeechTimeline` stores at most 4096 sorted, non-overlapping `VisemeCue` entries within a
+bounded timeline. Playback lookup is binary-search based. Eleven generic VN97 visemes map to
+continuous jaw-open, mouth-width and lip-round parameters, which are then scaled by the current
+speaking envelope and smoothed by the existing avatar motion filter.
+
+`AudioLevelMeter.rmsPcm16()` provides a sovereign PCM16 RMS meter for bounded windows without
+a DSP dependency. It does not capture audio; callers supply PCM that they already own.
+
+M8B extends `AvatarCommand` and immutable frame/render state with listening level and continuous
+mouth parameters. `AvatarRenderer` uses those values for attentive head lift and viseme-aware
+mouth geometry. `VN97AvatarView.publishSpeech()` is the typed Android entry point.
+
+The avatar module remains permission-free. Actual microphone capture, speech recognition,
+speech synthesis and voice-model quality are separate runtime/capability concerns and may not
+bypass M6 authority or the M8 typed presentation boundary.
+
 ## Native execution libraries
 
 - libvn97_packed_ternary.a
@@ -369,3 +396,4 @@ Avatar integration:
 - android/avatar/host-test — deterministic state/filter/frame-policy regression
 
 - docs/AVATAR_M8A.md
+- docs/SPEECH_AVATAR_M8B.md

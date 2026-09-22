@@ -13,6 +13,7 @@ class VN97AvatarView @JvmOverloads constructor(
     attrs: AttributeSet? = null,
 ) : GLSurfaceView(context, attrs), Choreographer.FrameCallback {
     val stateBridge = AvatarStateBridge()
+    val speechSynchronizer = SpeechAvatarSynchronizer(stateBridge)
 
     private val avatarRenderer = AvatarRenderer(stateBridge)
     private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop.toFloat()
@@ -36,6 +37,12 @@ class VN97AvatarView @JvmOverloads constructor(
 
     fun publish(command: AvatarCommand): AvatarFrameState {
         val state = stateBridge.publish(command)
+        requestRender()
+        return state
+    }
+
+    fun publishSpeech(input: SpeechAvatarInput, deltaMillis: Long): AvatarFrameState {
+        val state = speechSynchronizer.publish(input, deltaMillis)
         requestRender()
         return state
     }

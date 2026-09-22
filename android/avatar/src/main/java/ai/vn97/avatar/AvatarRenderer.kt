@@ -78,6 +78,11 @@ internal class AvatarRenderer(
 
         val accent = accentColor(target.mode)
         val breathing = sin(t * (1.4 + animated.energy)).toFloat() * 0.025f * animated.energy
+        val listeningLift = if (target.mode == AssistantMode.LISTENING) {
+            animated.listeningLevel * 0.045f
+        } else {
+            0f
+        }
         val thinking = if (target.mode == AssistantMode.THINKING) sin(t * 1.7).toFloat() * 5f else 0f
         val gestureWave = if (target.gesture == AvatarGesture.WAVE) sin(t * 8.0).toFloat() * 35f else 0f
         val nod = if (target.gesture == AvatarGesture.NOD) sin(t * 7.0).toFloat() * 8f else 0f
@@ -86,7 +91,7 @@ internal class AvatarRenderer(
         drawPart(0f, -0.45f + breathing, 0f, 1.05f, 1.25f, 0.52f, 0f, 0f, 0f, accent)
         drawPart(
             0f,
-            0.68f + breathing,
+            0.68f + breathing + listeningLift,
             0f,
             0.88f,
             0.78f,
@@ -103,8 +108,24 @@ internal class AvatarRenderer(
         drawPart(-0.22f + eyeX, 0.76f + eyeY + breathing, 0.36f, 0.12f, eyeHeight, 0.04f, 0f, 0f, 0f, floatArrayOf(0.08f, 0.12f, 0.18f))
         drawPart(0.22f + eyeX, 0.76f + eyeY + breathing, 0.36f, 0.12f, eyeHeight, 0.04f, 0f, 0f, 0f, floatArrayOf(0.08f, 0.12f, 0.18f))
 
-        val mouthHeight = 0.025f + animated.speakingLevel * 0.11f
-        drawPart(0f, 0.49f + breathing, 0.365f, 0.24f, mouthHeight, 0.035f, 0f, 0f, 0f, accent)
+        val jaw = maxOf(animated.speakingLevel * 0.55f, animated.jawOpen)
+        val mouthHeight = 0.025f + jaw * 0.12f
+        val mouthWidth = (
+            0.24f + animated.mouthWide * 0.18f - animated.lipRound * 0.10f
+        ).coerceIn(0.12f, 0.42f)
+        val mouthDepth = 0.035f + animated.lipRound * 0.025f
+        drawPart(
+            0f,
+            0.49f + breathing,
+            0.365f,
+            mouthWidth,
+            mouthHeight,
+            mouthDepth,
+            0f,
+            0f,
+            0f,
+            accent,
+        )
 
         drawPart(-0.72f, -0.36f + breathing, 0f, 0.2f, 0.9f, 0.22f, 0f, 0f, 12f + gestureWave, accent)
         drawPart(0.72f, -0.36f + breathing, 0f, 0.2f, 0.9f, 0.22f, 0f, 0f, -12f, accent)
