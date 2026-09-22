@@ -138,6 +138,9 @@ ReasoningBudget persisted in VN97PLN1.
 M5B defines orchestration and backend schemas. It does not claim the untrained reference
 VN97LanguageCore can already produce high-quality plans or verification decisions.
 
-A production VN97 cognition adapter must implement CognitionBackend while preserving this
-contract. That adapter can later use the native/tokenizer/model runtime without changing plan,
-memory or authority semantics.
+M5C now provides VN97CognitionAdapter over the VN97InferenceEngine boundary. The reference
+TorchVN97InferenceEngine uses VN97TK1 and VN97LanguageCore directly while preserving this
+contract.
+
+Full Android C++/JNI inference can implement the same VN97InferenceEngine boundary in M7 without
+changing plan, memory or authority semantics.
