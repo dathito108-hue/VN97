@@ -1,8 +1,10 @@
 #pragma once
 
+#include "vn97/language.h"
 #include "vn97/packed_ternary.h"
 #include "vn97/recurrent.h"
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <mutex>
@@ -22,6 +24,8 @@ enum class RuntimeStatus {
     kCheckpointMismatch,
     kCounterOverflow,
     kBackendUnavailable,
+    kModelMismatch,
+    kInferenceError,
 };
 
 enum class RuntimeLifecycle : std::uint32_t {
@@ -67,6 +71,15 @@ public:
     RuntimeStatus Suspend();
     RuntimeStatus Resume();
     RuntimeStatus Advance(std::uint64_t token_count);
+    RuntimeStatus InferStep(
+        const LanguageModelView& model,
+        const std::uint32_t* input_ids,
+        float* logits,
+        std::size_t logits_count);
+    RuntimeStatus ModelBinding(
+        bool* bound,
+        std::uint8_t* model_id,
+        std::size_t model_id_capacity) const;
     RuntimeStatus ReadState(float* out, std::size_t count) const;
     RuntimeStatus WriteState(const float* state, std::size_t count);
     RuntimeStatus CheckpointSize(std::size_t* out) const;
@@ -84,7 +97,10 @@ private:
     PackedTernaryBackend resolved_packed_backend_ = PackedTernaryBackend::kScalar;
     RuntimeLifecycle lifecycle_ = RuntimeLifecycle::kCreated;
     std::uint64_t sequence_position_ = 0;
+    bool model_bound_ = false;
+    std::array<std::uint8_t, 32> model_id_ = {};
     std::vector<float> state_;
+    std::vector<float> language_workspace_;
     mutable std::mutex mutex_;
 };
 
@@ -129,6 +145,11 @@ int vn97_runtime_activate(std::uint64_t handle);
 int vn97_runtime_suspend(std::uint64_t handle);
 int vn97_runtime_resume(std::uint64_t handle);
 int vn97_runtime_advance(std::uint64_t handle, std::uint64_t token_count);
+int vn97_runtime_model_binding_get(
+    std::uint64_t handle,
+    int* bound,
+    std::uint8_t* model_id,
+    std::size_t model_id_capacity);
 int vn97_runtime_info_get(std::uint64_t handle, vn97_runtime_info* out);
 int vn97_runtime_state_read(
     std::uint64_t handle,
