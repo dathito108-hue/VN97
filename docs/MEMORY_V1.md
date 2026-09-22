@@ -125,9 +125,46 @@ libvn97_memory.a provides a zero-copy C++17 scanner and C ABI:
 - ScanMemoryJournal
 - vn97_memory_scan
 
-The native scanner validates framing, CRC32, shape, UTF-8, finite values, ID ordering and parent
-existence. The Python reference additionally recomputes content SHA-256. Native append,
-compaction and retrieval are the next M4 deployment step.
+The original native scanner validates framing, CRC32, shape, UTF-8, finite values, ID ordering
+and parent existence. M4B adds a stricter MemoryIndex/MemoryStore path that also validates
+content SHA-256 and records compact metadata/byte offsets plus inverse vector norms.
+
+## M4B native memory engine
+
+MemoryStore opens VN97MEM1 read/write and keeps an exclusive non-blocking advisory file lock for
+the store lifetime. A second native writer therefore fails closed rather than racing record IDs.
+
+The journal is mapped read-only with mmap. MemoryIndex stores record metadata, journal byte
+offsets and precomputed inverse norms; it does not copy each persistent vector into another
+resident vector table. Retrieval reads float32 vectors directly from the mapped journal.
+
+After a native append:
+
+1. the new VN97MEM1 frame is constructed with native SHA-256 and CRC32;
+2. the frame is appended and fsync is used when durable=true;
+3. the mapping is refreshed;
+4. ExtendMemoryIndex parses only the suffix beginning at the previous validated byte boundary.
+
+Native retrieval implements the same cosine + recency + importance scoring and deterministic
+tie-breaking as the Python oracle. C ABI output capacity is explicit and reports the required
+hit count when the supplied output arrays are too small.
+
+Native compaction copies retained raw frames into a locked temporary file, fsyncs it, atomically
+renames it over the journal and rebuilds the mmap/index. Retention preserves the highest record
+ID and all required parent ancestry before the replacement is committed.
+
+MemoryStore open can explicitly recover an incomplete final frame by truncating to the final
+fully indexed byte boundary. Complete malformed/corrupt indexed records still fail closed.
+
+C ABI additions:
+
+- vn97_memory_store_create
+- vn97_memory_store_open
+- vn97_memory_store_close
+- vn97_memory_store_append
+- vn97_memory_store_retrieve
+- vn97_memory_store_compact
+- vn97_memory_store_stats
 
 ## Scope
 
