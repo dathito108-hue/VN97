@@ -59,6 +59,12 @@ not the definition of AGI by itself.
     can evolve without changing persistent record meaning.
 31. CRC32 and content SHA-256 are integrity/content-identity mechanisms, not authority or
     cryptographic author signatures.
+32. The native retrieval index stores journal offsets and precomputed inverse norms instead of
+    copying every vector into a second resident vector table.
+33. A native MemoryStore holds an exclusive advisory writer lock for its lifetime; concurrent
+    writers fail closed instead of racing record IDs or compaction.
+34. Native append extends the existing index only from the previously validated byte boundary;
+    full rebuild is reserved for open/recovery/compaction boundaries.
 
 ## System layers
 
@@ -122,11 +128,12 @@ vision patch frontends, native preprocessing equivalence, explicit reserved moda
 and dense embedding ingress into the same recurrent core. Speech/vision capability quality is a
 training or capability-package concern and does not require changing the runtime contract.
 
-### M4 - Sovereign memory - in progress
+### M4 - Sovereign memory - complete at native engine contract
 M4A establishes bounded working memory, VN97MEM1 append-only episodic/semantic storage,
-provenance, exact deterministic retrieval, retention/atomic compaction, torn-tail recovery and a
-native validation ABI. M4B will move persistent append/retrieval/compaction into the native
-runtime and add an incremental mobile retrieval index without changing VN97MEM1 semantics.
+provenance, deterministic retrieval, retention/atomic compaction and torn-tail recovery.
+M4B adds the native file-backed engine: exclusive writer locking, mmap record access,
+incremental suffix indexing without vector duplication, native SHA-256 append, exact retrieval,
+record views and atomic provenance-preserving compaction. VN97MEM1 remains unchanged.
 
 ### M5 - Reasoning and planning controller
 Add deliberate reasoning, task decomposition, verification, interruption/resume and
