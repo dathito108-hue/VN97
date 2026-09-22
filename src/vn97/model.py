@@ -66,7 +66,7 @@ class VN97LanguageCore(nn.Module):
             for layer in self.layers
         ]
 
-    def forward_embeddings(
+    def forward_hidden_embeddings(
         self,
         inputs_embeds: torch.Tensor,
         states: Optional[
@@ -106,12 +106,9 @@ class VN97LanguageCore(nn.Module):
             x, new_state = layer(x, state)
             new_states.append(new_state)
 
-        logits = self.lm_head(
-            self.final_norm(x)
-        )
-        return logits, new_states
+        return self.final_norm(x), new_states
 
-    def forward(
+    def forward_hidden(
         self,
         input_ids: torch.Tensor,
         states: Optional[
@@ -122,10 +119,36 @@ class VN97LanguageCore(nn.Module):
             raise ValueError(
                 "input_ids must have shape [batch, seq]"
             )
-        return self.forward_embeddings(
+        return self.forward_hidden_embeddings(
             self.embedding(input_ids),
             states,
         )
+
+    def forward_embeddings(
+        self,
+        inputs_embeds: torch.Tensor,
+        states: Optional[
+            Sequence[Optional[torch.Tensor]]
+        ] = None,
+    ) -> tuple[torch.Tensor, VN97States]:
+        hidden, new_states = self.forward_hidden_embeddings(
+            inputs_embeds,
+            states,
+        )
+        return self.lm_head(hidden), new_states
+
+    def forward(
+        self,
+        input_ids: torch.Tensor,
+        states: Optional[
+            Sequence[Optional[torch.Tensor]]
+        ] = None,
+    ) -> tuple[torch.Tensor, VN97States]:
+        hidden, new_states = self.forward_hidden(
+            input_ids,
+            states,
+        )
+        return self.lm_head(hidden), new_states
 
     @torch.no_grad()
     def generate_greedy(
