@@ -14,7 +14,7 @@ not the definition of AGI by itself.
 - tile-aware physical weight layout as a backend optimization boundary;
 - modality identity as an explicit signal rather than silently mixing sources.
 
-## Corrections locked into the canonical design
+## Canonical corrections and invariants
 
 1. Per-output-channel ternary scale replaces one scale for an entire matrix.
 2. Bounded positive timestep prevents extreme state updates.
@@ -23,37 +23,35 @@ not the definition of AGI by itself.
 5. Multi-timescale log-spaced dynamics improve memory diversity at initialization.
 6. Full-sequence execution must match token-by-token recurrent execution while carrying state.
 7. Model recurrent state is separated from long-term episodic and semantic memory.
-8. 1.58-bit is not used as a storage claim: the deployable v1 format stores fixed-width
-   2-bit symbols, while log2(3) is only the ternary information lower bound.
-9. Tile geometry is selected by a backend/device profile. Python loops are not treated as NPU
-   acceleration and no universal 16x16/32x32 SRAM geometry is assumed.
-10. Raw bytes are a lossless transport/fallback representation. Audio and vision require
-    modality-specific frontends before shared semantic reasoning.
-11. Conditional compute must be implemented with an exportable/vectorized routing contract;
-    Python data-dependent branches are not part of the production graph.
-12. Backend selection is explicit and testable. auto may choose an optimized backend only
-    when that backend is compiled and available; explicit unavailable requests fail closed.
+8. Deployable ternary storage uses fixed-width 2-bit symbols; log2(3) is only an information
+   lower bound.
+9. Tile geometry is selected by a backend/device profile.
+10. Raw bytes are lossless text transport/fallback, not a substitute for audio/vision frontends.
+11. Conditional compute must use an exportable/vectorized routing contract.
+12. Backend selection is explicit, testable and fail-closed when unavailable.
 13. Full-sequence training/reference execution uses associative affine scan semantics.
-14. Native deployment recurrence updates caller-owned state in place and preserves M0/M2A
-    numerical semantics.
-15. Token-dependent exact ZOH discretization is fused in native deployment execution; production
-    prefill does not require materialized decay/drive tensors of shape [B,L,D,N].
-16. Stable diagonal A [D,N] is cached from -exp(a_log), finite and strictly negative.
-17. VN97TK1 tokenization is byte-lossless: every input byte has a canonical token ID even when
-    no learned token matches. Learned tokens may only shorten a byte sequence, never make input
-    unrepresentable.
-18. Token control IDs and byte-token IDs are stable format-level identities. Text/audio/vision
-    modality tags are reserved before learned vocabulary IDs so future frontends do not remap
-    existing text tokens.
-19. Learned-token lookup uses serialized first-byte buckets ordered longest-first; native
-    encoding must not scan the complete learned vocabulary at every input position.
-20. Full tied embeddings remain the compatibility default. Optional factorized tied embeddings
-    use one shared VxR factor matrix and RxD projection for both input lookup and output logits;
-    no independent language-head copy is permitted.
+14. Native deployment recurrence preserves M0/M2A state semantics.
+15. Native selective execution fuses exact ZOH dynamics and avoids materialized [B,L,D,N]
+    decay/drive tensors.
+16. Stable diagonal A is cached from -exp(a_log), finite and strictly negative.
+17. VN97TK1 guarantees a canonical token ID for every byte.
+18. Text/audio/vision control IDs are stable format-level identities.
+19. Learned tokenizer lookup uses first-byte buckets ordered longest-first.
+20. Optional factorized embeddings preserve exact input/output tying.
+21. Audio and vision enter through modality-specific preprocessing and ternary projection to
+    d_model; raw waveform/pixels never masquerade as text tokens.
+22. Modality identity is represented by the same reserved vocabulary embedding used by the
+    tokenizer contract, not by an unrelated embedding table.
+23. Dense modality embeddings use the same recurrent core and state update contract as text.
+24. Native modality preprocessing must numerically match the reference frontend before device
+    optimizations are accepted.
 
 ## System layers
 
-    Modality frontends / tokenizer / byte fallback
+    Text tokenizer / audio frontend / vision frontend
+                    |
+                    v
+           compact d_model embeddings
                     |
                     v
           VN97 recurrent language core
@@ -76,41 +74,35 @@ not the definition of AGI by itself.
 ## Non-negotiable mobile constraints
 
 - generation memory must not grow linearly with context length;
-- production ternary weights must be physically packed, not merely simulated as FP tensors;
+- production ternary weights must be physically packed;
 - optimized kernels must consume packed weights without full-matrix dequantization;
-- backend dispatch must retain a portable correctness fallback;
-- production recurrence must use native fused execution, not a Python token loop;
-- deployment prefill must avoid sequence-expanded recurrent intermediates when compact inputs suffice;
+- production recurrence must use native fused execution;
+- deployment prefill must avoid unnecessary sequence-expanded recurrent intermediates;
 - tokenizer transport must be lossless and independent of external tokenizer services;
 - learned tokenizer lookup must use an indexed mobile representation;
 - embedding compression must preserve exact input/output weight tying;
-- long-term exact recall must live in explicit memory/retrieval instead of overloading recurrent state;
+- audio/vision frontend output must be bounded, compact and compatible with packed projection;
+- modality identity must be explicit before shared recurrent reasoning;
+- long-term exact recall belongs in explicit memory/retrieval;
 - external side effects must pass through an explicit authority boundary;
-- Android background continuity must respect operating-system scheduling and lifecycle limits.
+- Android background continuity must respect OS scheduling and lifecycle limits.
 
 ## Roadmap
 
 ### M0 - Reference recurrent intelligence core - complete
-Established the numerical contract, stable SSM dynamics, ternary training path and recurrent invariant tests.
+Stable SSM dynamics, ternary training path and recurrent invariants.
 
 ### M1 - Native packed ternary execution - complete
-M1A defined VN97T2 and a portable scalar packed matvec. M1B added explicit backend dispatch and
-ARM64 NEON packed execution.
+VN97T2 physical packing, scalar kernel, ARM64 NEON backend and explicit dispatch.
 
-### M2 - Parallel training / fused recurrence - complete at kernel contract
-M2A provides the associative PyTorch affine scan. M2B adds native in-place recurrence/readout.
-M2C fuses timestep preparation, exact ZOH discretization, recurrent update and readout from
-compact projected inputs.
+### M2 - Parallel training / fused recurrence - complete
+Associative training/reference scan plus native fused recurrence and exact-ZOH selective kernel.
 
-### M3 - Mobile tokenizer, modality adapters and embedding compression - in progress
-M3A is complete: VN97TK1 provides stable control IDs, 256 lossless byte tokens, learned
-multi-byte vocabulary, serialized first-byte bucket indexing, Python/native equivalence and
-C-linkage encode/decode. Optional factorized tied embeddings reduce vocabulary parameters while
-the default full embedding/head remains checkpoint-compatible.
-
-M3B will add modality adapter contracts: text identity is already reserved in VN97TK1; audio
-and vision must enter through efficient frontends and explicit modality identity before the
-shared recurrent core.
+### M3 - Mobile tokenizer, modality adapters and embedding compression - complete at frontend contract
+M3A adds VN97TK1 and optional exactly tied factorized embeddings. M3B adds audio frame and
+vision patch frontends, native preprocessing equivalence, explicit reserved modality identity
+and dense embedding ingress into the same recurrent core. Speech/vision capability quality is a
+training or capability-package concern and does not require changing the runtime contract.
 
 ### M4 - Sovereign memory
 Add bounded working memory plus persistent episodic and semantic memory with retrieval,

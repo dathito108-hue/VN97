@@ -1,6 +1,16 @@
 from .config import VN97Config
 from .embedding import FactorizedEmbedding, FactorizedLMHead
 from .model import VN97LanguageCore, VN97States
+from .modality import (
+    AudioAdapterConfig,
+    AudioFrameAdapter,
+    Modality,
+    VisionAdapterConfig,
+    VisionPatchAdapter,
+    prepare_audio_frames,
+    prepare_vision_patches,
+    prepend_modality_identity,
+)
 from .packing import (
     PackedTernaryMatrix,
     pack_ternary_symbols,
@@ -34,6 +44,14 @@ __all__ = [
     "VN97States",
     "FactorizedEmbedding",
     "FactorizedLMHead",
+    "AudioAdapterConfig",
+    "AudioFrameAdapter",
+    "Modality",
+    "VisionAdapterConfig",
+    "VisionPatchAdapter",
+    "prepare_audio_frames",
+    "prepare_vision_patches",
+    "prepend_modality_identity",
     "PackedTernaryMatrix",
     "pack_ternary_symbols",
     "pack_ternary_weight",
