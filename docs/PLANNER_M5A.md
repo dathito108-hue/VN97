@@ -145,6 +145,9 @@ The loader rejects checkpoints when:
 
 M5A establishes the state-machine/checkpoint contract and M4 retrieval integration.
 
-M5B will connect this controller to a cognition backend contract so VN97 can propose bounded
-reasoning outputs, verification decisions and plan refinements while preserving the M5A state
-machine. Tool/device execution remains excluded until M6 authority/tool fabric.
+M5B now connects this controller to a typed cognition backend contract for bounded plan
+proposal, retrieval-query generation, reasoning outputs, reflection/verification and safe
+pre-execution plan refinement while preserving this M5A state machine.
+
+M5C will bind that contract to VN97-native tokenizer/model inference. Tool/device execution
+remains excluded until M6 authority/tool fabric.
