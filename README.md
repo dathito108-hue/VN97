@@ -271,6 +271,47 @@ The `:platform` manifest requests no permission by itself. A host may configure 
 permission requirements, but M6 policy + explicit approval + lease remain mandatory before a
 side-effect handler is invoked.
 
+## M7D native language inference execution
+
+M7D closes the gap between the native recurrent/checkpoint runtime and the canonical Python
+language core. `libvn97_language.a` executes one recurrent token step using the same model math:
+
+`tied embedding → per-layer RMSNorm → VN97T2 in/dt/B/C projections → exact-ZOH fused selective
+SSM → VN97T2 out projection → residual → final RMSNorm → tied LM head`.
+
+Both full F32 tied embeddings and the M3A factorized tied embedding/head are supported. The
+factorized path computes token factors × projection on input and hidden × projectionᵀ × token
+factorsᵀ on output, preserving exact weight tying.
+
+All learned linear projections inside the SSM remain VN97T2 and use the already-resolved packed
+backend. Recurrent dynamics use the existing fused selective backend. M7D therefore does not
+introduce a second language implementation or external model backend.
+
+`LanguageModelView` is a non-owning trusted in-memory view. It deliberately is **not** a new
+model-file/package format. Its 32-byte `model_id` is the trusted identity of the activated model
+artifact (normally its SHA-256 or an equivalent trusted digest). A later Android loader/JNI block
+will construct this view from activated package storage.
+
+`RuntimeSession::InferStep()` is allowed only while ACTIVE and only when language-model
+dimensions match the runtime state geometry. The first successful inference binds the session to
+the 32-byte model identity. Later inference with another identity fails closed before recurrent
+state mutation.
+
+Once a session is model-bound, the old metadata-only `Advance()` path is rejected so sequence
+position cannot advance without the recurrent state actually executing a token.
+
+Checkpoint compatibility is versioned:
+
+- unbound sessions continue to write/restore the original 64-byte `VN97RUN1`;
+- model-bound sessions write `VN97RUN2`, which adds flags + the 32-byte model identity and a
+  header CRC while preserving shape/backend/sequence/state payload semantics;
+- VN97RUN1 restore remains supported;
+- a restored unbound legacy checkpoint with nonzero sequence/state cannot be attached to an
+  arbitrary model by inference.
+
+The Android Kotlin runtime already recognizes the new native status codes and continues to treat
+checkpoint bytes opaquely, so VN97RUN2 persistence does not change AtomicCheckpointStore.
+
 ## M7C Android continuity + compute governance
 
 M7C adds OS-lifecycle-aware continuation using Android JobScheduler. Jobs are persisted across
@@ -463,6 +504,7 @@ transaction protocol.
 - libvn97_recurrent.a
 - libvn97_selective.a
 - libvn97_tokenizer.a
+- libvn97_language.a
 - libvn97_modality.a
 - libvn97_memory.a
 - libvn97_runtime.a
@@ -484,6 +526,7 @@ See:
 - docs/RUNTIME_M7A.md
 - docs/RUNTIME_M7B1.md
 - docs/RUNTIME_M7B2.md
+- docs/NATIVE_LANGUAGE_M7D.md
 - docs/NATIVE_SELECTIVE_M2C.md
 
 ## Local verification
