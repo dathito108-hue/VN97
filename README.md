@@ -18,7 +18,8 @@ multimodal frontends and explicit sovereign memory.
 - M5A: bounded reasoning/planning state machine + VN97PLN1 safe checkpoints;
 - M5B: typed cognition backend loop + bounded retrieval/verification/refinement orchestration;
 - M5C: VN97-owned tokenizer/model cognition adapter + strict structured inference contract;
-- M6A: typed capability registry + deny-by-default authority/approval/lease/audit fabric.
+- M6A: typed capability registry + deny-by-default authority/approval/lease/audit fabric;
+- M6B: production capability pack for confined files, sovereign HTTPS and platform actions.
 
 ## M3 multimodal contract
 
@@ -133,6 +134,32 @@ authenticity comes from the trusted HMAC secret and policy boundary. M6A adds no
 or service dependency. Production internet/file/app/device capability implementations remain
 later M6 work.
 
+## M6B production capability pack
+
+M6B supplies concrete platform-neutral capabilities behind the sealed M6A registry:
+
+- `file.read`: strict UTF-8 reads from configured trusted roots;
+- `file.write`: create-only or SHA-256 compare-and-swap replace with fsync/atomic commit;
+- `web.fetch`: HTTPS-only bounded text/JSON GET with DNS/IP SSRF protection and pinned TLS target;
+- `app.launch`: exact Android-style package launch through an injected platform adapter;
+- `device.clipboard.write`: bounded system clipboard write through the same platform adapter.
+
+File paths are canonical relative POSIX paths. Each directory component and target is opened with
+no-follow semantics on Linux/Android, so traversal and symlink escape fail closed. Writes use an
+exclusive VN97 directory lock, fsynced temporary files and atomic publication; replacing an
+existing file requires its current SHA-256 digest.
+
+The HTTPS fetcher accepts only port 443, forbids credentials/fragments/redirects, requires every
+resolved address to be globally routable, then connects to one validated IP while retaining the
+original hostname for TLS SNI/certificate verification. Responses are bounded and limited to
+strict text/JSON.
+
+Every M6B descriptor requires explicit M6A approval by default. Registration provides handlers
+only; it does not expose registry mutation, policy, approval secrets or lease controls to
+cognition. Android app/clipboard behavior is injected through `AppDeviceAdapter`; the concrete
+Android implementation remains an M7 responsibility. No third-party AI or inference service is
+introduced.
+
 ## Native execution libraries
 
 - libvn97_packed_ternary.a
@@ -153,6 +180,7 @@ See:
 - docs/COGNITION_M5B.md
 - docs/COGNITION_ADAPTER_M5C.md
 - docs/AUTHORITY_M6A.md
+- docs/CAPABILITIES_M6B.md
 - docs/NATIVE_SELECTIVE_M2C.md
 
 ## Local verification
