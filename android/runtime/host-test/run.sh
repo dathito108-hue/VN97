@@ -21,8 +21,11 @@ KOTLINC="${KOTLINC:-kotlinc}"
     "$ROOT/native/src/packed_ternary.cpp" \
     "$ROOT/native/src/tokenizer.cpp" \
     "$ROOT/native/src/model_image.cpp" \
+    "$ROOT/native/src/sampler.cpp" \
+    "$ROOT/native/src/generation.cpp" \
     "$ROOT/android/runtime/src/main/cpp/vn97_jni.cpp" \
     "$ROOT/android/runtime/src/main/cpp/vn97_model_jni.cpp" \
+    "$ROOT/android/runtime/src/main/cpp/vn97_generation_jni.cpp" \
     -pthread \
     -o "$WORK/libvn97_jni.so"
 
@@ -34,3 +37,12 @@ KOTLINC="${KOTLINC:-kotlinc}"
     -d "$WORK/m7b-host-test.jar"
 
 java -Djava.library.path="$WORK" -jar "$WORK/m7b-host-test.jar"
+
+"$KOTLINC" \
+    "$ROOT"/android/runtime/src/main/java/ai/vn97/runtime/*.kt \
+    "$HERE/M7GGenerationTest.kt" \
+    -Werror \
+    -include-runtime \
+    -d "$WORK/m7g-host-test.jar"
+
+java -Djava.library.path="$WORK" -jar "$WORK/m7g-host-test.jar"
