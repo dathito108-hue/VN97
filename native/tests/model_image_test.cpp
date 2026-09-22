@@ -1,3 +1,4 @@
+#include "vn97/generation.h"
 #include "vn97/model_image.h"
 #include "vn97/runtime.h"
 
@@ -214,6 +215,55 @@ int main() {
                std::numeric_limits<std::uint32_t>::max(),
                generated.data(), generated.size(), &generated_count) == 0);
     assert(generated_count == 2);
+
+    vn97_runtime_info before_generation{};
+    assert(vn97_runtime_info_get(runtime_handle, &before_generation) == 0);
+    vn97_generation_config generation_config{};
+    generation_config.sampler.temperature = 1.0f;
+    generation_config.sampler.top_k = 1;
+    generation_config.sampler.top_p = 1.0f;
+    generation_config.sampler.seed = 97;
+    generation_config.eos_token = std::numeric_limits<std::uint32_t>::max();
+    const std::array<std::uint32_t, 1> streaming_prompt = {1};
+    std::uint64_t generation_handle = 0;
+    assert(vn97_generation_open(
+               model_handle,
+               runtime_handle,
+               streaming_prompt.data(),
+               streaming_prompt.size(),
+               &generation_config,
+               &generation_handle) ==
+           static_cast<int>(vn97::GenerationStatus::kOk));
+    assert(generation_handle != 0);
+
+    vn97_runtime_info after_prefill{};
+    assert(vn97_runtime_info_get(runtime_handle, &after_prefill) == 0);
+    assert(
+        after_prefill.sequence_position ==
+        before_generation.sequence_position + streaming_prompt.size());
+
+    std::uint32_t streamed_token = 0;
+    int streamed_eos = 1;
+    assert(vn97_generation_next(
+               generation_handle,
+               &streamed_token,
+               &streamed_eos) ==
+           static_cast<int>(vn97::GenerationStatus::kOk));
+    assert(streamed_token < 5);
+    assert(streamed_eos == 0);
+
+    vn97_runtime_info after_streamed_token{};
+    assert(vn97_runtime_info_get(runtime_handle, &after_streamed_token) == 0);
+    assert(
+        after_streamed_token.sequence_position ==
+        after_prefill.sequence_position + 1);
+    assert(vn97_generation_destroy(generation_handle) ==
+           static_cast<int>(vn97::GenerationStatus::kOk));
+    assert(vn97_generation_next(
+               generation_handle,
+               &streamed_token,
+               &streamed_eos) ==
+           static_cast<int>(vn97::GenerationStatus::kInvalidHandle));
 
     assert(vn97_runtime_suspend(runtime_handle) == 0);
     std::size_t checkpoint_size = 0;

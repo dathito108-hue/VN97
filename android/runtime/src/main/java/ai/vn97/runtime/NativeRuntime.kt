@@ -199,7 +199,7 @@ class NativeRuntimeSession private constructor(private var handle: Long) : AutoC
         }
     }
 
-    private inline fun <T> withHandle(block: (Long) -> T): T = synchronized(lock) {
+    internal inline fun <T> withHandle(block: (Long) -> T): T = synchronized(lock) {
         check(handle != 0L) { "native runtime session is closed" }
         block(handle)
     }
