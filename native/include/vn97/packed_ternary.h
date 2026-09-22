@@ -27,6 +27,7 @@ enum class PackedTernaryStatus {
     kInvalidLength,
     kReservedCode,
     kBackendUnavailable,
+    kInvalidScale,
 };
 
 enum class PackedTernaryBackend {
