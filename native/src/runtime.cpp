@@ -192,6 +192,7 @@ RuntimeStatus RuntimeSession::Resume() {
 RuntimeStatus RuntimeSession::Advance(std::uint64_t token_count) {
     std::lock_guard<std::mutex> lock(mutex_);
     if (lifecycle_ != RuntimeLifecycle::kActive) return RuntimeStatus::kInvalidLifecycle;
+    if (model_bound_) return RuntimeStatus::kInferenceError;
     if (token_count > std::numeric_limits<std::uint64_t>::max() - sequence_position_) {
         return RuntimeStatus::kCounterOverflow;
     }
@@ -260,8 +261,8 @@ RuntimeStatus RuntimeSession::InferStep(
 
     if (!model_bound_) {
         std::copy(
-            std::begin(model.model_id),
-            std::end(model.model_id),
+            model.model_id,
+            model.model_id + 32,
             model_id_.begin());
         model_bound_ = true;
     }
