@@ -7,7 +7,7 @@ across reboot, subject to Android OS scheduling limits.
 
 `AndroidContinuationScheduler` submits a persisted `JobInfo` targeting the library
 `VN97ContinuationJobService`. Runtime shape/backend configuration is stored in a
-`PersistableBundle`; checkpoint bytes remain in the internal VN97RUN1 checkpoint store.
+`PersistableBundle`; checkpoint bytes remain in the internal opaque VN97RUN checkpoint store (RUN1 legacy or RUN2 model-bound).
 
 The platform manifest declares `RECEIVE_BOOT_COMPLETED`, which Android requires for persisted
 jobs. The JobService is non-exported and protected by `BIND_JOB_SERVICE`.
@@ -23,7 +23,7 @@ When Android starts the JobService in a fresh process:
 2. the governor samples current battery/charging/thermal state;
 3. blocked budgets return to JobScheduler for rescheduling;
 4. otherwise the service rebuilds `NativeRuntimeConfig` from persisted job extras;
-5. `NativeRuntimeOwner` restores VN97RUN1 or creates a fresh session;
+5. `NativeRuntimeOwner` restores validated VN97RUN1/VN97RUN2 or creates a fresh session;
 6. CREATED sessions activate; restored SUSPENDED sessions explicitly resume;
 7. the host continuation callback runs with a `ContinuationContext`;
 8. the runtime is suspended and atomically checkpointed before job completion.
