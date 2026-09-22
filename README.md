@@ -316,7 +316,7 @@ checkpoint bytes opaquely, so VN97RUN2 persistence does not change AtomicCheckpo
 
 M7C adds OS-lifecycle-aware continuation using Android JobScheduler. Jobs are persisted across
 process death and reboot through Android's scheduler contract. The library JobService recreates
-the runtime from VN97RUN1, resumes only at a safe suspended boundary, invokes a host-provided
+the runtime from a validated VN97RUN1/VN97RUN2 checkpoint, resumes only at a safe suspended boundary, invokes a host-provided
 `ContinuationWork`, then suspends and atomically persists state again.
 
 The host Application implements `ContinuationWorkProvider`; this keeps task-specific cognition
