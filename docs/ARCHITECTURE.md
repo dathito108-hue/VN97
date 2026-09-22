@@ -34,6 +34,8 @@ not the definition of AGI by itself.
     Python data-dependent branches are not part of the production graph.
 12. Backend selection is explicit and testable. `auto` may choose an optimized backend only
     when that backend is compiled and available; explicit unavailable requests must fail closed.
+13. Full-sequence SSM execution uses associative affine scan semantics; the sequential path is
+    retained as the numerical oracle until a fused native scan is verified.
 
 ## System layers
 
@@ -76,12 +78,14 @@ Established the numerical contract, stable SSM dynamics, ternary training path a
 ### M1 - Native packed ternary execution - complete
 M1A defined `VN97T2`: per-channel scales, fixed 2-bit symbols, configurable tile-major layout,
 versioned serialization, Python equivalence tests and a portable C++ packed matvec baseline.
-M1B adds explicit backend dispatch and an ARM64 NEON path that consumes VN97T2 directly,
-with scalar fallback and backend-equivalence tests. GPU/NPU delegates remain optional future
-backends and must preserve the same operator semantics.
+M1B added explicit backend dispatch and an ARM64 NEON path that consumes VN97T2 directly,
+with scalar fallback and backend-equivalence tests.
 
-### M2 - Parallel training / fused recurrence - next
-Replace the Python sequential training loop with scan/fused implementations while preserving exact recurrent inference semantics. Add exportable conditional-compute routing only after correctness is measurable.
+### M2 - Parallel training / fused recurrence - in progress
+M2A replaces per-token Python full-sequence recurrence with an associative affine prefix scan.
+B/C/dt projection is vectorized across sequence and the sequential recurrence remains the
+numerical oracle. M2B will fuse the scan/recurrent path into native execution and reduce
+intermediate allocation/work while preserving the same state semantics.
 
 ### M3 - Mobile tokenizer, modality adapters and embedding compression
 Design a compact text tokenizer and compressed/tied embedding representation. Keep byte-level
