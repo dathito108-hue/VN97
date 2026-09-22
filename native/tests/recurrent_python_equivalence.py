@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import ctypes
+import math
 import sys
 from pathlib import Path
 
 import torch
 import torch.nn.functional as F
+
+from vn97.scan import affine_prefix_scan
 
 
 FLOAT_P = ctypes.POINTER(ctypes.c_float)
@@ -18,26 +21,13 @@ def ptr(tensor: torch.Tensor) -> FLOAT_P:
     return ctypes.cast(tensor.data_ptr(), FLOAT_P)
 
 
-def scan(decay, drive, initial):
-    prefix_a = decay
-    prefix_b = drive
-    offset = 1
-    while offset < decay.shape[1]:
-        left_a = prefix_a[:, :-offset]
-        left_b = prefix_b[:, :-offset]
-        right_a = prefix_a[:, offset:]
-        right_b = prefix_b[:, offset:]
-        prefix_a = torch.cat(
-            (prefix_a[:, :offset], right_a * left_a), dim=1
-        )
-        prefix_b = torch.cat(
-            (prefix_b[:, :offset], right_b + right_a * left_b), dim=1
-        )
-        offset <<= 1
-    return prefix_a * initial.unsqueeze(1) + prefix_b
-
-
-def sequential(decay, drive, readout, gate, initial):
+def sequential_reference(
+    decay: torch.Tensor,
+    drive: torch.Tensor,
+    readout: torch.Tensor,
+    gate: torch.Tensor,
+    initial: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor]:
     state = initial.clone()
     outputs = []
     for t in range(decay.shape[1]):
@@ -47,7 +37,7 @@ def sequential(decay, drive, readout, gate, initial):
     return torch.stack(outputs, dim=1), state
 
 
-def configure(lib):
+def configure(lib: ctypes.CDLL) -> None:
     lib.vn97_recurrent_backend_available.argtypes = [ctypes.c_int]
     lib.vn97_recurrent_backend_available.restype = ctypes.c_int
     lib.vn97_recurrent_prefill_f32.argtypes = [
@@ -63,7 +53,12 @@ def configure(lib):
     lib.vn97_recurrent_step_f32.restype = ctypes.c_int
 
 
-def main():
+def main() -> None:
+    if len(sys.argv) != 2:
+        raise SystemExit(
+            "usage: recurrent_python_equivalence.py <shared-library>"
+        )
+
     lib = ctypes.CDLL(str(Path(sys.argv[1]).resolve()))
     configure(lib)
 
@@ -79,58 +74,88 @@ def main():
     gate = torch.randn(batch, sequence, d_model).contiguous()
     initial = torch.randn(batch, d_model, d_state).contiguous()
 
-    sequential_y, sequential_state = sequential(
+    sequential_y, sequential_state = sequential_reference(
         decay, drive, readout, gate, initial
     )
-    states = scan(decay, drive, initial)
-    scan_y = (
-        (states * readout.unsqueeze(2)).sum(dim=-1) * F.silu(gate)
+    scan_states, scan_final = affine_prefix_scan(
+        decay, drive, initial
     )
+    scan_y = (
+        (scan_states * readout.unsqueeze(2)).sum(dim=-1)
+        * F.silu(gate)
+    )
+
     torch.testing.assert_close(
         scan_y, sequential_y, rtol=1e-5, atol=1e-6
     )
     torch.testing.assert_close(
-        states[:, -1], sequential_state, rtol=1e-5, atol=1e-6
+        scan_final, sequential_state, rtol=1e-5, atol=1e-6
     )
 
-    native_state = initial.clone()
-    native_y = torch.empty(batch, sequence, d_model)
+    state = initial.clone()
+    output = torch.empty(
+        batch, sequence, d_model, dtype=torch.float32
+    )
     status = lib.vn97_recurrent_prefill_f32(
         ptr(decay), ptr(drive), ptr(readout), ptr(gate),
-        ptr(native_state), ptr(native_y),
+        ptr(state), ptr(output),
         batch, sequence, d_model, d_state, 1,
     )
     assert status == 0
     torch.testing.assert_close(
-        native_y, scan_y, rtol=2e-5, atol=2e-6
+        output, scan_y, rtol=2e-5, atol=2e-6
     )
     torch.testing.assert_close(
-        native_state, states[:, -1], rtol=2e-5, atol=2e-6
+        state, scan_final, rtol=2e-5, atol=2e-6
     )
 
     step_state = initial.clone()
-    step_y = []
+    step_outputs = []
     for t in range(sequence):
         decay_t = decay[:, t].contiguous()
         drive_t = drive[:, t].contiguous()
         readout_t = readout[:, t].contiguous()
         gate_t = gate[:, t].contiguous()
-        out_t = torch.empty(batch, d_model)
+        out_t = torch.empty(
+            batch, d_model, dtype=torch.float32
+        )
         status = lib.vn97_recurrent_step_f32(
             ptr(decay_t), ptr(drive_t), ptr(readout_t), ptr(gate_t),
             ptr(step_state), ptr(out_t),
             batch, d_model, d_state, 1,
         )
         assert status == 0
-        step_y.append(out_t)
+        step_outputs.append(out_t)
+
+    step_y = torch.stack(step_outputs, dim=1)
     torch.testing.assert_close(
-        torch.stack(step_y, dim=1), native_y, rtol=2e-5, atol=2e-6
+        step_y, output, rtol=2e-5, atol=2e-6
     )
     torch.testing.assert_close(
-        step_state, native_state, rtol=2e-5, atol=2e-6
+        step_state, state, rtol=2e-5, atol=2e-6
+    )
+
+    auto_state = initial.clone()
+    auto_output = torch.empty_like(output)
+    status = lib.vn97_recurrent_prefill_f32(
+        ptr(decay), ptr(drive), ptr(readout), ptr(gate),
+        ptr(auto_state), ptr(auto_output),
+        batch, sequence, d_model, d_state, 0,
+    )
+    assert status == 0
+    torch.testing.assert_close(
+        auto_output, output, rtol=2e-5, atol=2e-6
+    )
+    torch.testing.assert_close(
+        auto_state, state, rtol=2e-5, atol=2e-6
     )
 
     assert lib.vn97_recurrent_backend_available(1) == 1
+    print(
+        "native/PyTorch equivalence PASS:",
+        f"B={batch} L={sequence} D={d_model} N={d_state}",
+        f"scan_rounds={math.ceil(math.log2(sequence))}",
+    )
 
 
 if __name__ == "__main__":

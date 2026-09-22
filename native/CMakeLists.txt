@@ -61,7 +61,9 @@ if(VN97_BUILD_TESTS)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
     add_test(
         NAME vn97_recurrent_python_equivalence
-        COMMAND ${Python3_EXECUTABLE}
+        COMMAND ${CMAKE_COMMAND} -E env
+                "PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}/../src"
+                ${Python3_EXECUTABLE}
                 ${CMAKE_CURRENT_SOURCE_DIR}/tests/recurrent_python_equivalence.py
                 $<TARGET_FILE:vn97_recurrent_test_bridge>
     )
