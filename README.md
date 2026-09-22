@@ -366,6 +366,30 @@ CRC32 is corruption detection only. External asset acquisition/authentication be
 controlled M9 import pipeline and must still pass the existing M6 authority boundary for any
 external side effects.
 
+## M9A controlled capability package + staging
+
+M9A introduces `VN97CAP1`, a data-only capability container for bringing compatible learned
+assets into VN97 without silently mutating trusted runtime code.
+
+A package contains one canonical strict-JSON manifest followed by one or more data sections.
+The fixed binary header/table binds exact section offsets, sizes and SHA-256 digests; the
+package header also carries CRC32 corruption detection plus a SHA-256 digest over the section
+table and payload. The full package SHA-256 becomes its content-addressed identity.
+
+The manifest binds capability ID/version/kind, source provenance metadata and each section's
+role/format/size/SHA-256. Roles that imply executable code, plugins, scripts or native/shared
+libraries are rejected by the M9A contract.
+
+`CapabilityStager` validates the complete package before writing anything. Staging uses a
+trusted non-symlink directory, directory locking, no-follow opens, same-directory temporary
+files, fsync and create-only hard-link publication to
+`<package-sha256>.vn97cap1`. Re-staging the same package is idempotent.
+
+Staging is deliberately **not activation**: M9A does not register handlers, load native code,
+change model weights in-place, mutate M6 policy or make the package executable. Source hashes
+and provenance fields are metadata/integrity claims, not cryptographic publisher trust.
+Signature/trust policy and typed activation belong to later M9 milestones.
+
 ## Native execution libraries
 
 - libvn97_packed_ternary.a
@@ -421,3 +445,4 @@ Avatar integration:
 - docs/AVATAR_M8A.md
 - docs/SPEECH_AVATAR_M8B.md
 - docs/AVATAR_ASSET_M8C.md
+- docs/CAPABILITY_PACKAGE_M9A.md

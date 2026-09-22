@@ -371,9 +371,16 @@ M8 is complete at the interactive-avatar architecture contract. Higher-quality m
 animation assets and model behavior are capability/training/package concerns rather than a new
 renderer authority architecture.
 
-### M9 - Capability acquisition
-Controlled import/adaptation pipeline that converts compatible learned capability into
-VN97-native packages without silently mutating trusted runtime code.
+### M9 - Capability acquisition - in progress
+M9A adds the VN97CAP1 data-only package format, strict canonical provenance/section manifest,
+multi-layer integrity validation and content-addressed atomic staging. Staging is explicitly not
+activation and cannot load code, mutate M6 authority or modify live model/runtime state.
+
+M9B will add trust/signature policy plus typed compatibility/adaptation planning for staged
+VN97CAP1 packages before any learned section can become active.
+
+M9C will add transactional activation/rollback and provenance-visible capability inventory while
+preserving the single VN97 runtime and M6 external-authority boundary.
 
 101. Android continuation uses JobScheduler persisted jobs and does not emulate an
     always-running process when the OS has suspended or killed the app.
@@ -456,4 +463,25 @@ VN97-native packages without silently mutating trusted runtime code.
     pose controls; it does not mutate cognition, planner or asset bytes.
 140. Future avatar asset acquisition must validate VN97AV1 and use the controlled M9 import/
     provenance path; CRC32 never substitutes for package authentication or M6 authority.
+
+141. VN97CAP1 packages are data-only containers; executable/script/plugin/native-library
+    section roles are rejected before a package can be staged.
+142. The VN97CAP1 fixed header/table requires canonical offsets, exact total length, zero reserved
+    fields, bounded section count and one manifest section at index zero.
+143. Every section is SHA-256 bound in the binary table; the package also binds the complete
+    table+payload digest and a header CRC32 before manifest parsing.
+144. The manifest is strict canonical UTF-8 JSON with exact keys, no duplicates/non-finite values,
+    bounded identifiers and exact section role/format/size/SHA-256 binding.
+145. Capability provenance records origin, source SHA-256 and license metadata, but M9A does not
+    treat those fields or package CRC/hash as a publisher signature or trust decision.
+146. CapabilityStager validates the entire package before persistence and uses a trusted
+    non-symlink root, no-follow operations, directory locking, fsync and create-only publication.
+147. Staged package identity is the full-package SHA-256 and staging the exact same package is
+    idempotent; a conflicting digest path fails closed.
+148. Staging never activates a capability, loads native code, registers an M6 handler, changes
+    policy/approval/lease state or mutates live VN97 model/runtime state.
+149. M9 activation must consume only already-validated staged packages and apply a separate typed
+    compatibility/trust decision before any learned data becomes active.
+150. External acquisition/download of VN97CAP1 remains an M6-authorized side effect; M9 package
+    validation/staging does not create a parallel network/file authority path.
 
