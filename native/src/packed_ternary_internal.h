@@ -48,18 +48,28 @@ inline std::uint8_t ReadCode(
     return static_cast<std::uint8_t>((byte >> shift) & 0x03u);
 }
 
-PackedTernaryStatus PackedTernaryMatVecF32Scalar(
+inline void PrefetchRead(const void* pointer) {
+#if defined(__GNUC__) || defined(__clang__)
+    __builtin_prefetch(pointer, 0, 1);
+#else
+    (void)pointer;
+#endif
+}
+
+PackedTernaryStatus PackedTernaryMatVecF32TiledScalar(
     const PackedTernaryView& matrix,
     const float* input,
     const float* bias,
-    float* output);
+    float* output,
+    float* accumulator);
 
 #if defined(VN97_HAS_ARM64_NEON)
-PackedTernaryStatus PackedTernaryMatVecF32Arm64Neon(
+PackedTernaryStatus PackedTernaryMatVecF32TiledArm64Neon(
     const PackedTernaryView& matrix,
     const float* input,
     const float* bias,
-    float* output);
+    float* output,
+    float* accumulator);
 #endif
 
 }  // namespace vn97::internal
