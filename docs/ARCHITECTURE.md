@@ -347,7 +347,7 @@ M7B2 adds the AndroidKeyStore-backed M6-compatible approval controller, OS permi
 broker and internal exact-package/clipboard platform adapter. It preserves M6 request-digest
 binding, one-shot approval and capability bounds without exposing a side-effect bypass.
 
-M7C adds persisted JobScheduler continuation, cold-process VN97RUN1 restore/persist handoff and
+M7C adds persisted JobScheduler continuation, cold-process VN97RUN checkpoint restore/persist handoff and
 deterministic battery/thermal compute governance. Host continuation callbacks remain bounded and
 cancellable and do not gain side-effect authority.
 
@@ -393,7 +393,7 @@ at the controlled acquisition/trust/compatibility/activation architecture contra
 
 101. Android continuation uses JobScheduler persisted jobs and does not emulate an
     always-running process when the OS has suspended or killed the app.
-102. Cold-process continuation reconstructs runtime state only from validated VN97RUN1 through
+102. Cold-process continuation reconstructs runtime state only from validated VN97RUN1/VN97RUN2 through
     NativeRuntimeOwner; restored sessions remain SUSPENDED until the JobService explicitly resumes.
 103. Continuation work is supplied by the host Application through ContinuationWorkProvider;
     the platform library does not embed a second cognition backend or planner.
@@ -403,7 +403,7 @@ at the controlled acquisition/trust/compatibility/activation architecture contra
     hint. Continuation callbacks are required to honor those ceilings and cancellation.
 106. JobService stop signals are propagated through ContinuationContext; onStopJob requests OS
     rescheduling rather than pretending the interrupted wake completed.
-107. A successful continuation wake suspends the runtime and atomically persists VN97RUN1 before
+107. A successful continuation wake suspends the runtime and atomically persists the current VN97RUN checkpoint before
     reporting completion to JobScheduler.
 108. RECEIVE_BOOT_COMPLETED exists solely to support Android persisted JobScheduler continuity;
     it does not grant cognition an external-action capability.
