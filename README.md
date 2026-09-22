@@ -22,7 +22,8 @@ multimodal frontends and explicit sovereign memory.
 - M6B: production capability pack for confined files, sovereign HTTPS and platform actions;
 - M6C: strict external-intent binding + one-shot exact-request approval sessions;
 - M7A: native runtime session ABI + VN97RUN1 safe checkpoint/restore;
-- M7B1: Android/Kotlin ↔ JNI bridge + atomic runtime checkpoint owner.
+- M7B1: Android/Kotlin ↔ JNI bridge + atomic runtime checkpoint owner;
+- M7B2: Android Keystore approval authority + permission-gated app/clipboard platform adapter.
 
 ## M3 multimodal contract
 
@@ -240,6 +241,36 @@ A reproducible host regression under `android/runtime/host-test/run.sh` compiles
 against the real M7A native sources and runs the Kotlin lifecycle/checkpoint flow on a JVM without
 requiring an Android emulator.
 
+## M7B2 Android authority + platform adapter
+
+M7B2 realizes the completed M6 approval and app/device contracts on Android without creating a
+second authority model.
+
+`AndroidApprovalController` owns a bounded one-shot approval coordinator. The HMAC key is created
+inside `AndroidKeyStore` as HmacSHA256 and is never exported as raw bytes. Approval tokens keep
+the exact M6 field semantics and canonical signing payload:
+`approval_id, expires_ns, issued_ns, issuer, principal, request_digest`.
+Android uses epoch nanoseconds derived from wall-clock time so validity windows are compatible
+with the M6 reference contract.
+
+The public Android API can create/resolve a pending approval prompt and verify a token, but the
+raw MAC provider, approval authority and coordinator are module-internal. Denial, expiry,
+tampered prompts and concurrent duplicate resolution cannot mint more than one token.
+
+`AndroidPermissionBroker` treats Android runtime permissions only as an OS prerequisite.
+Permission state does not grant M6 authority, create an approval or issue a lease.
+
+The concrete app/device implementation remains internal to `AndroidPlatformRuntime`:
+- API 33+ app launch uses `getLaunchIntentSenderForPackage()`;
+- API 26-32 uses the package manager launch-intent fallback and fails closed if package visibility
+  prevents resolving the target;
+- clipboard writes are bounded to the M6B 16 KiB UTF-8 limit and are marked sensitive;
+- there is no shell, arbitrary Intent, accessibility or unrestricted device-control primitive.
+
+The `:platform` manifest requests no permission by itself. A host may configure capability-to-
+permission requirements, but M6 policy + explicit approval + lease remain mandatory before a
+side-effect handler is invoked.
+
 ## Native execution libraries
 
 - libvn97_packed_ternary.a
@@ -265,6 +296,7 @@ See:
 - docs/EXTERNAL_INTENT_M6C.md
 - docs/RUNTIME_M7A.md
 - docs/RUNTIME_M7B1.md
+- docs/RUNTIME_M7B2.md
 - docs/NATIVE_SELECTIVE_M2C.md
 
 ## Local verification
@@ -280,3 +312,7 @@ Production-only native build:
 
     cmake -S native -B native/build-prod -DVN97_BUILD_TESTS=OFF
     cmake --build native/build-prod
+
+Android M6 approval compatibility regression:
+
+    android/platform/host-test/run.sh
