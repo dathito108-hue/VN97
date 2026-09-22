@@ -94,6 +94,20 @@ not the definition of AGI by itself.
     WAITING_EXTERNAL until M6 supplies an authorized result.
 49. Per-run cognition yielding occurs only after a safe step/verification boundary; no RUNNING
     internal step is returned to the caller.
+50. Cognition model execution enters M5 only through VN97InferenceEngine; M5C does not introduce
+    a third-party LLM/backend dependency.
+51. VN97TK1 vocabulary size must exactly match the reference VN97LanguageCore vocabulary before
+    reference cognition generation is allowed.
+52. Structured cognition output is strict JSON: duplicate keys, wrappers/prose, missing/extra
+    fields, non-finite numbers and unknown enums fail closed.
+53. The cognition model proposes retrieval text and policy fields, not arbitrary trusted
+    embedding arrays or evidence record IDs.
+54. Reference retrieval vectors are derived locally from the final normalized VN97 hidden state;
+    the active VN97MEM1 vector dimension must equal d_model.
+55. Existing language logits are computed from the same exposed normalized hidden path, so
+    retrieval-vector access does not create a second recurrent/model semantics.
+56. M5C reference execution is not a claim of Android-native full-model runtime; JNI/C++ model
+    assembly and hardware scheduling remain M7 responsibilities.
 
 ## System layers
 
@@ -139,6 +153,9 @@ not the definition of AGI by itself.
 - long-term exact recall belongs in explicit memory/retrieval;
 - deliberate reasoning must have finite transition/retry/retrieval budgets;
 - plan checkpoints must be written only at durable lifecycle boundaries;
+- cognition model output must cross a strict typed/structured schema boundary;
+- retrieval embeddings must be produced locally by trusted VN97 inference rather than accepted
+  as arbitrary model-supplied float arrays;
 - external side effects must pass through an explicit authority boundary;
 - Android background continuity must respect OS scheduling and lifecycle limits.
 
@@ -166,7 +183,7 @@ M4B adds the native file-backed engine: exclusive writer locking, mmap record ac
 incremental suffix indexing without vector duplication, native SHA-256 append, exact retrieval,
 record views and atomic provenance-preserving compaction. VN97MEM1 remains unchanged.
 
-### M5 - Reasoning and planning controller - in progress
+### M5 - Reasoning and planning controller - complete at cognition-adapter contract
 M5A adds a deterministic bounded plan state machine, dependency ordering, confidence-driven
 verification, bounded VN97MEM1 retrieval, interruption/resume semantics, an explicit
 WAITING_EXTERNAL boundary and atomic VN97PLN1 safe-point checkpoints.
@@ -175,9 +192,11 @@ M5B adds the typed CognitionBackend loop for bounded plan proposal, pre-executio
 memory-query generation, dependency/memory context assembly, proposal execution and
 reflection/verification while preserving M5A budgets and the M6 external-authority boundary.
 
-M5C will provide the production VN97-native cognition adapter over tokenizer/model/native
-inference so the language core can implement CognitionBackend without changing M5A/M5B
-orchestration semantics.
+M5C adds VN97CognitionAdapter plus the VN97InferenceEngine boundary. The reference engine binds
+VN97TK1 directly to VN97LanguageCore recurrent generation and derives retrieval vectors from the
+final normalized hidden state. Strict VN97COG1 JSON schemas fail closed before typed cognition
+objects enter M5B. Model-quality reasoning still depends on trained/imported VN97-native
+weights; full Android C++ execution remains M7.
 
 ### M6 - Tool and authority fabric
 Internet, files, apps and device actions through typed capabilities, explicit permissions,

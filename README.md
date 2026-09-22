@@ -16,7 +16,8 @@ multimodal frontends and explicit sovereign memory.
 - M4A: VN97MEM1 sovereign memory journal + bounded working memory + deterministic retrieval;
 - M4B: mmap native memory store + incremental zero-copy index + native append/retrieve/compact;
 - M5A: bounded reasoning/planning state machine + VN97PLN1 safe checkpoints;
-- M5B: typed cognition backend loop + bounded retrieval/verification/refinement orchestration.
+- M5B: typed cognition backend loop + bounded retrieval/verification/refinement orchestration;
+- M5C: VN97-owned tokenizer/model cognition adapter + strict structured inference contract.
 
 ## M3 multimodal contract
 
@@ -84,6 +85,24 @@ plan/plan_id rather than mutating the existing graph.
 M5B is an orchestration contract. Production model-quality planning/verification still depends
 on a VN97 cognition adapter and trained/native model capability.
 
+## M5C VN97 cognition adapter
+
+VN97CognitionAdapter implements the M5B CognitionBackend contract through a VN97InferenceEngine.
+The reference TorchVN97InferenceEngine uses VN97TK1 plus VN97LanguageCore directly; no external
+LLM/backend is introduced.
+
+Cognition operations use a bounded VN97COG1 prompt envelope and must return exactly one strict
+JSON object. Markdown/prose wrappers, duplicate keys, missing/extra fields, invalid numeric
+values and unknown enums fail closed.
+
+For memory retrieval, the model emits retrieval text/weights rather than an arbitrary embedding
+array. The reference engine derives the vector locally from the final normalized VN97 hidden
+state and requires VN97MEM1.vector_dim == d_model.
+
+M5 is now complete at the cognition-adapter contract. This does not claim trained AGI-level
+reasoning quality: capability depends on trained/imported VN97-native weights. Full C++ Android
+model execution remains an M7 runtime concern; external side effects still remain behind M6.
+
 ## Native execution libraries
 
 - libvn97_packed_ternary.a
@@ -102,6 +121,7 @@ See:
 - docs/MEMORY_V1.md
 - docs/PLANNER_M5A.md
 - docs/COGNITION_M5B.md
+- docs/COGNITION_ADAPTER_M5C.md
 - docs/NATIVE_SELECTIVE_M2C.md
 
 ## Local verification
