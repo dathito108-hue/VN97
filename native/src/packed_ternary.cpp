@@ -1,5 +1,7 @@
 #include "vn97/packed_ternary.h"
 
+#include "packed_ternary_internal.h"
+
 #include <cstring>
 #include <limits>
 
@@ -10,46 +12,8 @@ constexpr std::uint8_t kMagic[8] = {'V', 'N', '9', '7', 'T', '2', 0, 0};
 constexpr std::uint32_t kVersion = 1;
 constexpr std::size_t kHeaderSize = 40;
 
-std::uint32_t ReadU32LE(const std::uint8_t* p) {
-    return static_cast<std::uint32_t>(p[0]) |
-           (static_cast<std::uint32_t>(p[1]) << 8) |
-           (static_cast<std::uint32_t>(p[2]) << 16) |
-           (static_cast<std::uint32_t>(p[3]) << 24);
-}
-
-float ReadF32LE(const std::uint8_t* p) {
-    const std::uint32_t bits = ReadU32LE(p);
-    float value = 0.0f;
-    static_assert(sizeof(value) == sizeof(bits), "float32 required");
-    std::memcpy(&value, &bits, sizeof(value));
-    return value;
-}
-
 bool MulOverflows(std::size_t a, std::size_t b) {
     return b != 0 && a > std::numeric_limits<std::size_t>::max() / b;
-}
-
-std::size_t SymbolIndex(
-    const PackedTernaryView& m,
-    std::uint32_t row,
-    std::uint32_t col) {
-    const std::uint32_t tile_row = row / m.tile_rows;
-    const std::uint32_t tile_col = col / m.tile_cols;
-    const std::uint32_t inner_row = row % m.tile_rows;
-    const std::uint32_t inner_col = col % m.tile_cols;
-    const std::uint32_t tile_cols_count = m.padded_cols / m.tile_cols;
-    const std::size_t tile_elements =
-        static_cast<std::size_t>(m.tile_rows) * m.tile_cols;
-    const std::size_t tile_index =
-        static_cast<std::size_t>(tile_row) * tile_cols_count + tile_col;
-    return tile_index * tile_elements +
-           static_cast<std::size_t>(inner_row) * m.tile_cols + inner_col;
-}
-
-std::uint8_t ReadCode(const PackedTernaryView& m, std::size_t symbol_index) {
-    const std::uint8_t byte = m.packed_data[symbol_index / 4];
-    const unsigned shift = static_cast<unsigned>((symbol_index % 4) * 2);
-    return static_cast<std::uint8_t>((byte >> shift) & 0x03u);
 }
 
 }  // namespace
@@ -68,19 +32,19 @@ PackedTernaryStatus ParsePackedTernary(
         return PackedTernaryStatus::kBadMagic;
     }
 
-    const std::uint32_t version = ReadU32LE(blob + 8);
+    const std::uint32_t version = internal::ReadU32LE(blob + 8);
     if (version != kVersion) {
         return PackedTernaryStatus::kUnsupportedVersion;
     }
 
     PackedTernaryView m;
-    m.rows = ReadU32LE(blob + 12);
-    m.cols = ReadU32LE(blob + 16);
-    m.tile_rows = ReadU32LE(blob + 20);
-    m.tile_cols = ReadU32LE(blob + 24);
-    m.padded_rows = ReadU32LE(blob + 28);
-    m.padded_cols = ReadU32LE(blob + 32);
-    m.packed_data_size = ReadU32LE(blob + 36);
+    m.rows = internal::ReadU32LE(blob + 12);
+    m.cols = internal::ReadU32LE(blob + 16);
+    m.tile_rows = internal::ReadU32LE(blob + 20);
+    m.tile_cols = internal::ReadU32LE(blob + 24);
+    m.padded_rows = internal::ReadU32LE(blob + 28);
+    m.padded_cols = internal::ReadU32LE(blob + 32);
+    m.packed_data_size = internal::ReadU32LE(blob + 36);
 
     if (m.rows == 0 || m.cols == 0 || m.tile_rows == 0 || m.tile_cols == 0 ||
         m.padded_rows < m.rows || m.padded_cols < m.cols ||
@@ -110,7 +74,7 @@ PackedTernaryStatus ParsePackedTernary(
     m.packed_data = m.scale_bytes + scale_bytes;
 
     for (std::size_t i = 0; i < symbol_count; ++i) {
-        if (ReadCode(m, i) == 3u) {
+        if (internal::ReadCode(m, i) == 3u) {
             return PackedTernaryStatus::kReservedCode;
         }
     }
@@ -119,7 +83,47 @@ PackedTernaryStatus ParsePackedTernary(
     return PackedTernaryStatus::kOk;
 }
 
-PackedTernaryStatus PackedTernaryMatVecF32(
+const char* PackedTernaryBackendName(PackedTernaryBackend backend) {
+    switch (backend) {
+        case PackedTernaryBackend::kAuto:
+            return "auto";
+        case PackedTernaryBackend::kScalar:
+            return "scalar";
+        case PackedTernaryBackend::kArm64Neon:
+            return "arm64-neon";
+    }
+    return "unknown";
+}
+
+bool PackedTernaryBackendAvailable(PackedTernaryBackend backend) {
+    switch (backend) {
+        case PackedTernaryBackend::kAuto:
+        case PackedTernaryBackend::kScalar:
+            return true;
+        case PackedTernaryBackend::kArm64Neon:
+#if defined(VN97_HAS_ARM64_NEON)
+            return true;
+#else
+            return false;
+#endif
+    }
+    return false;
+}
+
+PackedTernaryBackend ResolvePackedTernaryBackend(PackedTernaryBackend requested) {
+    if (requested != PackedTernaryBackend::kAuto) {
+        return requested;
+    }
+#if defined(VN97_HAS_ARM64_NEON)
+    return PackedTernaryBackend::kArm64Neon;
+#else
+    return PackedTernaryBackend::kScalar;
+#endif
+}
+
+namespace internal {
+
+PackedTernaryStatus PackedTernaryMatVecF32Scalar(
     const PackedTernaryView& matrix,
     const float* input,
     const float* bias,
@@ -146,6 +150,45 @@ PackedTernaryStatus PackedTernaryMatVecF32(
         output[row] = sum * scale + (bias != nullptr ? bias[row] : 0.0f);
     }
     return PackedTernaryStatus::kOk;
+}
+
+}  // namespace internal
+
+PackedTernaryStatus PackedTernaryMatVecF32WithBackend(
+    const PackedTernaryView& matrix,
+    const float* input,
+    const float* bias,
+    float* output,
+    PackedTernaryBackend backend) {
+    const PackedTernaryBackend resolved = ResolvePackedTernaryBackend(backend);
+    if (!PackedTernaryBackendAvailable(resolved)) {
+        return PackedTernaryStatus::kBackendUnavailable;
+    }
+
+    switch (resolved) {
+        case PackedTernaryBackend::kScalar:
+            return internal::PackedTernaryMatVecF32Scalar(
+                matrix, input, bias, output);
+        case PackedTernaryBackend::kArm64Neon:
+#if defined(VN97_HAS_ARM64_NEON)
+            return internal::PackedTernaryMatVecF32Arm64Neon(
+                matrix, input, bias, output);
+#else
+            return PackedTernaryStatus::kBackendUnavailable;
+#endif
+        case PackedTernaryBackend::kAuto:
+            break;
+    }
+    return PackedTernaryStatus::kBackendUnavailable;
+}
+
+PackedTernaryStatus PackedTernaryMatVecF32(
+    const PackedTernaryView& matrix,
+    const float* input,
+    const float* bias,
+    float* output) {
+    return PackedTernaryMatVecF32WithBackend(
+        matrix, input, bias, output, PackedTernaryBackend::kAuto);
 }
 
 }  // namespace vn97

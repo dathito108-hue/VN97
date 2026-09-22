@@ -32,6 +32,8 @@ not the definition of AGI by itself.
     after those frontends.
 11. Conditional compute must be implemented with an exportable/vectorized routing contract;
     Python data-dependent branches are not part of the production graph.
+12. Backend selection is explicit and testable. `auto` may choose an optimized backend only
+    when that backend is compiled and available; explicit unavailable requests must fail closed.
 
 ## System layers
 
@@ -60,6 +62,7 @@ not the definition of AGI by itself.
 - generation memory must not grow linearly with context length;
 - production ternary weights must be physically packed, not merely simulated as FP tensors;
 - optimized kernels must consume packed weights without full-matrix dequantization;
+- backend dispatch must retain a portable correctness fallback;
 - production recurrence must use a native fused/scan implementation, not a Python token loop;
 - long-term exact recall must live in explicit memory/retrieval instead of overloading recurrent state;
 - external side effects must pass through an explicit authority boundary;
@@ -70,13 +73,14 @@ not the definition of AGI by itself.
 ### M0 - Reference recurrent intelligence core - complete
 Established the numerical contract, stable SSM dynamics, ternary training path and recurrent invariant tests.
 
-### M1 - Native packed ternary execution - in progress
-M1A defines `VN97T2`: per-channel scales, fixed 2-bit symbols, configurable tile-major layout,
+### M1 - Native packed ternary execution - complete
+M1A defined `VN97T2`: per-channel scales, fixed 2-bit symbols, configurable tile-major layout,
 versioned serialization, Python equivalence tests and a portable C++ packed matvec baseline.
-M1B will add ARM64 vectorized kernels and runtime dispatch; GPU/NPU delegates may follow where
-they can preserve the same operator semantics.
+M1B adds explicit backend dispatch and an ARM64 NEON path that consumes VN97T2 directly,
+with scalar fallback and backend-equivalence tests. GPU/NPU delegates remain optional future
+backends and must preserve the same operator semantics.
 
-### M2 - Parallel training / fused recurrence
+### M2 - Parallel training / fused recurrence - next
 Replace the Python sequential training loop with scan/fused implementations while preserving exact recurrent inference semantics. Add exportable conditional-compute routing only after correctness is measurable.
 
 ### M3 - Mobile tokenizer, modality adapters and embedding compression

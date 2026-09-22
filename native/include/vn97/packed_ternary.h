@@ -26,12 +26,32 @@ enum class PackedTernaryStatus {
     kInvalidGeometry,
     kInvalidLength,
     kReservedCode,
+    kBackendUnavailable,
+};
+
+enum class PackedTernaryBackend {
+    kAuto = 0,
+    kScalar,
+    kArm64Neon,
 };
 
 PackedTernaryStatus ParsePackedTernary(
     const std::uint8_t* blob,
     std::size_t blob_size,
     PackedTernaryView* out);
+
+const char* PackedTernaryBackendName(PackedTernaryBackend backend);
+
+bool PackedTernaryBackendAvailable(PackedTernaryBackend backend);
+
+PackedTernaryBackend ResolvePackedTernaryBackend(PackedTernaryBackend requested);
+
+PackedTernaryStatus PackedTernaryMatVecF32WithBackend(
+    const PackedTernaryView& matrix,
+    const float* input,
+    const float* bias,
+    float* output,
+    PackedTernaryBackend backend);
 
 PackedTernaryStatus PackedTernaryMatVecF32(
     const PackedTernaryView& matrix,
