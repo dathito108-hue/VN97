@@ -2,6 +2,7 @@
 
 #include "packed_ternary_internal.h"
 
+#include <cmath>
 #include <cstring>
 #include <limits>
 
@@ -72,6 +73,14 @@ PackedTernaryStatus ParsePackedTernary(
 
     m.scale_bytes = blob + kHeaderSize;
     m.packed_data = m.scale_bytes + scale_bytes;
+
+    for (std::uint32_t row = 0; row < m.rows; ++row) {
+        const float scale = internal::ReadF32LE(
+            m.scale_bytes + static_cast<std::size_t>(row) * 4);
+        if (!std::isfinite(scale) || !(scale > 0.0f)) {
+            return PackedTernaryStatus::kInvalidScale;
+        }
+    }
 
     for (std::size_t i = 0; i < symbol_count; ++i) {
         if (internal::ReadCode(m, i) == 3u) {
