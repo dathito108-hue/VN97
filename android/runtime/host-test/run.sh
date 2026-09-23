@@ -137,3 +137,18 @@ java -Djava.library.path="$WORK" -jar "$WORK/m7u-native-memory-bridge-test.jar"
     -d "$WORK/m10d-capability-staging-test.jar"
 
 java -jar "$WORK/m10d-capability-staging-test.jar"
+
+
+"$KOTLINC" \
+    "$ROOT/android/runtime/src/main/java/ai/vn97/runtime/StrictJson.kt" \
+    "$ROOT/android/runtime/src/main/java/ai/vn97/runtime/CapabilityPackage.kt" \
+    "$ROOT/android/runtime/src/main/java/ai/vn97/runtime/CapabilitySignature.kt" \
+    "$ROOT/android/runtime/src/main/java/ai/vn97/runtime/CapabilityStage.kt" \
+    "$ROOT/android/runtime/src/main/java/ai/vn97/runtime/CapabilityTrust.kt" \
+    "$HERE/M10DStrictJsonStub.kt" \
+    "$HERE/M10EPublisherTrustTest.kt" \
+    -Werror \
+    -include-runtime \
+    -d "$WORK/m10e-publisher-trust-test.jar"
+
+java -jar "$WORK/m10e-publisher-trust-test.jar"
