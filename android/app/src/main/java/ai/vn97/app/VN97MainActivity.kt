@@ -9,6 +9,7 @@ import android.app.Activity
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.provider.Settings
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -22,6 +23,7 @@ import java.util.concurrent.Executors
 class VN97MainActivity : Activity() {
     private lateinit var avatar: VN97AvatarView
     private lateinit var statusView: TextView
+    private lateinit var floatingAssistantButton: Button
     private lateinit var transcriptView: TextView
     private lateinit var inputView: EditText
     private lateinit var sendButton: Button
@@ -40,6 +42,7 @@ class VN97MainActivity : Activity() {
     private var packageUri: Uri? = null
     private var signatureUri: Uri? = null
     private var publisherKeyUri: Uri? = null
+    private var pendingFloatingAssistantEnable = false
 
     private val worker = Executors.newSingleThreadExecutor()
     private var state = VN97AppState()
@@ -102,6 +105,17 @@ class VN97MainActivity : Activity() {
         statusView = TextView(this)
         root.addView(
             statusView,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ),
+        )
+
+        floatingAssistantButton = Button(this).apply {
+            setOnClickListener { toggleFloatingAssistant() }
+        }
+        root.addView(
+            floatingAssistantButton,
             LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT,
@@ -302,6 +316,7 @@ class VN97MainActivity : Activity() {
         )
 
         setContentView(root)
+        refreshFloatingAssistantButton()
         render(state)
         attachTrustedModel()
     }
@@ -309,6 +324,13 @@ class VN97MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         avatar.onAvatarResume()
+        if (pendingFloatingAssistantEnable) {
+            pendingFloatingAssistantEnable = false
+            if (Settings.canDrawOverlays(this)) {
+                VN97FloatingAssistantService.enable(this)
+            }
+        }
+        refreshFloatingAssistantButton()
     }
 
     override fun onPause() {
@@ -319,6 +341,44 @@ class VN97MainActivity : Activity() {
     override fun onDestroy() {
         worker.shutdownNow()
         super.onDestroy()
+    }
+
+    private fun toggleFloatingAssistant() {
+        val permissionGranted = Settings.canDrawOverlays(this)
+        if (
+            permissionGranted &&
+            VN97FloatingAssistantService.isEnabled(this)
+        ) {
+            VN97FloatingAssistantService.disable(this)
+            refreshFloatingAssistantButton()
+            return
+        }
+
+        if (permissionGranted) {
+            VN97FloatingAssistantService.enable(this)
+            refreshFloatingAssistantButton()
+            return
+        }
+
+        pendingFloatingAssistantEnable = true
+        startActivity(
+            Intent(
+                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                Uri.parse("package:$packageName"),
+            )
+        )
+    }
+
+    private fun refreshFloatingAssistantButton() {
+        val permissionGranted = Settings.canDrawOverlays(this)
+        val enabled =
+            permissionGranted &&
+                VN97FloatingAssistantService.isEnabled(this)
+        floatingAssistantButton.text = when {
+            enabled -> "Hide floating 3D assistant"
+            permissionGranted -> "Show floating 3D assistant"
+            else -> "Enable floating 3D assistant"
+        }
     }
 
     private fun attachTrustedModel() {

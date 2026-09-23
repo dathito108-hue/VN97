@@ -1,6 +1,7 @@
 package ai.vn97.avatar
 
 import android.content.Context
+import android.graphics.PixelFormat
 import android.opengl.GLSurfaceView
 import android.util.AttributeSet
 import android.view.Choreographer
@@ -27,12 +28,21 @@ class VN97AvatarView @JvmOverloads constructor(
 
     init {
         setEGLContextClientVersion(3)
+        setEGLConfigChooser(8, 8, 8, 8, 16, 0)
         setRenderer(avatarRenderer)
         renderMode = RENDERMODE_WHEN_DIRTY
         preserveEGLContextOnPause = true
         isFocusable = true
         importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_YES
         contentDescription = "VN97 interactive 3D assistant"
+    }
+
+    fun enableTransparentOverlaySurface() {
+        check(!isAttachedToWindow) {
+            "transparent overlay surface must be configured before attachment"
+        }
+        setZOrderOnTop(true)
+        holder.setFormat(PixelFormat.TRANSLUCENT)
     }
 
     fun publish(command: AvatarCommand): AvatarFrameState {
