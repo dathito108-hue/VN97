@@ -184,9 +184,18 @@ def _parse_audio_config(raw: object, *, d_model: int) -> AudioFrameAdapter:
                 f"VN97CK1 audio {key} must be numeric"
             )
         numeric = float(value)
-        if not math.isfinite(numeric) or numeric <= 0.0:
+        if not math.isfinite(numeric):
             raise VN97DeploymentCheckpointFormatError(
-                f"VN97CK1 audio {key} must be finite and positive"
+                f"VN97CK1 audio {key} must be finite"
+            )
+        if key == "ternary_threshold":
+            if not 0.0 <= numeric <= 1.0:
+                raise VN97DeploymentCheckpointFormatError(
+                    "VN97CK1 audio ternary_threshold must be in [0, 1]"
+                )
+        elif numeric <= 0.0:
+            raise VN97DeploymentCheckpointFormatError(
+                f"VN97CK1 audio {key} must be positive"
             )
         values[key] = numeric
     if frame_size != 320 or hop_size != 320 or values["eps"] != 1e-5:
@@ -606,6 +615,14 @@ def load_deployment_checkpoint(
         if has_audio
         else None
     )
+    if audio_adapter is not None and (
+        float(audio_adapter.norm.eps) != float(config.rms_eps)
+        or float(audio_adapter.projection.threshold)
+            != float(config.ternary_threshold)
+    ):
+        raise VN97DeploymentCheckpointFormatError(
+            "VN97CK1 audio quantization/norm config does not match language core"
+        )
     expected_state = dict(model.state_dict())
     if audio_adapter is not None:
         for name, tensor in audio_adapter.state_dict().items():
