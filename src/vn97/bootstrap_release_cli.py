@@ -43,6 +43,13 @@ from .training import (
     encode_chat_messages,
 )
 from .training_cli import _load_records
+from .vision_training import (
+    VN97VisionReleaseCriteria,
+    VN97VisionTrainingConfig,
+    evaluate_vn97_vision,
+    require_vision_release_quality,
+)
+from .vision_training_cli import load_vision_manifest
 
 
 _MAX_TOKENIZER_BYTES = 64 * 1024 * 1024
@@ -186,6 +193,61 @@ def _load_speech_training_report(
     )
     if canonical != text:
         raise ValueError("speech training report must use canonical JSON")
+    return report, hashlib.sha256(data).hexdigest()
+
+
+def _load_vision_training_report(
+    path: Path,
+    *,
+    checkpoint_sha256: str,
+    tokenizer_sha256: str,
+) -> tuple[dict[str, object], str]:
+    data = _read_regular_file(
+        path,
+        max_bytes=1024 * 1024,
+        label="vision training report",
+    )
+    try:
+        text = data.decode("utf-8", errors="strict")
+        report = json.loads(text)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError(
+            "vision training report must be strict UTF-8 JSON"
+        ) from exc
+    expected = {
+        "base_checkpoint_sha256",
+        "checkpoint_sha256",
+        "dataset_sha256",
+        "examples",
+        "final_loss",
+        "mean_loss",
+        "schema",
+        "steps",
+        "target_tokens",
+        "tokenizer_sha256",
+        "training",
+    }
+    if not isinstance(report, dict) or set(report) != expected:
+        raise ValueError("vision training report keys are not exact")
+    if report["schema"] != "VN97VISIONTRAIN1":
+        raise ValueError("vision training report schema mismatch")
+    if report["checkpoint_sha256"] != checkpoint_sha256:
+        raise ValueError(
+            "vision training report checkpoint does not match release checkpoint"
+        )
+    if report["tokenizer_sha256"] != tokenizer_sha256:
+        raise ValueError(
+            "vision training report tokenizer does not match release tokenizer"
+        )
+    canonical = json.dumps(
+        report,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    )
+    if canonical != text:
+        raise ValueError("vision training report must use canonical JSON")
     return report, hashlib.sha256(data).hexdigest()
 
 
@@ -363,6 +425,42 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--min-speech-validation-examples",
+        type=int,
+        default=1,
+    )
+    parser.add_argument("--vision-training-report")
+    parser.add_argument("--vision-validation-input")
+    parser.add_argument(
+        "--vision-validation-max-examples",
+        type=int,
+        default=100_000,
+    )
+    parser.add_argument(
+        "--vision-max-patches",
+        type=int,
+        default=196,
+    )
+    parser.add_argument(
+        "--vision-max-target-tokens",
+        type=int,
+        default=512,
+    )
+    parser.add_argument(
+        "--max-vision-validation-loss",
+        type=float,
+    )
+    parser.add_argument(
+        "--min-vision-validation-accuracy",
+        type=float,
+        default=0.0,
+    )
+    parser.add_argument(
+        "--min-vision-validation-target-tokens",
+        type=int,
+        default=32,
+    )
+    parser.add_argument(
+        "--min-vision-validation-examples",
         type=int,
         default=1,
     )
@@ -601,6 +699,73 @@ def main(argv: list[str] | None = None) -> int:
             "speech release inputs were provided but VN97CK1 has no audio adapter"
         )
 
+    vision_evaluation = None
+    vision_dataset_sha256 = None
+    vision_training_report = None
+    vision_training_report_sha256 = None
+    if loaded.vision_adapter is not None:
+        if args.vision_training_report is None:
+            raise ValueError(
+                "vision-enabled VN97CK1 requires --vision-training-report"
+            )
+        if args.vision_validation_input is None:
+            raise ValueError(
+                "vision-enabled VN97CK1 requires --vision-validation-input"
+            )
+        if args.max_vision_validation_loss is None:
+            raise ValueError(
+                "vision-enabled VN97CK1 requires --max-vision-validation-loss"
+            )
+        vision_training_report, vision_training_report_sha256 = (
+            _load_vision_training_report(
+                Path(args.vision_training_report),
+                checkpoint_sha256=loaded.checkpoint_sha256,
+                tokenizer_sha256=tokenizer_sha256,
+            )
+        )
+        vision_examples, vision_dataset_sha256 = load_vision_manifest(
+            Path(args.vision_validation_input),
+            max_examples=args.vision_validation_max_examples,
+        )
+        if (
+            vision_training_report["dataset_sha256"]
+            == vision_dataset_sha256
+        ):
+            raise ValueError(
+                "vision validation dataset must differ from training dataset"
+            )
+        vision_config = VN97VisionTrainingConfig(
+            epochs=1,
+            seed=0,
+            shuffle=False,
+            max_patches=args.vision_max_patches,
+            max_target_tokens=args.vision_max_target_tokens,
+        )
+        vision_evaluation = evaluate_vn97_vision(
+            loaded.model,
+            loaded.vision_adapter,
+            runtime_tokenizer,
+            vision_examples,
+            config=vision_config,
+            device=args.validation_device,
+        )
+        require_vision_release_quality(
+            vision_evaluation,
+            VN97VisionReleaseCriteria(
+                max_validation_loss=args.max_vision_validation_loss,
+                min_top1_accuracy=args.min_vision_validation_accuracy,
+                min_target_tokens=args.min_vision_validation_target_tokens,
+                min_examples=args.min_vision_validation_examples,
+            ),
+        )
+    elif (
+        args.vision_validation_input is not None
+        or args.vision_training_report is not None
+    ):
+        raise ValueError(
+            "vision release inputs were provided but VN97CK1 has no vision adapter"
+        )
+
     footprint = estimate_vn97_mobile_footprint(
         loaded.config,
         tokenizer_nbytes=len(tokenizer_bytes),
@@ -608,6 +773,11 @@ def main(argv: list[str] | None = None) -> int:
             None
             if loaded.audio_adapter is None
             else loaded.audio_adapter.config.frame_size
+        ),
+        vision_input_features=(
+            None
+            if loaded.vision_adapter is None
+            else loaded.vision_adapter.input_features
         ),
         tile_rows=args.tile_rows,
         tile_cols=args.tile_cols,
@@ -628,6 +798,7 @@ def main(argv: list[str] | None = None) -> int:
         loaded.model,
         tokenizer=tokenizer,
         audio_adapter=loaded.audio_adapter,
+        vision_adapter=loaded.vision_adapter,
         tile_rows=args.tile_rows,
         tile_cols=args.tile_cols,
     )
@@ -712,6 +883,7 @@ def main(argv: list[str] | None = None) -> int:
         loaded.model,
         tokenizer=tokenizer,
         audio_adapter=loaded.audio_adapter,
+        vision_adapter=loaded.vision_adapter,
         source=source,
         capability_version=args.capability_version,
         signer=signer,
@@ -775,8 +947,37 @@ def main(argv: list[str] | None = None) -> int:
         "production_campaign_report_sha256": (
             production_campaign_report_sha256
         ),
-        "schema": "VN97BOOTREL4",
+        "schema": "VN97BOOTREL5",
         "speech_enabled": loaded.audio_adapter is not None,
+        "vision_enabled": loaded.vision_adapter is not None,
+        "vision_runtime_budget": (
+            None
+            if loaded.vision_adapter is None
+            else {
+                "max_patches": args.vision_max_patches,
+                "max_generated_tokens": args.vision_max_target_tokens,
+                "max_recurrent_steps": (
+                    1
+                    + args.vision_max_patches
+                    + args.vision_max_target_tokens
+                ),
+            }
+        ),
+        "vision_training_report_sha256": vision_training_report_sha256,
+        "vision_validation": (
+            None
+            if vision_evaluation is None
+            else {
+                "dataset_sha256": vision_dataset_sha256,
+                "examples": vision_evaluation.examples,
+                "max_loss": args.max_vision_validation_loss,
+                "mean_loss": vision_evaluation.mean_loss,
+                "min_target_tokens": args.min_vision_validation_target_tokens,
+                "min_top1_accuracy": args.min_vision_validation_accuracy,
+                "target_tokens": vision_evaluation.target_tokens,
+                "top1_accuracy": vision_evaluation.top1_accuracy,
+            }
+        ),
         "speech_runtime_budget": (
             None
             if loaded.audio_adapter is None
