@@ -198,8 +198,11 @@ class VN97AutonomousWorkManager(
         store.save(running)
 
         return application.withSovereignExecution {
+            val reopenForeground =
+                application.assistant
+                    .releaseForBackgroundContinuation()
             try {
-            openActivatedModel().use { model ->
+                openActivatedModel().use { model ->
                 context.requireActivatedModel(model)
                 requireModelIdentity(running, model.info.modelId)
 
@@ -378,6 +381,12 @@ class VN97AutonomousWorkManager(
                 )
                 ContinuationOutcome.RESCHEDULE
             }
+            } finally {
+                if (reopenForeground) {
+                    runCatching {
+                        application.assistant.openIfActivated()
+                    }
+                }
             }
         }
     }
