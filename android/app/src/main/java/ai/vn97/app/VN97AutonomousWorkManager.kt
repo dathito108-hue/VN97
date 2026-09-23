@@ -742,6 +742,13 @@ class VN97AutonomousWorkManager(
         )
         store.save(terminalRecord)
 
+        if (
+            current.scheduleWindow(
+                System.currentTimeMillis()
+            ).expired
+        ) {
+            return null
+        }
         if (current.generation >= MAX_REPLAN_GENERATIONS) {
             return null
         }
