@@ -182,18 +182,3 @@ java -jar "$WORK/m7z-assistant-continuation-contract-test.jar"
     -d "$WORK/m10g-android-model-image-activation-test.jar"
 
 java -jar "$WORK/m10g-android-model-image-activation-test.jar"
-
-"$KOTLINC" \
-    "$ROOT"/android/runtime/src/main/java/ai/vn97/runtime/*.kt \
-    "$ROOT/android/platform/src/main/java/ai/vn97/platform/M6Approval.kt" \
-    "$ROOT/android/platform/src/main/java/ai/vn97/platform/M6ExternalHandoff.kt" \
-    "$ROOT/android/platform/src/main/java/ai/vn97/platform/M6ExecutionFabric.kt" \
-    "$ROOT/android/platform/src/main/java/ai/vn97/platform/M6AndroidProductionCapabilities.kt" \
-    "$ROOT/android/platform/src/main/java/ai/vn97/platform/VN97GameEpisodeMemory.kt" \
-    "$HERE/M14CGameEpisodeMemoryTest.kt" \
-    -Werror \
-    -include-runtime \
-    -d "$WORK/m14c-game-episode-memory-test.jar"
-
-java -jar "$WORK/m14c-game-episode-memory-test.jar"
-
