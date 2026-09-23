@@ -237,6 +237,20 @@ class VN97ImprovementCandidateLedger(
             System.currentTimeMillis(),
     ): VN97ImprovementCandidateRecord {
         require(nowWallTimeMillis >= 0L)
+        val packagePending =
+            reviewedForPackageOrNull(
+                spec.candidatePackageSha256
+            )
+        if (packagePending != null) {
+            check(
+                packagePending.candidateId ==
+                    spec.candidateId &&
+                    packagePending.spec == spec
+            ) {
+                "candidate package already has a different reviewed improvement objective"
+            }
+            return packagePending
+        }
         val existing =
             loadOrNull(spec.candidateId)
         if (existing != null) {
