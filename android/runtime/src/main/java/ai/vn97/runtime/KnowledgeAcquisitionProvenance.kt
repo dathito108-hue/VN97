@@ -56,7 +56,7 @@ data class VN97AcquisitionProvenanceRecord(
             }
             require(
                 proposalEvidenceRecordIds.size <=
-                    VN97KnowledgeAcquisitionProposalEngine.MAX_EVIDENCE &&
+                    MAX_PROPOSAL_EVIDENCE &&
                     proposalEvidenceRecordIds.all { it > 0L } &&
                     proposalEvidenceRecordIds.distinct().size ==
                     proposalEvidenceRecordIds.size
@@ -138,6 +138,7 @@ data class VN97AcquisitionProvenanceRecord(
         const val MAX_ORIGIN_BYTES = 4 * 1024
         const val MAX_LICENSE_BYTES = 512
         const val MAX_FETCH_URL_BYTES = 2_048
+        const val MAX_PROPOSAL_EVIDENCE = 4
     }
 }
 
