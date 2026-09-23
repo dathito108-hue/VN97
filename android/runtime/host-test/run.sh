@@ -82,3 +82,12 @@ java -Djava.library.path="$WORK" -jar "$WORK/m7j-host-test.jar"
     -d "$WORK/m7k-host-test.jar"
 
 java -Djava.library.path="$WORK" -jar "$WORK/m7k-host-test.jar"
+
+"$KOTLINC" \
+    "$ROOT"/android/runtime/src/main/java/ai/vn97/runtime/*.kt \
+    "$HERE/M7LPlannerCheckpointTest.kt" \
+    -Werror \
+    -include-runtime \
+    -d "$WORK/m7l-host-test.jar"
+
+java -Djava.library.path="$WORK" -jar "$WORK/m7l-host-test.jar"

@@ -90,6 +90,9 @@ object NativePlanIdentity {
 
 class NativePlanController private constructor(val plan: NativePlan) {
     companion object {
+        internal fun restoreValidated(plan: NativePlan): NativePlanController =
+            NativePlanController(plan)
+
         fun create(
             goal: String,
             specs: List<NativePlanStepSpec>,
