@@ -49,7 +49,7 @@ data class M6CapabilityDescriptor(
     val maxLeaseUses: Int = 1,
 ) {
     init {
-        validateIdentifier(capabilityId, "capabilityId")
+        externalHandoffValidateIdentifier(capabilityId, "capabilityId")
         require(requiredScopeKeys.isNotEmpty()) {
             "capability descriptor requires at least one scope key"
         }
@@ -57,7 +57,7 @@ data class M6CapabilityDescriptor(
             "required and optional scope keys must be disjoint"
         }
         (requiredScopeKeys + optionalScopeKeys).forEach {
-            validateIdentifier(it, "scope key")
+            externalHandoffValidateIdentifier(it, "scope key")
         }
         require(maxPayloadUtf8Bytes > 0) { "maxPayloadUtf8Bytes must be positive" }
         require(maxLeaseNs > 0L) { "maxLeaseNs must be positive" }
@@ -108,7 +108,7 @@ class M6CapabilityScope private constructor(
             val normalized = values.entries.map { entry ->
                 val key = entry.key
                 val value = entry.value
-                validateIdentifier(key, "scope key")
+                externalHandoffValidateIdentifier(key, "scope key")
                 if (value.isEmpty() || utf8Size(value) > 4096) {
                     throw M6ExternalIntentContractException(
                         "scope values must be non-empty and bounded"
@@ -136,7 +136,7 @@ class M6ExternalActionRequest internal constructor(
         require(planId.isNotEmpty()) { "planId must not be empty" }
         require(stepId > 0) { "stepId must be positive" }
         require(objective.isNotEmpty()) { "objective must not be empty" }
-        validateIdentifier(capabilityId, "capabilityId")
+        externalHandoffValidateIdentifier(capabilityId, "capabilityId")
         require(
             payloadJson.startsWith('{') &&
                 payloadJson.endsWith('}') &&
@@ -409,7 +409,7 @@ class M6ExternalApprovalHandoff(
 private val identifierChars =
     "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._:-/".toSet()
 
-private fun validateIdentifier(value: String, label: String) {
+private fun externalHandoffValidateIdentifier(value: String, label: String) {
     if (value.isEmpty() || utf8Size(value) > 256 ||
         value.any { it !in identifierChars }
     ) {
