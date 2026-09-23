@@ -425,15 +425,15 @@ fun main() {
     )
     expectRejected { registry.validate(invalidTap) }
 
-    val nonCanonicalTap = assembly.intentBinder.bind(
-        waiting("de".repeat(32), "tap invalid encoding"),
+    val extraTapField = assembly.intentBinder.bind(
+        waiting("de".repeat(32), "tap invalid shape"),
         NativeExternalIntent(
             "device.tap",
             mapOf("package" to "com.example.game"),
-            "{\"x\":01,\"y\":2}",
+            "{\"extra\":0,\"x\":1,\"y\":2}",
         ),
     )
-    expectRejected { registry.validate(nonCanonicalTap) }
+    expectRejected { registry.validate(extraTapField) }
 
     val invalidSwipe = assembly.intentBinder.bind(
         waiting("f0".repeat(32), "swipe too long"),
