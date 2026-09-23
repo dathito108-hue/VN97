@@ -12,6 +12,8 @@ import ai.vn97.runtime.NativeStepStatus
 private class M7RRecordingActions : M6AndroidActionPort {
     val launched = mutableListOf<String>()
     val clipboard = mutableListOf<String>()
+    val taps = mutableListOf<String>()
+    val swipes = mutableListOf<String>()
 
     override fun launchPackage(packageName: String): String {
         launched += packageName
@@ -21,6 +23,29 @@ private class M7RRecordingActions : M6AndroidActionPort {
     override fun writeClipboard(text: String): String {
         clipboard += text
         return "clipboard:written"
+    }
+
+    override fun tap(
+        packageName: String,
+        xNormalized: Int,
+        yNormalized: Int,
+    ): String {
+        taps += "$packageName:$xNormalized,$yNormalized"
+        return "tap:$xNormalized,$yNormalized"
+    }
+
+    override fun swipe(
+        packageName: String,
+        fromXNormalized: Int,
+        fromYNormalized: Int,
+        toXNormalized: Int,
+        toYNormalized: Int,
+        durationMs: Long,
+    ): String {
+        swipes +=
+            "$packageName:$fromXNormalized,$fromYNormalized" +
+                "->$toXNormalized,$toYNormalized@$durationMs"
+        return "swipe:ok"
     }
 }
 
@@ -109,14 +134,29 @@ fun main() {
     val assembly = M6AndroidProductionCapabilities(actions)
     check(
         assembly.descriptors.map { it.capabilityId } ==
-            listOf("app.launch", "device.clipboard.write")
+            listOf(
+                "app.launch",
+                "device.clipboard.write",
+                "device.tap",
+                "device.swipe",
+            )
     )
-    check(assembly.intentBinder.capabilities.map { it.capabilityId } == assembly.descriptors.map { it.capabilityId })
+    check(
+        assembly.intentBinder.capabilities.map { it.capabilityId } ==
+            assembly.descriptors.map { it.capabilityId }
+    )
     assembly.descriptors.forEach { descriptor ->
         check(descriptor.approvalRequired)
         check(descriptor.maxLeaseUses == 1)
-        check(descriptor.maxLeaseNs == 30_000_000_000L)
     }
+    check(
+        assembly.descriptors.take(2)
+            .all { it.maxLeaseNs == 30_000_000_000L }
+    )
+    check(
+        assembly.descriptors.drop(2)
+            .all { it.maxLeaseNs == 5_000_000_000L }
+    )
 
     val registry = assembly.createSealedRegistry()
     check(registry.sealed)
@@ -298,6 +338,112 @@ fun main() {
     )
     expectRejected { registry.validate(oversized) }
     check(actions.clipboard.size == 1)
+
+    val tapController =
+        waiting("78".repeat(32), "tap the visible game control")
+    val tapRequest = assembly.intentBinder.bind(
+        tapController,
+        NativeExternalIntent(
+            "device.tap",
+            mapOf("package" to "com.example.game"),
+            "{\"x\":250,\"y\":750}",
+        ),
+    )
+    registry.validate(tapRequest)
+    val tapGrant =
+        M6AndroidProductionCapabilities.gameSessionTapGrant(
+            "runtime.user",
+            "com.example.game",
+        )
+    check(tapGrant.approvalRequired == false)
+    check(tapGrant.maxLeaseUses == 1)
+    check(tapGrant.maxLeaseNs == 5_000_000_000L)
+    val tapFabric = M6ExternalExecutionFabric(
+        registry,
+        M6DenyByDefaultAuthorityGate(
+            listOf(tapGrant),
+            approvals,
+        ),
+        M6InMemoryActionAudit(),
+    )
+    tapFabric.executeWaiting(
+        tapController,
+        tapRequest,
+        "runtime.user",
+        approval = null,
+        nowNs = 20L,
+    )
+    check(
+        actions.taps ==
+            listOf("com.example.game:250,750")
+    )
+
+    val swipeController =
+        waiting("9a".repeat(32), "swipe toward the next game state")
+    val swipeRequest = assembly.intentBinder.bind(
+        swipeController,
+        NativeExternalIntent(
+            "device.swipe",
+            mapOf("package" to "com.example.game"),
+            "{\"duration_ms\":300,\"from_x\":100,\"from_y\":500,\"to_x\":900,\"to_y\":500}",
+        ),
+    )
+    registry.validate(swipeRequest)
+    val swipeGrant =
+        M6AndroidProductionCapabilities.gameSessionSwipeGrant(
+            "runtime.user",
+            "com.example.game",
+        )
+    check(swipeGrant.approvalRequired == false)
+    val swipeFabric = M6ExternalExecutionFabric(
+        registry,
+        M6DenyByDefaultAuthorityGate(
+            listOf(swipeGrant),
+            approvals,
+        ),
+        M6InMemoryActionAudit(),
+    )
+    swipeFabric.executeWaiting(
+        swipeController,
+        swipeRequest,
+        "runtime.user",
+        approval = null,
+        nowNs = 20L,
+    )
+    check(
+        actions.swipes.single() ==
+            "com.example.game:100,500->900,500@300"
+    )
+
+    val invalidTap = assembly.intentBinder.bind(
+        waiting("bc".repeat(32), "tap invalid coordinate"),
+        NativeExternalIntent(
+            "device.tap",
+            mapOf("package" to "com.example.game"),
+            "{\"x\":1001,\"y\":500}",
+        ),
+    )
+    expectRejected { registry.validate(invalidTap) }
+
+    val nonCanonicalTap = assembly.intentBinder.bind(
+        waiting("de".repeat(32), "tap invalid encoding"),
+        NativeExternalIntent(
+            "device.tap",
+            mapOf("package" to "com.example.game"),
+            "{\"x\":01,\"y\":2}",
+        ),
+    )
+    expectRejected { registry.validate(nonCanonicalTap) }
+
+    val invalidSwipe = assembly.intentBinder.bind(
+        waiting("f0".repeat(32), "swipe too long"),
+        NativeExternalIntent(
+            "device.swipe",
+            mapOf("package" to "com.example.game"),
+            "{\"duration_ms\":2001,\"from_x\":0,\"from_y\":0,\"to_x\":1000,\"to_y\":1000}",
+        ),
+    )
+    expectRejected { registry.validate(invalidSwipe) }
 
     println("M7R_PRODUCTION_CAPABILITY_ASSEMBLY_PASS")
 }
