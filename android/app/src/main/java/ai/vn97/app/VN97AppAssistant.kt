@@ -12,8 +12,12 @@ import ai.vn97.runtime.NativeActivatedModel
 import ai.vn97.runtime.NativeCognitionInferenceEngine
 import ai.vn97.runtime.NativePreparedAudio
 import ai.vn97.runtime.NativePreparedVision
+import ai.vn97.runtime.VN97KnowledgeAcquisitionResult
+import ai.vn97.runtime.VN97KnowledgeAcquisitionReview
+import ai.vn97.runtime.VN97KnowledgeAcquisitionSession
 import android.os.SystemClock
 import java.io.File
+import java.io.InputStream
 
 data class VN97AppApprovalRequest(
     val capabilityId: String,
@@ -35,6 +39,8 @@ class VN97AppAssistant(
     private var model: NativeActivatedModel? = null
     private var resources: VN97ProductionAssistantResources? = null
     private var pendingResult: VN97AppTurnResult? = null
+    private var knowledgeAcquisition:
+        VN97KnowledgeAcquisitionSession? = null
 
     fun openIfActivated(): Boolean = exclusive {
         if (model != null && resources != null) return true
@@ -55,6 +61,68 @@ class VN97AppAssistant(
         resources = assistant
         pendingResult = null
         true
+    }
+
+    fun pendingKnowledgeReview():
+        VN97KnowledgeAcquisitionReview? = synchronized(lock) {
+        knowledgeAcquisition?.pendingReview()
+    }
+
+    fun clearKnowledgeReview() = exclusive {
+        knowledgeAcquisition?.clearReview()
+    }
+
+    fun reviewKnowledgeCapability(
+        packageInput: InputStream,
+        signatureBytes: ByteArray,
+        publisherPublicKey: ByteArray,
+    ): VN97KnowledgeAcquisitionReview = exclusive {
+        requireKnowledgeAcquisitionIdle()
+        knowledgeSessionLocked().review(
+            packageInput = packageInput,
+            signatureBytes = signatureBytes,
+            publisherPublicKey = publisherPublicKey,
+        )
+    }
+
+    fun acquireReviewedKnowledge():
+        VN97KnowledgeAcquisitionResult = exclusive {
+        requireKnowledgeAcquisitionIdle()
+        val session = checkNotNull(knowledgeAcquisition) {
+            "no reviewed knowledge capability is pending"
+        }
+        session.acquireReviewed()
+    }
+
+    private fun requireKnowledgeAcquisitionIdle() {
+        check(pendingResult == null) {
+            "knowledge acquisition is blocked while approval is pending"
+        }
+        val activeResources = checkNotNull(resources) {
+            "trusted VN97 model is not active"
+        }
+        check(!activeResources.session.hasActiveTurn) {
+            "knowledge acquisition is blocked while an assistant turn is active"
+        }
+    }
+
+    private fun knowledgeSessionLocked():
+        VN97KnowledgeAcquisitionSession {
+        val activeModel = checkNotNull(model) {
+            "trusted VN97 model is not active"
+        }
+        val activeResources = checkNotNull(resources) {
+            "trusted VN97 model is not active"
+        }
+        return knowledgeAcquisition
+            ?: application.platformRuntime
+                .createProductionKnowledgeAcquisitionSession(
+                    model = activeModel,
+                    memory = activeResources.memory,
+                )
+                .also {
+                    knowledgeAcquisition = it
+                }
     }
 
     fun runTurn(
@@ -374,6 +442,7 @@ class VN97AppAssistant(
         )
 
     private fun closeLocked() {
+        knowledgeAcquisition = null
         var failure: Throwable? = null
         try {
             resources?.close()
