@@ -3,6 +3,7 @@
 #include "vn97/modality.h"
 
 #include <cstddef>
+#include <limits>
 #include <vector>
 
 namespace {
@@ -29,7 +30,10 @@ Java_ai_vn97_runtime_NativeAudioModalityBindings_nativeFrameCount(
         static_cast<std::size_t>(sample_count),
         static_cast<std::size_t>(frame_size),
         static_cast<std::size_t>(hop_size));
-    if (count == 0 || count > static_cast<std::size_t>(INT32_MAX)) {
+    if (
+        count == 0 ||
+        count > static_cast<std::size_t>(std::numeric_limits<jint>::max())
+    ) {
         return static_cast<jint>(vn97::ModalityStatus::kInvalidShape);
     }
     const jint value = static_cast<jint>(count);
