@@ -92,6 +92,26 @@ class M6AndroidProductionCapabilities internal constructor(
     }
 
     companion object {
+        fun userApprovedAppLaunchGrant(
+            principal: String,
+            packageName: String,
+        ): M6PolicyGrant {
+            require(isCanonicalAndroidPackage(packageName)) {
+                "app launch package is invalid"
+            }
+            val scope = M6CapabilityScope.fromMap(
+                mapOf(APP_PACKAGE_SCOPE to packageName)
+            )
+            return M6PolicyGrant(
+                principal = principal,
+                capabilityId = APP_LAUNCH_CAPABILITY,
+                scopeDigest = scope.digest,
+                approvalRequired = true,
+                maxLeaseNs = 30_000_000_000L,
+                maxLeaseUses = 1,
+            )
+        }
+
         fun userApprovedClipboardGrant(
             principal: String,
         ): M6PolicyGrant {
