@@ -48,6 +48,7 @@ class VN97MainActivity : Activity() {
     private lateinit var mobileEvidenceButton: Button
     private lateinit var paperTradingButton: Button
     private lateinit var capabilityAcquisitionButton: Button
+    private lateinit var selfImprovementButton: Button
     private lateinit var transcriptView: TextView
     private lateinit var inputView: EditText
     private lateinit var sendButton: Button
@@ -340,6 +341,25 @@ class VN97MainActivity : Activity() {
         }
         root.addView(
             capabilityAcquisitionButton,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ),
+        )
+
+        selfImprovementButton = Button(this).apply {
+            text = "Controlled self-improvement"
+            setOnClickListener {
+                startActivity(
+                    Intent(
+                        this@VN97MainActivity,
+                        VN97SelfImprovementActivity::class.java,
+                    )
+                )
+            }
+        }
+        root.addView(
+            selfImprovementButton,
             LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT,
