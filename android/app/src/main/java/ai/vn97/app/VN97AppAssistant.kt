@@ -4,6 +4,7 @@ import ai.vn97.platform.VN97AssistantTurnState
 import ai.vn97.platform.VN97AutonomousContinuationSeed
 import ai.vn97.platform.createVN97AutonomousContinuationSeed
 import ai.vn97.platform.VN97AssistantTurnUpdate
+import ai.vn97.platform.VN97AssistantSessionLimits
 import ai.vn97.platform.VN97MobileEvidenceConfig
 import ai.vn97.platform.VN97MobileEvidenceRecord
 import ai.vn97.platform.VN97ProductionAssistantResources
@@ -37,24 +38,7 @@ class VN97AppAssistant(
     private var pendingResult: VN97AppTurnResult? = null
 
     fun openIfActivated(): Boolean = exclusive {
-        if (model != null && resources != null) return true
-
-        val opened = NativeActivatedInventoryModelLoader.openOrNull(
-            File(application.noBackupFilesDir, "vn97-capabilities")
-        ) ?: return false
-        val assistant = try {
-            application.platformRuntime.createProductionMemoryBackedAssistant(
-                model = opened,
-                grants = productionGrants(),
-            )
-        } catch (exc: Throwable) {
-            opened.close()
-            throw exc
-        }
-        model = opened
-        resources = assistant
-        pendingResult = null
-        true
+        openIfActivatedLocked(VN97AssistantSessionLimits())
     }
 
     fun runTurn(
@@ -356,15 +340,19 @@ class VN97AppAssistant(
     }
 
     fun reloadActivatedModel(): Boolean = exclusive {
-        check(pendingResult == null) {
-            "cannot replace model while approval is pending"
-        }
-        val activeResources = resources
-        check(activeResources == null || !activeResources.session.hasActiveTurn) {
-            "cannot replace model while a turn is active"
-        }
+        checkCanReloadLocked()
         closeLocked()
-        openIfActivated()
+        openIfActivatedLocked(VN97AssistantSessionLimits())
+    }
+
+    fun reloadForGameAgent(): Boolean = exclusive {
+        checkCanReloadLocked()
+        closeLocked()
+        openIfActivatedLocked(
+            VN97AssistantSessionLimits(
+                maxExternalHandoffsPerAdvance = 1,
+            )
+        )
     }
 
     override fun close() {
@@ -387,6 +375,47 @@ class VN97AppAssistant(
             application,
             APP_PRINCIPAL,
         )
+
+    private fun checkCanReloadLocked() {
+        check(pendingResult == null) {
+            "cannot replace model while approval is pending"
+        }
+        val activeResources = resources
+        check(
+            activeResources == null ||
+                !activeResources.session.hasActiveTurn
+        ) {
+            "cannot replace model while a turn is active"
+        }
+    }
+
+    private fun openIfActivatedLocked(
+        sessionLimits: VN97AssistantSessionLimits,
+    ): Boolean {
+        if (model != null && resources != null) return true
+
+        val opened = NativeActivatedInventoryModelLoader.openOrNull(
+            File(
+                application.noBackupFilesDir,
+                "vn97-capabilities",
+            )
+        ) ?: return false
+        val assistant = try {
+            application.platformRuntime
+                .createProductionMemoryBackedAssistant(
+                    model = opened,
+                    grants = productionGrants(),
+                    sessionLimits = sessionLimits,
+                )
+        } catch (exc: Throwable) {
+            opened.close()
+            throw exc
+        }
+        model = opened
+        resources = assistant
+        pendingResult = null
+        return true
+    }
 
     private fun closeLocked() {
         var failure: Throwable? = null
