@@ -237,17 +237,20 @@ class VN97GameAgentController(
             when (turn.update.state) {
                 VN97AssistantTurnState.APPROVAL_REQUIRED -> {
                     application.platformRuntime.gameSession.end()
-                    return update(
-                        status().copy(
-                            state =
-                                VN97GameAgentState.WAITING_APPROVAL,
-                            round = round,
-                            actionsUsed =
-                                gameSession.actionsUsed,
-                            finalMessage =
-                                "game loop reached a non-session M6 approval boundary",
+                    runCatching {
+                        application.assistant.resolvePendingApproval(
+                            approved = false,
+                            maxAdvances = 1,
                         )
-                    ).also(onStatus)
+                    }
+                    application.assistant.cancelActiveTurn(
+                        "game session rejected a non-game capability request"
+                    )
+                    return finish(
+                        VN97GameAgentState.STOPPED,
+                        "game session rejected a non-game capability request",
+                        onStatus,
+                    )
                 }
 
                 VN97AssistantTurnState.COMPLETED -> {
@@ -360,11 +363,25 @@ class VN97GameAgentController(
                     )
                 }
 
+                VN97AssistantTurnState.YIELDED -> {
+                    application.assistant.cancelActiveTurn(
+                        "game round exceeded bounded continuation advances"
+                    )
+                    return finish(
+                        VN97GameAgentState.BUDGET_EXHAUSTED,
+                        "game round exceeded bounded continuation advances",
+                        onStatus,
+                    )
+                }
+
                 VN97AssistantTurnState.FAILED,
                 VN97AssistantTurnState.PAUSED,
                 VN97AssistantTurnState.STALLED,
-                VN97AssistantTurnState.YIELDED,
                 -> {
+                    application.assistant.cancelActiveTurn(
+                        "game turn ended at " +
+                            turn.update.state.name
+                    )
                     return finish(
                         VN97GameAgentState.FAILED,
                         "game turn ended at " +
