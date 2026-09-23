@@ -10,7 +10,8 @@ import kotlin.concurrent.withLock
 class VN97Application :
     Application(),
     VN97AssistantContinuationWorkProvider {
-    private val sovereignExecutionLock =
+    @PublishedApi
+    internal val sovereignExecutionLock =
         ReentrantLock(true)
 
     val platformRuntime: AndroidPlatformRuntime by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
@@ -54,6 +55,7 @@ class VN97Application :
         VN97AssistantContinuationWork =
         autonomousWork.createContinuationWork()
 
-    fun <T> withSovereignExecution(block: () -> T): T =
-        sovereignExecutionLock.withLock(block)
+    inline fun <T> withSovereignExecution(
+        block: () -> T,
+    ): T = sovereignExecutionLock.withLock(block)
 }
