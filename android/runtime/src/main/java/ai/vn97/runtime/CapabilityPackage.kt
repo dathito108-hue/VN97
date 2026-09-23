@@ -360,11 +360,14 @@ object VN97CapabilityPackageParser {
     }
 
     private fun requireFormat(value: String): String {
+        fun asciiAlphaNumeric(ch: Char): Boolean =
+            ch in 'A'..'Z' || ch in 'a'..'z' || ch in '0'..'9'
+
         if (value.isEmpty() ||
             value.length > 64 ||
-            value[0].let { !it.isLetterOrDigit() } ||
+            !asciiAlphaNumeric(value[0]) ||
             value.any {
-                !it.isLetterOrDigit() && it != '.' && it != '_' && it != '-'
+                !asciiAlphaNumeric(it) && it != '.' && it != '_' && it != '-'
             }
         ) {
             fail("VN97CAP1 section format is invalid")
