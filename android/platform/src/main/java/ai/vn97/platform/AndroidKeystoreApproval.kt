@@ -106,6 +106,48 @@ class AndroidApprovalController(
     fun pendingCount(nowNs: Long = wallClockNs()): Int = coordinator.pendingCount(nowNs)
 }
 
+class AndroidApprovalControllerPort(
+    private val controller: AndroidApprovalController,
+) : M6ApprovalControllerPort {
+    override fun createPrompt(
+        requestDigest: String,
+        principal: String,
+        presentationJson: String,
+        promptTtlNs: Long,
+        nowNs: Long,
+    ): M6ApprovalPrompt = controller.createPrompt(
+        requestDigest = requestDigest,
+        principal = principal,
+        presentationJson = presentationJson,
+        promptTtlNs = promptTtlNs,
+        nowNs = nowNs,
+    )
+
+    override fun resolve(
+        prompt: M6ApprovalPrompt,
+        approved: Boolean,
+        approvalTtlNs: Long,
+        nowNs: Long,
+    ): M6ApprovalToken? = controller.resolve(
+        prompt = prompt,
+        approved = approved,
+        approvalTtlNs = approvalTtlNs,
+        nowNs = nowNs,
+    )
+
+    override fun verify(
+        token: M6ApprovalToken,
+        requestDigest: String,
+        principal: String,
+        nowNs: Long,
+    ) = controller.verify(
+        token = token,
+        requestDigest = requestDigest,
+        principal = principal,
+        nowNs = nowNs,
+    )
+}
+
 private fun validateKeyAlias(alias: String) {
     require(alias.isNotEmpty()) { "key alias must not be empty" }
     require(alias.toByteArray(Charsets.UTF_8).size <= 128) { "key alias exceeds byte bound" }
