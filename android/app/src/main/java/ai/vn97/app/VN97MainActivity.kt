@@ -44,6 +44,9 @@ class VN97MainActivity : Activity() {
     private lateinit var autonomousButton: Button
     private lateinit var cancelAutonomousButton: Button
     private lateinit var autonomousStatusView: TextView
+    private lateinit var autonomousApprovalView: TextView
+    private lateinit var autonomousApproveButton: Button
+    private lateinit var autonomousRejectButton: Button
     private lateinit var approvalView: TextView
     private lateinit var approveButton: Button
     private lateinit var rejectButton: Button
@@ -436,6 +439,45 @@ class VN97MainActivity : Activity() {
         }
         root.addView(
             autonomousStatusView,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ),
+        )
+
+        autonomousApprovalView = TextView(this).apply {
+            visibility = View.GONE
+            setTextIsSelectable(true)
+        }
+        root.addView(
+            autonomousApprovalView,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ),
+        )
+        val autonomousApprovalRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.END
+        }
+        autonomousRejectButton = Button(this).apply {
+            text = "Reject autonomous action"
+            visibility = View.GONE
+            setOnClickListener {
+                resolveAutonomousApproval(false)
+            }
+        }
+        autonomousApproveButton = Button(this).apply {
+            text = "Approve autonomous action"
+            visibility = View.GONE
+            setOnClickListener {
+                resolveAutonomousApproval(true)
+            }
+        }
+        autonomousApprovalRow.addView(autonomousRejectButton)
+        autonomousApprovalRow.addView(autonomousApproveButton)
+        root.addView(
+            autonomousApprovalRow,
             LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT,
@@ -1258,10 +1300,13 @@ class VN97MainActivity : Activity() {
     private fun refreshAutonomousStatus() {
         worker.execute {
             val result = runCatching {
-                app.autonomousWork.listGoals()
+                val records = app.autonomousWork.listGoals()
+                val approval =
+                    app.autonomousWork.pendingApprovalRequest()
+                records to approval
             }
             runOnUiThread {
-                result.onSuccess { records ->
+                result.onSuccess { (records, autonomousApproval) ->
                     val visible = records.take(5)
                     latestCancellableAutonomousJobId =
                         records.firstOrNull { !it.terminal }?.jobId
@@ -1276,6 +1321,8 @@ class VN97MainActivity : Activity() {
                                     append(record.jobId)
                                     append(" ")
                                     append(record.state.name)
+                                    append(" gen=")
+                                    append(record.generation)
                                     append(" wakes=")
                                     append(record.wakeCount)
                                     append("\n")
@@ -1308,12 +1355,81 @@ class VN97MainActivity : Activity() {
                     autonomousButton.isEnabled =
                         state.phase == VN97AppPhase.READY &&
                             state.inputEnabled
+                    if (autonomousApproval == null) {
+                        autonomousApprovalView.text = ""
+                        autonomousApprovalView.visibility = View.GONE
+                        autonomousApproveButton.visibility = View.GONE
+                        autonomousRejectButton.visibility = View.GONE
+                        autonomousApproveButton.isEnabled = false
+                        autonomousRejectButton.isEnabled = false
+                    } else {
+                        autonomousApprovalView.text = buildString {
+                            append("Autonomous approval • job #")
+                            append(autonomousApproval.jobId)
+                            append(" • gen ")
+                            append(autonomousApproval.generation)
+                            append("\ncapability=")
+                            append(autonomousApproval.capabilityId)
+                            append("\nscope=")
+                            append(autonomousApproval.scopeDigest)
+                            append("\n")
+                            append(autonomousApproval.presentationJson)
+                        }
+                        autonomousApprovalView.visibility = View.VISIBLE
+                        autonomousApproveButton.visibility = View.VISIBLE
+                        autonomousRejectButton.visibility = View.VISIBLE
+                        autonomousApproveButton.isEnabled = true
+                        autonomousRejectButton.isEnabled = true
+                    }
                 }.onFailure { exc ->
                     autonomousStatusView.text =
                         "Autonomous status unavailable: " +
                             exc::class.java.simpleName
                     latestCancellableAutonomousJobId = null
                     cancelAutonomousButton.isEnabled = false
+                    autonomousApprovalView.text = ""
+                    autonomousApprovalView.visibility = View.GONE
+                    autonomousApproveButton.visibility = View.GONE
+                    autonomousRejectButton.visibility = View.GONE
+                    autonomousApproveButton.isEnabled = false
+                    autonomousRejectButton.isEnabled = false
+                }
+            }
+        }
+    }
+
+    private fun resolveAutonomousApproval(
+        approved: Boolean,
+    ) {
+        autonomousApproveButton.isEnabled = false
+        autonomousRejectButton.isEnabled = false
+        statusView.text =
+            if (approved) {
+                "Applying autonomous action approval…"
+            } else {
+                "Rejecting autonomous action…"
+            }
+        worker.execute {
+            try {
+                val record =
+                    app.autonomousWork.resolvePendingApproval(
+                        approved
+                    )
+                runOnUiThread {
+                    statusView.text =
+                        "Autonomous job #" +
+                            record.jobId +
+                            " is " +
+                            record.state.name.lowercase() +
+                            "."
+                    refreshAutonomousStatus()
+                }
+            } catch (exc: Throwable) {
+                runOnUiThread {
+                    statusView.text =
+                        "Autonomous approval failed: " +
+                            exc::class.java.simpleName
+                    refreshAutonomousStatus()
                 }
             }
         }
