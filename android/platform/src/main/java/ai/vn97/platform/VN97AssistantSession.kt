@@ -37,6 +37,40 @@ enum class VN97AssistantTurnState {
     STALLED,
 }
 
+enum class VN97AssistantMemoryCommitState {
+    COMMITTED,
+    RETRY_REQUIRED,
+}
+
+data class VN97AssistantMemoryCommit(
+    val state: VN97AssistantMemoryCommitState,
+    val recordId: Long? = null,
+    val failureType: String = "",
+    val failureMessage: String = "",
+) {
+    init {
+        when (state) {
+            VN97AssistantMemoryCommitState.COMMITTED -> {
+                require(recordId != null && recordId > 0L) {
+                    "COMMITTED memory status requires a positive recordId"
+                }
+                require(failureType.isEmpty() && failureMessage.isEmpty()) {
+                    "COMMITTED memory status cannot carry failure metadata"
+                }
+            }
+
+            VN97AssistantMemoryCommitState.RETRY_REQUIRED -> {
+                require(recordId == null) {
+                    "RETRY_REQUIRED memory status cannot carry recordId"
+                }
+                require(failureType.isNotBlank()) {
+                    "RETRY_REQUIRED memory status requires failureType"
+                }
+            }
+        }
+    }
+}
+
 class VN97AssistantTurn internal constructor(
     val turnId: Long,
     internal val controller: NativePlanController,
@@ -64,6 +98,7 @@ data class VN97AssistantTurnUpdate(
     val finalResponse: String = "",
     val approval: VN97AssistantApproval? = null,
     val executions: List<M6ExecutionResult> = emptyList(),
+    val memoryCommit: VN97AssistantMemoryCommit? = null,
 ) {
     init {
         require(
@@ -72,6 +107,9 @@ data class VN97AssistantTurnUpdate(
         if (state != VN97AssistantTurnState.COMPLETED) {
             require(finalResponse.isEmpty()) {
                 "finalResponse is present only for COMPLETED turns"
+            }
+            require(memoryCommit == null) {
+                "memoryCommit is present only for COMPLETED turns"
             }
         }
     }
@@ -88,6 +126,7 @@ class VN97AssistantSession(
     private val coordinator: M6EndToEndExternalCoordinator,
     val limits: VN97AssistantSessionLimits = VN97AssistantSessionLimits(),
     private val defaultMemory: NativeMemoryRetriever? = null,
+    private val turnMemoryWriter: VN97TurnMemoryWriter? = null,
 ) {
     private var active: VN97AssistantTurn? = null
     private var activeMemory: NativeMemoryRetriever? = null
@@ -275,7 +314,7 @@ class VN97AssistantSession(
             }
 
             if (result.cognition.boundary != NativeCognitionBoundary.WAITING_EXTERNAL) {
-                return boundaryUpdate(turn, result, executions)
+                return boundaryUpdate(turn, result, executions, nowNs)
             }
             if (externalHandoffs >= limits.maxExternalHandoffsPerAdvance) {
                 return VN97AssistantTurnUpdate(
@@ -300,6 +339,7 @@ class VN97AssistantSession(
         turn: VN97AssistantTurn,
         result: M6ExternalCoordinatorResult,
         executions: List<M6ExecutionResult>,
+        nowNs: Long,
     ): VN97AssistantTurnUpdate {
         val state = when (result.cognition.boundary) {
             NativeCognitionBoundary.COMPLETED -> VN97AssistantTurnState.COMPLETED
@@ -312,6 +352,19 @@ class VN97AssistantSession(
             NativeCognitionBoundary.BUDGET_EXHAUSTED -> VN97AssistantTurnState.BUDGET_EXHAUSTED
             NativeCognitionBoundary.STALLED -> VN97AssistantTurnState.STALLED
         }
+        val finalResponse = if (state == VN97AssistantTurnState.COMPLETED) {
+            result.cognition.finalResponse
+        } else {
+            ""
+        }
+        val memoryCommit = if (
+            state == VN97AssistantTurnState.COMPLETED &&
+            turnMemoryWriter != null
+        ) {
+            attemptMemoryCommit(turn, finalResponse, nowNs)
+        } else {
+            null
+        }
         val terminalForSession = state in setOf(
             VN97AssistantTurnState.COMPLETED,
             VN97AssistantTurnState.FAILED,
@@ -323,12 +376,59 @@ class VN97AssistantSession(
         return VN97AssistantTurnUpdate(
             turn = turn,
             state = state,
-            finalResponse = if (state == VN97AssistantTurnState.COMPLETED) {
-                result.cognition.finalResponse
-            } else {
-                ""
-            },
+            finalResponse = finalResponse,
             executions = executions.toList(),
+            memoryCommit = memoryCommit,
+        )
+    }
+
+    @Synchronized
+    fun retryCompletedTurnMemoryCommit(
+        update: VN97AssistantTurnUpdate,
+        timestampNs: Long,
+    ): VN97AssistantTurnUpdate {
+        require(timestampNs >= 0L) { "timestampNs must be non-negative" }
+        require(update.state == VN97AssistantTurnState.COMPLETED) {
+            "only a COMPLETED assistant turn can retry memory write-back"
+        }
+        val writer = checkNotNull(turnMemoryWriter) {
+            "this assistant session has no turn memory writer"
+        }
+        if (update.memoryCommit?.state == VN97AssistantMemoryCommitState.COMMITTED) {
+            return update
+        }
+        check(update.memoryCommit?.state == VN97AssistantMemoryCommitState.RETRY_REQUIRED) {
+            "completed turn has no retryable memory write-back"
+        }
+        return update.copy(
+            memoryCommit = attemptMemoryCommit(
+                turn = update.turn,
+                finalResponse = update.finalResponse,
+                timestampNs = timestampNs,
+                writer = writer,
+            )
+        )
+    }
+
+    private fun attemptMemoryCommit(
+        turn: VN97AssistantTurn,
+        finalResponse: String,
+        timestampNs: Long,
+        writer: VN97TurnMemoryWriter = checkNotNull(turnMemoryWriter),
+    ): VN97AssistantMemoryCommit = try {
+        VN97AssistantMemoryCommit(
+            state = VN97AssistantMemoryCommitState.COMMITTED,
+            recordId = writer.commitCompletedTurn(
+                turn = turn,
+                finalResponse = finalResponse,
+                timestampNs = timestampNs,
+            ),
+        )
+    } catch (exc: Exception) {
+        VN97AssistantMemoryCommit(
+            state = VN97AssistantMemoryCommitState.RETRY_REQUIRED,
+            failureType = exc::class.java.name,
+            failureMessage = exc.message.orEmpty(),
         )
     }
 

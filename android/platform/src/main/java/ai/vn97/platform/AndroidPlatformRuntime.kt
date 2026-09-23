@@ -104,6 +104,7 @@ class AndroidPlatformRuntime(
         sessionLimits = sessionLimits,
         auditFileName = auditFileName,
         memory = null,
+        turnMemoryWriter = null,
     )
 
     /**
@@ -119,12 +120,30 @@ class AndroidPlatformRuntime(
         auditFileName: String = "m6-actions.jsonl",
         memoryFileName: String = "memory.vn97mem1",
         recoverTornTail: Boolean = true,
+        turnMemoryJournalFileName: String = "turn-memory.vn97twj1",
+        recoverTurnMemoryJournalTornTail: Boolean = true,
+        maxTurnMemoryJournalEntries: Int = 200_000,
+        turnMemoryImportance: Float = 0.75f,
     ): VN97ProductionAssistantResources {
         val memory = openOrCreateProductionMemory(
             model = model,
             fileName = memoryFileName,
             recoverTornTail = recoverTornTail,
         )
+        val turnMemoryWriter = try {
+            createProductionTurnMemoryWriter(
+                model = model,
+                memory = memory,
+                cognitionRuntimeConfig = cognitionRuntimeConfig,
+                journalFileName = turnMemoryJournalFileName,
+                recoverTornTail = recoverTurnMemoryJournalTornTail,
+                maxJournalEntries = maxTurnMemoryJournalEntries,
+                importance = turnMemoryImportance,
+            )
+        } catch (exc: Throwable) {
+            memory.close()
+            throw exc
+        }
         return try {
             VN97ProductionAssistantResources(
                 session = assembleProductionAssistantSession(
@@ -135,11 +154,17 @@ class AndroidPlatformRuntime(
                     sessionLimits = sessionLimits,
                     auditFileName = auditFileName,
                     memory = memory,
+                    turnMemoryWriter = turnMemoryWriter,
                 ),
                 memory = memory,
+                turnMemoryWriter = turnMemoryWriter,
             )
         } catch (exc: Throwable) {
-            memory.close()
+            try {
+                turnMemoryWriter.close()
+            } finally {
+                memory.close()
+            }
             throw exc
         }
     }
@@ -152,6 +177,7 @@ class AndroidPlatformRuntime(
         sessionLimits: VN97AssistantSessionLimits,
         auditFileName: String,
         memory: NativeMemoryRetriever?,
+        turnMemoryWriter: VN97TurnMemoryWriter?,
     ): VN97AssistantSession {
         val cognition = NativeTypedCognitionAdapter(
             NativeCognitionInferenceEngine(
@@ -168,6 +194,7 @@ class AndroidPlatformRuntime(
             ),
             limits = sessionLimits,
             defaultMemory = memory,
+            turnMemoryWriter = turnMemoryWriter,
         )
     }
 
@@ -253,9 +280,14 @@ class AndroidPlatformRuntime(
 class VN97ProductionAssistantResources internal constructor(
     val session: VN97AssistantSession,
     val memory: NativeMemoryStore,
+    val turnMemoryWriter: VN97TurnMemoryWriter,
 ) : AutoCloseable {
     override fun close() {
-        memory.close()
+        try {
+            turnMemoryWriter.close()
+        } finally {
+            memory.close()
+        }
     }
 }
 
