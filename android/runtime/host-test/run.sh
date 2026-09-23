@@ -123,3 +123,17 @@ java -Djava.library.path="$WORK" -jar "$WORK/m7n-host-test.jar"
     -d "$WORK/m7u-native-memory-bridge-test.jar"
 
 java -Djava.library.path="$WORK" -jar "$WORK/m7u-native-memory-bridge-test.jar"
+
+
+"$KOTLINC" \
+    "$ROOT/android/runtime/src/main/java/ai/vn97/runtime/StrictJson.kt" \
+    "$ROOT/android/runtime/src/main/java/ai/vn97/runtime/CapabilityPackage.kt" \
+    "$ROOT/android/runtime/src/main/java/ai/vn97/runtime/CapabilitySignature.kt" \
+    "$ROOT/android/runtime/src/main/java/ai/vn97/runtime/CapabilityStage.kt" \
+    "$HERE/M10DStrictJsonStub.kt" \
+    "$HERE/M10DCapabilityStagingTest.kt" \
+    -Werror \
+    -include-runtime \
+    -d "$WORK/m10d-capability-staging-test.jar"
+
+java -jar "$WORK/m10d-capability-staging-test.jar"
