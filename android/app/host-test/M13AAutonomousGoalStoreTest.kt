@@ -85,6 +85,39 @@ fun main() {
     store.save(completed)
     check(store.loadOrNull(base.jobId) == completed)
 
+    val successor = VN97AutonomousGoalRecord(
+        jobId = 0x40000062,
+        planId = "44".repeat(32),
+        modelIdHex = base.modelIdHex,
+        principal = base.principal,
+        goal = base.goal,
+        state = VN97AutonomousGoalState.SCHEDULED,
+        rootJobId = base.jobId,
+        generation = 1,
+        previousJobId = base.jobId,
+        createdNs = 600L,
+        updatedNs = 600L,
+    )
+    store.save(successor)
+    check(store.loadOrNull(successor.jobId) == successor)
+    check(store.list().contains(successor))
+
+    expectFailure {
+        VN97AutonomousGoalRecord(
+            jobId = 0x40000063,
+            planId = "55".repeat(32),
+            modelIdHex = base.modelIdHex,
+            principal = base.principal,
+            goal = base.goal,
+            state = VN97AutonomousGoalState.SCHEDULED,
+            rootJobId = base.jobId,
+            generation = 1,
+            previousJobId = 0,
+            createdNs = 700L,
+            updatedNs = 700L,
+        )
+    }
+
     val file = root
         .resolve(base.jobId.toString())
         .resolve("goal.vn97goa1")
