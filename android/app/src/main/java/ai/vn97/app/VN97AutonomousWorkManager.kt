@@ -154,19 +154,24 @@ class VN97AutonomousWorkManager(
                 application.assistant.releaseForBackgroundContinuation()
             var model: ai.vn97.runtime.NativeActivatedModel? = null
             try {
-                model = openActivatedModel()
-                requireModelIdentity(waiting, model.info.modelId)
+                val openedModel = openActivatedModel()
+                model = openedModel
+                requireModelIdentity(
+                    waiting,
+                    openedModel.info.modelId,
+                )
                 val session =
                     openVN97ForegroundAssistantContinuation(
                         context = application,
                         platformRuntime = application.platformRuntime,
                         jobId = waiting.jobId,
-                        model = model,
+                        model = openedModel,
                         grants = VN97ProductionAuthority.grants(
                             application,
                             waiting.principal,
                         ),
-                        runtimeConfig = runtimeConfigFor(model),
+                        runtimeConfig =
+                            runtimeConfigFor(openedModel),
                         sessionLimits = VN97AssistantSessionLimits(
                             maxCyclesPerAdvance = 4,
                             maxExternalHandoffsPerAdvance = 1,
@@ -278,6 +283,11 @@ class VN97AutonomousWorkManager(
                 throw exc
             }
         }
+    }
+
+    @Synchronized
+    fun releaseForegroundApprovalSession() {
+        closeForegroundApprovalLocked()
     }
 
     @Synchronized
