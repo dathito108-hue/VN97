@@ -48,3 +48,13 @@ java -jar "$WORK/m10c-approval-state-test.jar"
     -d "$WORK/m10j-bootstrap-asset-contract-test.jar"
 
 java -jar "$WORK/m10j-bootstrap-asset-contract-test.jar"
+
+
+"$KOTLINC" \
+    "$ROOT/android/app/src/main/java/ai/vn97/app/VN97AutonomousGoalStore.kt" \
+    "$HERE/M13AAutonomousGoalStoreTest.kt" \
+    -Werror \
+    -include-runtime \
+    -d "$WORK/m13a-autonomous-goal-store-test.jar"
+
+java -jar "$WORK/m13a-autonomous-goal-store-test.jar"

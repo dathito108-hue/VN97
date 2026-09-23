@@ -1,7 +1,8 @@
 package ai.vn97.app
 
-import ai.vn97.platform.M6AndroidProductionCapabilities
 import ai.vn97.platform.VN97AssistantTurnState
+import ai.vn97.platform.VN97AutonomousContinuationSeed
+import ai.vn97.platform.createVN97AutonomousContinuationSeed
 import ai.vn97.platform.VN97AssistantTurnUpdate
 import ai.vn97.platform.VN97MobileEvidenceConfig
 import ai.vn97.platform.VN97MobileEvidenceRecord
@@ -11,7 +12,6 @@ import ai.vn97.runtime.NativeActivatedModel
 import ai.vn97.runtime.NativeCognitionInferenceEngine
 import ai.vn97.runtime.NativePreparedAudio
 import ai.vn97.runtime.NativePreparedVision
-import android.content.Intent
 import android.os.SystemClock
 import java.io.File
 
@@ -36,7 +36,7 @@ class VN97AppAssistant(
     private var resources: VN97ProductionAssistantResources? = null
     private var pendingResult: VN97AppTurnResult? = null
 
-    fun openIfActivated(): Boolean = synchronized(lock) {
+    fun openIfActivated(): Boolean = exclusive {
         if (model != null && resources != null) return true
 
         val opened = NativeActivatedInventoryModelLoader.openOrNull(
@@ -60,7 +60,7 @@ class VN97AppAssistant(
     fun runTurn(
         userMessage: String,
         maxAdvances: Int = 8,
-    ): VN97AppTurnResult = synchronized(lock) {
+    ): VN97AppTurnResult = exclusive {
         require(userMessage.isNotBlank()) { "userMessage must not be blank" }
         require(maxAdvances > 0) { "maxAdvances must be positive" }
         check(pendingResult == null) {
@@ -83,6 +83,30 @@ class VN97AppAssistant(
         )
     }
 
+    fun createAutonomousSeed(
+        goal: String,
+    ): VN97AutonomousContinuationSeed = exclusive {
+        require(goal.isNotBlank()) {
+            "autonomous goal must not be blank"
+        }
+        check(pendingResult == null) {
+            "cannot create autonomous goal while approval is pending"
+        }
+        val activeResources = checkNotNull(resources) {
+            "trusted VN97 model is not active"
+        }
+        check(!activeResources.session.hasActiveTurn) {
+            "cannot create autonomous goal while a turn is active"
+        }
+        val activeModel = checkNotNull(model) {
+            "trusted VN97 model is not active"
+        }
+        createVN97AutonomousContinuationSeed(
+            model = activeModel,
+            goal = goal,
+        )
+    }
+
     fun hasProductionVoice(): Boolean = synchronized(lock) {
         model?.info?.hasAudioProjection == true
     }
@@ -93,7 +117,7 @@ class VN97AppAssistant(
 
     fun perceiveVision(
         preparedVision: NativePreparedVision,
-    ): String = synchronized(lock) {
+    ): String = exclusive {
         check(pendingResult == null) {
             "cannot run perception while approval is pending"
         }
@@ -118,7 +142,7 @@ class VN97AppAssistant(
         beforeObservation: String,
         afterObservation: String,
         maxNewTokens: Int = 384,
-    ): String = synchronized(lock) {
+    ): String = exclusive {
         require(goal.isNotBlank()) { "visual verification goal must not be blank" }
         require(beforeObservation.isNotBlank()) {
             "beforeObservation must not be blank"
@@ -171,10 +195,29 @@ class VN97AppAssistant(
         resources?.session?.hasActiveTurn == true
     }
 
+    fun releaseForBackgroundContinuation(): Boolean =
+        exclusive {
+            check(pendingResult == null) {
+                "cannot hand off VN97 while approval is pending"
+            }
+            val activeResources = resources
+            check(
+                activeResources == null ||
+                    !activeResources.session.hasActiveTurn
+            ) {
+                "cannot hand off VN97 while a foreground turn is active"
+            }
+            val wasOpen = model != null && resources != null
+            if (wasOpen) {
+                closeLocked()
+            }
+            wasOpen
+        }
+
     fun runVoiceTurn(
         preparedAudio: NativePreparedAudio,
         maxAdvances: Int = 8,
-    ): VN97AppTurnResult = synchronized(lock) {
+    ): VN97AppTurnResult = exclusive {
         require(maxAdvances > 0) {
             "maxAdvances must be positive"
         }
@@ -202,7 +245,7 @@ class VN97AppAssistant(
 
     fun collectMobileEvidence(
         config: VN97MobileEvidenceConfig = VN97MobileEvidenceConfig(),
-    ): VN97MobileEvidenceRecord = synchronized(lock) {
+    ): VN97MobileEvidenceRecord = exclusive {
         check(pendingResult == null) {
             "cannot benchmark while approval is pending"
         }
@@ -238,7 +281,7 @@ class VN97AppAssistant(
     fun resolvePendingApproval(
         approved: Boolean,
         maxAdvances: Int = 8,
-    ): VN97AppTurnResult = synchronized(lock) {
+    ): VN97AppTurnResult = exclusive {
         require(maxAdvances > 0) { "maxAdvances must be positive" }
         val current = checkNotNull(pendingResult) {
             "no assistant approval is pending"
@@ -297,7 +340,7 @@ class VN97AppAssistant(
         return result
     }
 
-    fun reloadActivatedModel(): Boolean = synchronized(lock) {
+    fun reloadActivatedModel(): Boolean = exclusive {
         check(pendingResult == null) {
             "cannot replace model while approval is pending"
         }
@@ -310,40 +353,25 @@ class VN97AppAssistant(
     }
 
     override fun close() {
-        synchronized(lock) {
+        exclusive {
             pendingResult = null
             closeLocked()
         }
     }
 
-    private fun productionGrants() =
-        buildList {
-            add(
-                M6AndroidProductionCapabilities.userApprovedClipboardGrant(
-                    APP_PRINCIPAL
-                )
-            )
-            val launcher = Intent(Intent.ACTION_MAIN).apply {
-                addCategory(Intent.CATEGORY_LAUNCHER)
-            }
-            application.packageManager
-                .queryIntentActivities(launcher, 0)
-                .asSequence()
-                .mapNotNull { it.activityInfo?.packageName }
-                .filter { it.isNotBlank() }
-                .distinct()
-                .sorted()
-                .take(MAX_LAUNCHABLE_APP_GRANTS)
-                .forEach { packageName ->
-                    runCatching {
-                        M6AndroidProductionCapabilities
-                            .userApprovedAppLaunchGrant(
-                                APP_PRINCIPAL,
-                                packageName,
-                            )
-                    }.getOrNull()?.let(::add)
-                }
+    private inline fun <T> exclusive(
+        block: () -> T,
+    ): T = application.withSovereignExecution {
+        synchronized(lock) {
+            block()
         }
+    }
+
+    private fun productionGrants() =
+        VN97ProductionAuthority.grants(
+            application,
+            APP_PRINCIPAL,
+        )
 
     private fun closeLocked() {
         var failure: Throwable? = null
@@ -371,7 +399,6 @@ class VN97AppAssistant(
 
     companion object {
         const val APP_PRINCIPAL = "runtime.user"
-        private const val MAX_LAUNCHABLE_APP_GRANTS = 512
         private const val MAX_VISUAL_VERIFY_FIELD_CHARS = 2 * 1024
     }
 }

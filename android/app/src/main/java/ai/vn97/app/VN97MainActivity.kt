@@ -41,6 +41,9 @@ class VN97MainActivity : Activity() {
     private lateinit var transcriptView: TextView
     private lateinit var inputView: EditText
     private lateinit var sendButton: Button
+    private lateinit var autonomousButton: Button
+    private lateinit var cancelAutonomousButton: Button
+    private lateinit var autonomousStatusView: TextView
     private lateinit var approvalView: TextView
     private lateinit var approveButton: Button
     private lateinit var rejectButton: Button
@@ -58,6 +61,7 @@ class VN97MainActivity : Activity() {
     private var publisherKeyUri: Uri? = null
     private var pendingFloatingAssistantEnable = false
     private var pendingCameraCapture = false
+    private var latestCancellableAutonomousJobId: Int? = null
 
     private val worker = Executors.newSingleThreadExecutor()
     private var state = VN97AppState()
@@ -390,11 +394,60 @@ class VN97MainActivity : Activity() {
             ),
         )
 
+        val autonomousRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+        }
+        autonomousButton = Button(this).apply {
+            text = "Run autonomously"
+            setOnClickListener { startAutonomousGoal() }
+        }
+        cancelAutonomousButton = Button(this).apply {
+            text = "Cancel latest goal"
+            isEnabled = false
+            setOnClickListener { cancelLatestAutonomousGoal() }
+        }
+        autonomousRow.addView(
+            autonomousButton,
+            LinearLayout.LayoutParams(
+                0,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                1f,
+            ),
+        )
+        autonomousRow.addView(
+            cancelAutonomousButton,
+            LinearLayout.LayoutParams(
+                0,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                1f,
+            ),
+        )
+        root.addView(
+            autonomousRow,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ),
+        )
+
+        autonomousStatusView = TextView(this).apply {
+            text = "Autonomous goals: none"
+            setTextIsSelectable(true)
+        }
+        root.addView(
+            autonomousStatusView,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ),
+        )
+
         setContentView(root)
         refreshFloatingAssistantButton()
         refreshVoicePermissionButton()
         refreshVisualButtons()
         render(state)
+        refreshAutonomousStatus()
         attachTrustedModel()
         if (
             intent?.action ==
@@ -416,6 +469,7 @@ class VN97MainActivity : Activity() {
         refreshFloatingAssistantButton()
         refreshVoicePermissionButton()
         refreshVisualButtons()
+        refreshAutonomousStatus()
     }
 
     override fun onNewIntent(intent: Intent?) {
@@ -1117,6 +1171,154 @@ class VN97MainActivity : Activity() {
         }
     }
 
+    private fun startAutonomousGoal() {
+        if (
+            state.phase != VN97AppPhase.READY ||
+            !state.inputEnabled
+        ) {
+            statusView.text =
+                "VN97 must be READY before starting an autonomous goal."
+            return
+        }
+        val goal = inputView.text.toString().trim()
+        if (goal.isEmpty()) {
+            statusView.text =
+                "Enter a goal before choosing Run autonomously."
+            return
+        }
+        inputView.text.clear()
+        autonomousButton.isEnabled = false
+        sendButton.isEnabled = false
+        statusView.text =
+            "VN97 is building and persisting the autonomous plan…"
+
+        worker.execute {
+            try {
+                val record = app.autonomousWork.startGoal(goal)
+                runOnUiThread {
+                    statusView.text =
+                        if (
+                            record.state ==
+                                VN97AutonomousGoalState.SCHEDULED
+                        ) {
+                            "Autonomous goal scheduled as job " +
+                                record.jobId +
+                                ". It can continue after process death/reboot."
+                        } else {
+                            "Autonomous goal persisted but is " +
+                                record.state.name.lowercase() +
+                                ": " +
+                                record.terminalReason
+                        }
+                    refreshAutonomousStatus()
+                    autonomousButton.isEnabled =
+                        state.phase == VN97AppPhase.READY &&
+                            state.inputEnabled
+                    sendButton.isEnabled = state.inputEnabled
+                }
+            } catch (exc: Throwable) {
+                runOnUiThread {
+                    statusView.text =
+                        "Autonomous goal creation failed: " +
+                            exc::class.java.simpleName
+                    autonomousButton.isEnabled =
+                        state.phase == VN97AppPhase.READY &&
+                            state.inputEnabled
+                    sendButton.isEnabled = state.inputEnabled
+                    refreshAutonomousStatus()
+                }
+            }
+        }
+    }
+
+    private fun cancelLatestAutonomousGoal() {
+        val jobId = latestCancellableAutonomousJobId ?: return
+        cancelAutonomousButton.isEnabled = false
+        worker.execute {
+            try {
+                val record = app.autonomousWork.cancel(jobId)
+                runOnUiThread {
+                    statusView.text =
+                        "Autonomous job " +
+                            record.jobId +
+                            " cancelled."
+                    refreshAutonomousStatus()
+                }
+            } catch (exc: Throwable) {
+                runOnUiThread {
+                    statusView.text =
+                        "Autonomous cancellation failed: " +
+                            exc::class.java.simpleName
+                    refreshAutonomousStatus()
+                }
+            }
+        }
+    }
+
+    private fun refreshAutonomousStatus() {
+        worker.execute {
+            val result = runCatching {
+                app.autonomousWork.listGoals()
+            }
+            runOnUiThread {
+                result.onSuccess { records ->
+                    val visible = records.take(5)
+                    latestCancellableAutonomousJobId =
+                        records.firstOrNull { !it.terminal }?.jobId
+                    autonomousStatusView.text =
+                        if (visible.isEmpty()) {
+                            "Autonomous goals: none"
+                        } else {
+                            buildString {
+                                append("Autonomous goals\n")
+                                visible.forEach { record ->
+                                    append("#")
+                                    append(record.jobId)
+                                    append(" ")
+                                    append(record.state.name)
+                                    append(" wakes=")
+                                    append(record.wakeCount)
+                                    append("\n")
+                                    append(
+                                        record.goal
+                                            .replace('\n', ' ')
+                                            .take(160)
+                                    )
+                                    val detail = when {
+                                        record.finalResponse.isNotBlank() ->
+                                            record.finalResponse
+                                        record.terminalReason.isNotBlank() ->
+                                            record.terminalReason
+                                        else -> ""
+                                    }
+                                    if (detail.isNotBlank()) {
+                                        append("\n↳ ")
+                                        append(
+                                            detail
+                                                .replace('\n', ' ')
+                                                .take(220)
+                                        )
+                                    }
+                                    append("\n")
+                                }
+                            }.trimEnd()
+                        }
+                    cancelAutonomousButton.isEnabled =
+                        latestCancellableAutonomousJobId != null
+                    autonomousButton.isEnabled =
+                        state.phase == VN97AppPhase.READY &&
+                            state.inputEnabled
+                }.onFailure { exc ->
+                    autonomousStatusView.text =
+                        "Autonomous status unavailable: " +
+                            exc::class.java.simpleName
+                    latestCancellableAutonomousJobId = null
+                    cancelAutonomousButton.isEnabled = false
+                }
+            }
+        }
+    }
+
     private fun submitTurn() {
         if (!state.inputEnabled) return
         val message = inputView.text.toString()
@@ -1221,6 +1423,9 @@ class VN97MainActivity : Activity() {
         statusView.text = state.status
         inputView.isEnabled = state.inputEnabled
         sendButton.isEnabled = state.inputEnabled
+        autonomousButton.isEnabled =
+            state.phase == VN97AppPhase.READY &&
+                state.inputEnabled
         transcriptView.text = state.transcript.joinToString("\n\n")
 
         val approval = if (state.phase == VN97AppPhase.WAITING_APPROVAL) {

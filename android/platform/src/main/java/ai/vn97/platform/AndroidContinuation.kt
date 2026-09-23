@@ -68,6 +68,7 @@ class ContinuationContext internal constructor(
 }
 
 class VN97AssistantContinuationContext internal constructor(
+    val jobId: Int,
     val runtime: NativeRuntimeOwner,
     val controller: NativePlanController,
     val binding: VN97AssistantContinuationBinding,
@@ -168,6 +169,19 @@ class AndroidContinuationScheduler(private val context: Context) {
     }
 
     fun cancel(jobId: Int) = scheduler.cancel(jobId)
+
+    fun hasPendingJob(jobId: Int): Boolean {
+        require(jobId > 0) { "jobId must be positive" }
+        return scheduler.getPendingJob(jobId) != null
+    }
+
+    fun cancelAssistantAndDelete(jobId: Int) {
+        require(jobId > 0) { "jobId must be positive" }
+        scheduler.cancel(jobId)
+        val root = context.continuationRoot(jobId)
+        AtomicCompositeContinuityStore(root).delete()
+        VN97AssistantContinuationBindingStore(root).delete()
+    }
 
     private fun scheduleJob(
         jobId: Int,
@@ -282,6 +296,7 @@ class VN97ContinuationJobService : JobService() {
 
             val outcome = provider.createVN97AssistantContinuationWork().run(
                 VN97AssistantContinuationContext(
+                    jobId = params.jobId,
                     runtime = owner,
                     controller = restored.controller,
                     binding = restored.binding,
