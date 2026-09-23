@@ -13,7 +13,7 @@ import java.nio.file.LinkOption
 import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
 
-private const val VN97_GOA_VERSION = 1
+private const val VN97_GOA_VERSION = 2
 private const val VN97_GOA_HEADER_BYTES = 48
 private val VN97_GOA_MAGIC =
     "VN97GOA1".toByteArray(StandardCharsets.US_ASCII)
@@ -44,6 +44,9 @@ data class VN97AutonomousGoalRecord(
     val principal: String,
     val goal: String,
     val state: VN97AutonomousGoalState,
+    val rootJobId: Int = jobId,
+    val generation: Int = 0,
+    val previousJobId: Int = 0,
     val createdNs: Long,
     val updatedNs: Long,
     val wakeCount: Int = 0,
@@ -52,6 +55,24 @@ data class VN97AutonomousGoalRecord(
 ) {
     init {
         require(jobId > 0) { "autonomous jobId must be positive" }
+        require(rootJobId > 0) {
+            "autonomous rootJobId must be positive"
+        }
+        require(generation >= 0) {
+            "autonomous generation must be non-negative"
+        }
+        require(previousJobId >= 0) {
+            "autonomous previousJobId must be non-negative"
+        }
+        if (generation == 0) {
+            require(rootJobId == jobId && previousJobId == 0) {
+                "generation zero must be the root autonomous job"
+            }
+        } else {
+            require(previousJobId > 0 && previousJobId != jobId) {
+                "replan generation requires a distinct predecessor job"
+            }
+        }
         requireHex64(planId, "planId")
         requireHex64(modelIdHex, "modelIdHex")
         requirePrincipal(principal)
@@ -110,6 +131,9 @@ data class VN97AutonomousGoalRecord(
             modelIdHex == other.modelIdHex &&
             principal == other.principal &&
             goal == other.goal &&
+            rootJobId == other.rootJobId &&
+            generation == other.generation &&
+            previousJobId == other.previousJobId &&
             createdNs == other.createdNs
 
     companion object {
@@ -328,7 +352,7 @@ class VN97AutonomousGoalStore(
         private const val MAX_GOALS = 128
         private const val MAX_FILE_BYTES =
             VN97_GOA_HEADER_BYTES +
-                4 + 8 + 8 + 4 + 4 +
+                4 + 8 + 8 + 4 + 4 + 4 + 4 + 4 +
                 4 + 64 +
                 4 + 64 +
                 4 + 256 +
@@ -348,7 +372,7 @@ private fun encode(record: VN97AutonomousGoalRecord): ByteArray {
     val reason =
         record.terminalReason.toByteArray(StandardCharsets.UTF_8)
 
-    val payloadSize = 4 + 8 + 8 + 4 + 4 +
+    val payloadSize = 4 + 8 + 8 + 4 + 4 + 4 + 4 + 4 +
         stringBytes(plan) +
         stringBytes(model) +
         stringBytes(principal) +
@@ -363,6 +387,9 @@ private fun encode(record: VN97AutonomousGoalRecord): ByteArray {
             putLong(record.updatedNs)
             putInt(record.wakeCount)
             putInt(record.state.code)
+            putInt(record.rootJobId)
+            putInt(record.generation)
+            putInt(record.previousJobId)
             putBytes(plan)
             putBytes(model)
             putBytes(principal)
@@ -396,7 +423,10 @@ private fun decode(bytes: ByteArray): VN97AutonomousGoalRecord {
     ) {
         fail("bad VN97GOA1 magic")
     }
-    if (header.int != 1) fail("unsupported VN97GOA1 version")
+    val version = header.int
+    if (version !in 1..VN97_GOA_VERSION) {
+        fail("unsupported VN97GOA1 version")
+    }
     val payloadSize = header.int
     if (
         payloadSize <= 0 ||
@@ -419,6 +449,21 @@ private fun decode(bytes: ByteArray): VN97AutonomousGoalRecord {
     val updatedNs = source.long
     val wakeCount = source.int
     val state = VN97AutonomousGoalState.fromCode(source.int)
+    val rootJobId: Int
+    val generation: Int
+    val previousJobId: Int
+    if (version >= 2) {
+        if (source.remaining() < 12) {
+            fail("VN97GOA1 lineage fields are truncated")
+        }
+        rootJobId = source.int
+        generation = source.int
+        previousJobId = source.int
+    } else {
+        rootJobId = jobId
+        generation = 0
+        previousJobId = 0
+    }
     val planId = source.readText(64, "planId")
     val modelId = source.readText(64, "modelIdHex")
     val principal = source.readText(256, "principal")
@@ -444,6 +489,9 @@ private fun decode(bytes: ByteArray): VN97AutonomousGoalRecord {
         principal = principal,
         goal = goal,
         state = state,
+        rootJobId = rootJobId,
+        generation = generation,
+        previousJobId = previousJobId,
         createdNs = createdNs,
         updatedNs = updatedNs,
         wakeCount = wakeCount,

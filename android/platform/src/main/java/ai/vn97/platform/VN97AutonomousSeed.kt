@@ -6,6 +6,7 @@ import ai.vn97.runtime.NativeCognitionLimits
 import ai.vn97.runtime.NativeCognitionLoop
 import ai.vn97.runtime.NativeCognitionRuntimeConfig
 import ai.vn97.runtime.NativePlan
+import ai.vn97.runtime.NativePlanController
 import ai.vn97.runtime.NativeReasoningBudget
 import ai.vn97.runtime.NativeRuntimeCheckpointSnapshot
 import ai.vn97.runtime.NativeRuntimeConfig
@@ -28,6 +29,42 @@ data class VN97AutonomousContinuationSeed(
             "autonomous continuation seed runtime config mismatch"
         }
     }
+}
+
+private fun autonomousRuntimeConfig(
+    model: NativeActivatedModel,
+    cognitionRuntimeConfig: NativeCognitionRuntimeConfig,
+): NativeRuntimeConfig = NativeRuntimeConfig(
+    layers = model.info.layers,
+    batch = 1,
+    dModel = model.info.dModel,
+    dState = model.info.dState,
+    recurrentBackend = cognitionRuntimeConfig.recurrentBackend,
+    packedBackend = cognitionRuntimeConfig.packedBackend,
+)
+
+private fun autonomousSeed(
+    model: NativeActivatedModel,
+    controller: NativePlanController,
+    cognitionRuntimeConfig: NativeCognitionRuntimeConfig,
+): VN97AutonomousContinuationSeed {
+    val runtimeConfig =
+        autonomousRuntimeConfig(model, cognitionRuntimeConfig)
+    val snapshot =
+        NativeRuntimeOwner.createModelBoundSeedSnapshot(
+            model = model,
+            config = runtimeConfig,
+        )
+    if (!snapshot.modelBinding.modelId.contentEquals(model.info.modelId)) {
+        throw IllegalStateException(
+            "autonomous continuation seed model identity mismatch"
+        )
+    }
+    return VN97AutonomousContinuationSeed(
+        runtimeConfig = runtimeConfig,
+        snapshot = snapshot,
+        plan = controller.plan,
+    )
 }
 
 fun createVN97AutonomousContinuationSeed(
@@ -73,28 +110,57 @@ fun createVN97AutonomousContinuationSeed(
         createdNs = createdNs,
     )
 
-    val runtimeConfig = NativeRuntimeConfig(
-        layers = model.info.layers,
-        batch = 1,
-        dModel = model.info.dModel,
-        dState = model.info.dState,
-        recurrentBackend = cognitionRuntimeConfig.recurrentBackend,
-        packedBackend = cognitionRuntimeConfig.packedBackend,
+    return autonomousSeed(
+        model = model,
+        controller = controller,
+        cognitionRuntimeConfig = cognitionRuntimeConfig,
     )
-    val snapshot =
-        NativeRuntimeOwner.createModelBoundSeedSnapshot(
-            model = model,
-            config = runtimeConfig,
-        )
-    if (!snapshot.modelBinding.modelId.contentEquals(model.info.modelId)) {
-        throw IllegalStateException(
-            "autonomous continuation seed model identity mismatch"
-        )
+}
+
+
+fun createVN97AutonomousReplanSeed(
+    model: NativeActivatedModel,
+    previousPlan: NativePlan,
+    feedback: String,
+    cognitionRuntimeConfig: NativeCognitionRuntimeConfig =
+        NativeCognitionRuntimeConfig(),
+    cognitionLimits: NativeCognitionLimits = NativeCognitionLimits(
+        maxPlanSteps = 24,
+        maxExternalSteps = 8,
+        maxCyclesPerRun = 32,
+    ),
+    createdNs: Long = System.currentTimeMillis() * 1_000_000L,
+): VN97AutonomousContinuationSeed {
+    require(previousPlan.isTerminal()) {
+        "autonomous replan requires terminal previous plan"
+    }
+    require(previousPlan.goal.isNotBlank()) {
+        "autonomous replan goal must not be blank"
+    }
+    require(feedback.isNotBlank()) {
+        "autonomous replan feedback must not be blank"
+    }
+    require(model.info.hasTokenizer) {
+        "autonomous replanning requires VN97TK1 tokenizer"
     }
 
-    return VN97AutonomousContinuationSeed(
-        runtimeConfig = runtimeConfig,
-        snapshot = snapshot,
-        plan = controller.plan,
+    val cognition = NativeTypedCognitionAdapter(
+        NativeCognitionInferenceEngine(
+            model = model,
+            config = cognitionRuntimeConfig,
+        )
+    )
+    val revision = NativeCognitionLoop(
+        cognition,
+        cognitionLimits,
+    ).replanTerminalPlan(
+        previousPlan = previousPlan,
+        feedback = feedback,
+        createdNs = createdNs,
+    )
+    return autonomousSeed(
+        model = model,
+        controller = revision.controller,
+        cognitionRuntimeConfig = cognitionRuntimeConfig,
     )
 }

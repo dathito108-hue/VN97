@@ -348,7 +348,7 @@ class VN97ContinuationJobService : JobService() {
     }
 }
 
-private fun Context.continuationRoot(jobId: Int): File =
+internal fun Context.continuationRoot(jobId: Int): File =
     File(noBackupFilesDir, "vn97-continuity/$jobId")
 
 private fun ByteArray.lowerHex(): String =

@@ -149,6 +149,59 @@ class NativeCognitionLoop(
         return NativePlanRevision(plan.planId, replacement)
     }
 
+    fun replanTerminalPlan(
+        previousPlan: NativePlan,
+        feedback: String,
+        createdNs: Long = System.currentTimeMillis() * 1_000_000L,
+    ): NativePlanRevision {
+        val plan = previousPlan
+        require(plan.isTerminal()) {
+            "only a terminal plan can start a new autonomous generation"
+        }
+        require(createdNs >= 0L) {
+            "replan createdNs must be non-negative"
+        }
+        val boundedFeedback =
+            truncateUtf8(feedback, limits.maxNoteUtf8Bytes).first
+        require(boundedFeedback.isNotBlank()) {
+            "terminal replan feedback must not be blank"
+        }
+        val draft = call("backend proposePlan") {
+            backend.proposePlan(
+                NativePlanDraftRequest(
+                    goal = plan.goal,
+                    maxSteps = limits.maxPlanSteps,
+                    previousPlanId = plan.planId,
+                    previousSteps = plan.steps.map { it.spec },
+                    feedback = boundedFeedback,
+                )
+            )
+        }
+        validateDraft(draft)
+        val replacement = try {
+            NativePlanController.create(
+                goal = plan.goal,
+                specs = draft.steps,
+                budget = plan.budget,
+                createdNs = createdNs,
+            )
+        } catch (exc: IllegalArgumentException) {
+            throw NativeCognitionContractException(
+                "terminal replan draft is structurally invalid",
+                exc,
+            )
+        }
+        if (replacement.plan.planId == plan.planId) {
+            throw NativeCognitionLoopException(
+                "terminal replan did not change plan identity"
+            )
+        }
+        return NativePlanRevision(
+            previousPlanId = plan.planId,
+            controller = replacement,
+        )
+    }
+
     fun finalResponse(controller: NativePlanController): String =
         controller.plan.steps.asReversed().firstOrNull {
             it.spec.kind == NativeStepKind.RESPOND &&

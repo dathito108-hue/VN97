@@ -7,6 +7,10 @@ import ai.vn97.platform.VN97AssistantContinuationContext
 import ai.vn97.platform.VN97AssistantContinuationSpec
 import ai.vn97.platform.VN97AssistantContinuationWork
 import ai.vn97.platform.VN97AssistantSessionLimits
+import ai.vn97.platform.VN97AssistantTurnState
+import ai.vn97.platform.VN97ForegroundAssistantContinuationSession
+import ai.vn97.platform.createVN97AutonomousReplanSeed
+import ai.vn97.platform.openVN97ForegroundAssistantContinuation
 import ai.vn97.runtime.NativeActivatedInventoryModelLoader
 import ai.vn97.runtime.NativeBackend
 import ai.vn97.runtime.NativePlan
@@ -16,6 +20,16 @@ import ai.vn97.runtime.NativeStepStatus
 import ai.vn97.runtime.NativeRuntimeConfig
 import android.os.SystemClock
 import java.io.File
+
+data class VN97AutonomousApprovalRequest(
+    val jobId: Int,
+    val generation: Int,
+    val capabilityId: String,
+    val requestDigest: String,
+    val scopeDigest: String,
+    val presentationJson: String,
+    val expiresNs: Long,
+)
 
 class VN97AutonomousWorkManager(
     private val application: VN97Application,
@@ -28,6 +42,10 @@ class VN97AutonomousWorkManager(
     )
     private val scheduler =
         AndroidContinuationScheduler(application)
+    private var foregroundApproval:
+        VN97ForegroundAssistantContinuationSession? = null
+    private var foregroundApprovalJobId: Int? = null
+    private var reopenForegroundAssistantAfterApproval = false
 
     @Synchronized
     fun startGoal(goal: String): VN97AutonomousGoalRecord {
@@ -105,12 +123,186 @@ class VN97AutonomousWorkManager(
         store.loadOrNull(jobId)
 
     @Synchronized
+    fun pendingApprovalRequest(): VN97AutonomousApprovalRequest? {
+        val waiting = store.list()
+            .asSequence()
+            .filter {
+                it.state == VN97AutonomousGoalState.WAITING_APPROVAL
+            }
+            .maxWithOrNull(
+                compareBy<VN97AutonomousGoalRecord> {
+                    it.generation
+                }.thenBy { it.createdNs }
+            )
+            ?: run {
+                closeForegroundApprovalLocked()
+                return null
+            }
+
+        val existing = foregroundApproval
+        if (
+            existing != null &&
+            foregroundApprovalJobId == waiting.jobId
+        ) {
+            return approvalRequest(waiting, existing)
+        }
+
+        closeForegroundApprovalLocked()
+        return application.withSovereignExecution {
+            scheduler.cancel(waiting.jobId)
+            val reopen =
+                application.assistant.releaseForBackgroundContinuation()
+            var model: ai.vn97.runtime.NativeActivatedModel? = null
+            try {
+                val openedModel = openActivatedModel()
+                model = openedModel
+                requireModelIdentity(
+                    waiting,
+                    openedModel.info.modelId,
+                )
+                val session =
+                    openVN97ForegroundAssistantContinuation(
+                        context = application,
+                        platformRuntime = application.platformRuntime,
+                        jobId = waiting.jobId,
+                        model = openedModel,
+                        grants = VN97ProductionAuthority.grants(
+                            application,
+                            waiting.principal,
+                        ),
+                        runtimeConfig =
+                            runtimeConfigFor(openedModel),
+                        sessionLimits = VN97AssistantSessionLimits(
+                            maxCyclesPerAdvance = 4,
+                            maxExternalHandoffsPerAdvance = 1,
+                        ),
+                        auditFileName =
+                            "m13-actions-" +
+                                waiting.jobId +
+                                ".jsonl",
+                        nowNs = SystemClock.elapsedRealtimeNanos(),
+                    )
+                model = null
+                val update = session.currentUpdate
+                if (
+                    update.state ==
+                        VN97AssistantTurnState.APPROVAL_REQUIRED
+                ) {
+                    foregroundApproval = session
+                    foregroundApprovalJobId = waiting.jobId
+                    reopenForegroundAssistantAfterApproval = reopen
+                    return@withSovereignExecution approvalRequest(
+                        waiting,
+                        session,
+                    )
+                }
+
+                val committed = session.commit()
+                val updated = updateRecordFromForeground(
+                    waiting,
+                    committed,
+                    approved = null,
+                )
+                store.save(updated)
+                if (
+                    !updated.terminal &&
+                    updated.state ==
+                        VN97AutonomousGoalState.SCHEDULED
+                ) {
+                    reschedule(updated.jobId)
+                }
+                if (reopen) {
+                    application.assistant.openIfActivated()
+                }
+                null
+            } catch (exc: Throwable) {
+                model?.close()
+                if (reopen) {
+                    runCatching {
+                        application.assistant.openIfActivated()
+                    }
+                }
+                throw exc
+            }
+        }
+    }
+
+    @Synchronized
+    fun resolvePendingApproval(
+        approved: Boolean,
+    ): VN97AutonomousGoalRecord {
+        val session = checkNotNull(foregroundApproval) {
+            "no autonomous approval session is open"
+        }
+        val jobId = checkNotNull(foregroundApprovalJobId) {
+            "autonomous approval job identity is missing"
+        }
+        val record = checkNotNull(store.loadOrNull(jobId)) {
+            "autonomous approval goal does not exist"
+        }
+        check(
+            record.state ==
+                VN97AutonomousGoalState.WAITING_APPROVAL
+        ) {
+            "autonomous goal is not waiting for approval"
+        }
+
+        return application.withSovereignExecution {
+            try {
+                val resolved = session.resolveApproval(
+                    approved = approved,
+                    nowNs = SystemClock.elapsedRealtimeNanos(),
+                )
+                session.commit()
+                foregroundApproval = null
+                foregroundApprovalJobId = null
+
+                val updated = updateRecordFromForeground(
+                    record,
+                    resolved,
+                    approved = approved,
+                )
+                store.save(updated)
+
+                val result = if (
+                    !updated.terminal &&
+                    updated.state ==
+                        VN97AutonomousGoalState.SCHEDULED
+                ) {
+                    reschedule(updated.jobId)
+                } else {
+                    updated
+                }
+                reopenForegroundAssistantLocked()
+                result
+            } catch (exc: Throwable) {
+                foregroundApproval = null
+                foregroundApprovalJobId = null
+                runCatching { session.close() }
+                reopenForegroundAssistantLocked()
+                throw exc
+            }
+        }
+    }
+
+    @Synchronized
+    fun releaseForegroundApprovalSession() {
+        closeForegroundApprovalLocked()
+    }
+
+    @Synchronized
     fun reschedule(jobId: Int): VN97AutonomousGoalRecord {
         val record = checkNotNull(store.loadOrNull(jobId)) {
             "autonomous goal does not exist"
         }
         check(!record.terminal) {
             "terminal autonomous goal cannot be rescheduled"
+        }
+        check(
+            record.state !=
+                VN97AutonomousGoalState.WAITING_APPROVAL
+        ) {
+            "WAITING_APPROVAL must be resolved through foreground M6"
         }
         val model = openActivatedModel()
         model.use {
@@ -154,6 +346,9 @@ class VN97AutonomousWorkManager(
             "autonomous goal does not exist"
         }
         if (record.terminal) return record
+        if (foregroundApprovalJobId == jobId) {
+            closeForegroundApprovalLocked()
+        }
         scheduler.cancelAssistantAndDelete(jobId)
         return record.copy(
             state = VN97AutonomousGoalState.CANCELLED,
@@ -179,6 +374,11 @@ class VN97AutonomousWorkManager(
         if (initial.terminal) return ContinuationOutcome.COMPLETE
 
         if (initial.wakeCount >= MAX_WAKE_COUNT) {
+            if (!context.controller.plan.isTerminal()) {
+                context.controller.cancel(
+                    "autonomous wake budget exhausted"
+                )
+            }
             val exhausted = initial.copy(
                 state = VN97AutonomousGoalState.FAILED,
                 updatedNs = wallNowNs(),
@@ -271,16 +471,16 @@ class VN97AutonomousWorkManager(
                     }
 
                     ai.vn97.platform.VN97AssistantTurnState.FAILED -> {
-                        store.save(
-                            running.copy(
-                                state =
-                                    VN97AutonomousGoalState.FAILED,
-                                updatedNs = now,
-                                terminalReason =
-                                    plan.terminalReason.ifBlank {
-                                        "planner failed"
-                                    },
-                            )
+                        maybeStartReplanGeneration(
+                            current = running,
+                            terminalPlan = plan,
+                            model = model,
+                            terminalState =
+                                VN97AutonomousGoalState.FAILED,
+                            reason =
+                                plan.terminalReason.ifBlank {
+                                    "planner failed"
+                                },
                         )
                         ContinuationOutcome.COMPLETE
                     }
@@ -301,16 +501,16 @@ class VN97AutonomousWorkManager(
                     }
 
                     ai.vn97.platform.VN97AssistantTurnState.BUDGET_EXHAUSTED -> {
-                        store.save(
-                            running.copy(
-                                state =
-                                    VN97AutonomousGoalState.BUDGET_EXHAUSTED,
-                                updatedNs = now,
-                                terminalReason =
-                                    plan.terminalReason.ifBlank {
-                                        "planner budget exhausted"
-                                    },
-                            )
+                        maybeStartReplanGeneration(
+                            current = running,
+                            terminalPlan = plan,
+                            model = model,
+                            terminalState =
+                                VN97AutonomousGoalState.BUDGET_EXHAUSTED,
+                            reason =
+                                plan.terminalReason.ifBlank {
+                                    "planner budget exhausted"
+                                },
                         )
                         ContinuationOutcome.COMPLETE
                     }
@@ -330,9 +530,7 @@ class VN97AutonomousWorkManager(
                         ContinuationOutcome.COMPLETE
                     }
 
-                    ai.vn97.platform.VN97AssistantTurnState.YIELDED,
-                    ai.vn97.platform.VN97AssistantTurnState.STALLED,
-                    -> {
+                    ai.vn97.platform.VN97AssistantTurnState.YIELDED -> {
                         store.save(
                             running.copy(
                                 state =
@@ -342,6 +540,24 @@ class VN97AutonomousWorkManager(
                             )
                         )
                         ContinuationOutcome.RESCHEDULE
+                    }
+
+                    ai.vn97.platform.VN97AssistantTurnState.STALLED -> {
+                        if (!plan.isTerminal()) {
+                            context.controller.cancel(
+                                "stalled plan superseded by autonomous replan"
+                            )
+                        }
+                        maybeStartReplanGeneration(
+                            current = running,
+                            terminalPlan = context.controller.plan,
+                            model = model,
+                            terminalState =
+                                VN97AutonomousGoalState.FAILED,
+                            reason =
+                                "planner stalled without a runnable directive",
+                        )
+                        ContinuationOutcome.COMPLETE
                     }
                 }
             }
@@ -417,6 +633,288 @@ class VN97AutonomousWorkManager(
             }
         }
     }
+
+    private fun maybeStartReplanGeneration(
+        current: VN97AutonomousGoalRecord,
+        terminalPlan: NativePlan,
+        model: ai.vn97.runtime.NativeActivatedModel,
+        terminalState: VN97AutonomousGoalState,
+        reason: String,
+    ): VN97AutonomousGoalRecord? {
+        require(terminalPlan.isTerminal()) {
+            "autonomous replan requires terminal planner"
+        }
+        require(
+            terminalState == VN97AutonomousGoalState.FAILED ||
+                terminalState ==
+                    VN97AutonomousGoalState.BUDGET_EXHAUSTED
+        ) {
+            "only failed/exhausted autonomous generations replan"
+        }
+        val now = wallNowNs()
+        val terminalRecord = current.copy(
+            state = terminalState,
+            updatedNs = now,
+            terminalReason = reason,
+        )
+        store.save(terminalRecord)
+
+        if (current.generation >= MAX_REPLAN_GENERATIONS) {
+            return null
+        }
+
+        val seed = createVN97AutonomousReplanSeed(
+            model = model,
+            previousPlan = terminalPlan,
+            feedback = buildReplanFeedback(
+                terminalPlan,
+                reason,
+            ),
+            createdNs = now,
+        )
+        val jobId = allocateJobId(seed.plan.planId)
+        val binding = scheduler.persistAssistant(
+            jobId = jobId,
+            snapshot = seed.snapshot,
+            plan = seed.plan,
+            principal = current.principal,
+        )
+        var successor = VN97AutonomousGoalRecord(
+            jobId = jobId,
+            planId = binding.planId,
+            modelIdHex = binding.modelIdHex,
+            principal = binding.principal,
+            goal = seed.plan.goal,
+            state = VN97AutonomousGoalState.SCHEDULED,
+            rootJobId = current.rootJobId,
+            generation = current.generation + 1,
+            previousJobId = current.jobId,
+            createdNs = seed.plan.createdNs,
+            updatedNs = seed.plan.createdNs,
+        )
+        try {
+            store.save(successor)
+        } catch (exc: Throwable) {
+            scheduler.cancelAssistantAndDelete(jobId)
+            throw exc
+        }
+
+        val schedulingFailure = runCatching {
+            scheduler.scheduleAssistant(
+                VN97AssistantContinuationSpec(
+                    jobId = jobId,
+                    runtimeConfig = seed.runtimeConfig,
+                    binding = binding,
+                    minimumLatencyMillis = 0L,
+                )
+            )
+        }.fold(
+            onSuccess = { result ->
+                if (result > 0) null
+                else "Android JobScheduler rejected replan generation"
+            },
+            onFailure = { exc ->
+                "replan scheduling failed: " +
+                    exc::class.java.simpleName
+            },
+        )
+        if (schedulingFailure != null) {
+            successor = successor.copy(
+                state = VN97AutonomousGoalState.PAUSED,
+                updatedNs = wallNowNs(),
+                terminalReason = schedulingFailure,
+            )
+            store.save(successor)
+        }
+        store.save(
+            terminalRecord.copy(
+                updatedNs = maxOf(
+                    terminalRecord.updatedNs,
+                    successor.updatedNs,
+                ),
+                terminalReason =
+                    reason.take(12 * 1024) +
+                        " | successor_job=" +
+                        successor.jobId +
+                        " generation=" +
+                        successor.generation,
+            )
+        )
+        return successor
+    }
+
+    private fun buildReplanFeedback(
+        plan: NativePlan,
+        reason: String,
+    ): String = buildString {
+        append("Previous autonomous generation ended without satisfying ")
+        append("the same user goal. Create a materially revised plan. ")
+        append("Do not repeat failed steps unchanged.\n")
+        append("terminal_status=")
+        append(plan.status.name)
+        append("\nterminal_reason=")
+        append(reason.take(1024))
+        plan.steps.take(24).forEach { step ->
+            append("\nstep=")
+            append(step.stepId)
+            append(" kind=")
+            append(step.spec.kind.name)
+            append(" status=")
+            append(step.status.name)
+            append(" objective=")
+            append(step.spec.objective.replace('\n', ' ').take(384))
+            if (step.result.isNotBlank()) {
+                append(" result=")
+                append(step.result.replace('\n', ' ').take(512))
+            }
+            if (step.failureReason.isNotBlank()) {
+                append(" failure=")
+                append(
+                    step.failureReason
+                        .replace('\n', ' ')
+                        .take(512)
+                )
+            }
+        }
+    }.take(MAX_REPLAN_FEEDBACK_CHARS)
+
+    private fun approvalRequest(
+        record: VN97AutonomousGoalRecord,
+        session: VN97ForegroundAssistantContinuationSession,
+    ): VN97AutonomousApprovalRequest {
+        val approval = checkNotNull(
+            session.currentUpdate.approval
+        ) {
+            "foreground autonomous continuation lacks approval"
+        }
+        check(approval.planId == record.planId) {
+            "approval plan does not match VN97GOA1"
+        }
+        return VN97AutonomousApprovalRequest(
+            jobId = record.jobId,
+            generation = record.generation,
+            capabilityId = approval.capabilityId,
+            requestDigest = approval.requestDigest,
+            scopeDigest = approval.scopeDigest,
+            presentationJson = approval.presentationJson,
+            expiresNs = approval.expiresNs,
+        )
+    }
+
+    private fun updateRecordFromForeground(
+        record: VN97AutonomousGoalRecord,
+        update: ai.vn97.platform.VN97AssistantTurnUpdate,
+        approved: Boolean?,
+    ): VN97AutonomousGoalRecord {
+        val now = wallNowNs()
+        return when (update.state) {
+            VN97AssistantTurnState.COMPLETED ->
+                record.copy(
+                    state = VN97AutonomousGoalState.COMPLETED,
+                    updatedNs = now,
+                    finalResponse = update.finalResponse,
+                    terminalReason = "",
+                )
+
+            VN97AssistantTurnState.APPROVAL_REQUIRED ->
+                record.copy(
+                    state = VN97AutonomousGoalState.WAITING_APPROVAL,
+                    updatedNs = now,
+                    terminalReason =
+                        "additional foreground approval required",
+                )
+
+            VN97AssistantTurnState.APPROVAL_REJECTED ->
+                record.copy(
+                    state = VN97AutonomousGoalState.FAILED,
+                    updatedNs = now,
+                    terminalReason =
+                        if (approved == false) {
+                            "external action rejected by user"
+                        } else {
+                            "external approval was rejected"
+                        },
+                )
+
+            VN97AssistantTurnState.YIELDED ->
+                record.copy(
+                    state = VN97AutonomousGoalState.SCHEDULED,
+                    updatedNs = now,
+                    terminalReason = "",
+                )
+
+            VN97AssistantTurnState.PAUSED ->
+                record.copy(
+                    state = VN97AutonomousGoalState.PAUSED,
+                    updatedNs = now,
+                    terminalReason = "planner paused after approval",
+                )
+
+            VN97AssistantTurnState.FAILED ->
+                record.copy(
+                    state = VN97AutonomousGoalState.FAILED,
+                    updatedNs = now,
+                    terminalReason =
+                        "planner failed after approval resolution",
+                )
+
+            VN97AssistantTurnState.CANCELLED ->
+                record.copy(
+                    state = VN97AutonomousGoalState.CANCELLED,
+                    updatedNs = now,
+                    terminalReason =
+                        "planner cancelled after approval resolution",
+                )
+
+            VN97AssistantTurnState.BUDGET_EXHAUSTED ->
+                record.copy(
+                    state =
+                        VN97AutonomousGoalState.BUDGET_EXHAUSTED,
+                    updatedNs = now,
+                    terminalReason =
+                        "planner budget exhausted after approval",
+                )
+
+            VN97AssistantTurnState.STALLED ->
+                record.copy(
+                    state = VN97AutonomousGoalState.PAUSED,
+                    updatedNs = now,
+                    terminalReason =
+                        "planner stalled after approval resolution",
+                )
+        }
+    }
+
+    private fun closeForegroundApprovalLocked() {
+        val session = foregroundApproval
+        foregroundApproval = null
+        foregroundApprovalJobId = null
+        if (session != null) {
+            runCatching { session.close() }
+        }
+        reopenForegroundAssistantLocked()
+    }
+
+    private fun reopenForegroundAssistantLocked() {
+        if (reopenForegroundAssistantAfterApproval) {
+            reopenForegroundAssistantAfterApproval = false
+            runCatching {
+                application.assistant.openIfActivated()
+            }
+        }
+    }
+
+    private fun runtimeConfigFor(
+        model: ai.vn97.runtime.NativeActivatedModel,
+    ): NativeRuntimeConfig =
+        NativeRuntimeConfig(
+            layers = model.info.layers,
+            batch = 1,
+            dModel = model.info.dModel,
+            dState = model.info.dState,
+            recurrentBackend = NativeBackend.AUTO,
+            packedBackend = NativeBackend.AUTO,
+        )
 
     private fun terminalRecordFromPlan(
         running: VN97AutonomousGoalRecord,
@@ -572,6 +1070,8 @@ class VN97AutonomousWorkManager(
     companion object {
         private const val MAX_ACTIVE_GOALS = 32
         private const val MAX_WAKE_COUNT = 256
+        private const val MAX_REPLAN_GENERATIONS = 3
+        private const val MAX_REPLAN_FEEDBACK_CHARS = 8 * 1024
         private const val MAX_JOB_PROBES = 128
         private const val JOB_PREFIX = 0x40000000
         private const val JOB_MASK = 0x3fffffff
