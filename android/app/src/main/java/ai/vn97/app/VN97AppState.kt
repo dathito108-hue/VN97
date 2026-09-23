@@ -37,6 +37,7 @@ sealed interface VN97AppEvent {
         val source: String,
         val observation: String,
     ) : VN97AppEvent
+    data class VisualFailed(val message: String) : VN97AppEvent
     data object ApprovalRequired : VN97AppEvent
     data class ApprovalRejected(val user: String) : VN97AppEvent
     data class TurnCompleted(val user: String, val assistant: String) : VN97AppEvent
@@ -80,6 +81,18 @@ object VN97AppReducer {
                     state.transcript +
                         ("VN97 " + event.source + ": " + event.observation)
                 ),
+            )
+        }
+
+        is VN97AppEvent.VisualFailed -> {
+            check(state.phase == VN97AppPhase.RUNNING)
+            require(event.message.isNotBlank()) {
+                "visual failure message must not be blank"
+            }
+            state.copy(
+                phase = VN97AppPhase.READY,
+                status = event.message.take(4096),
+                inputEnabled = true,
             )
         }
 
