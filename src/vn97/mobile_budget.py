@@ -88,6 +88,14 @@ class VN97MobileBudget:
             or self.max_recurrent_state_bytes <= 0
         ):
             raise ValueError("max_recurrent_state_bytes must be a positive integer")
+        if self.max_model_image_bytes > MAX_IMAGE_BYTES:
+            raise ValueError(
+                "max_model_image_bytes cannot exceed the VN97MI1 runtime bound"
+            )
+        if self.max_recurrent_state_bytes > VN97_MAX_RECURRENT_STATE_BYTES:
+            raise ValueError(
+                "max_recurrent_state_bytes cannot exceed the VN97 runtime bound"
+            )
 
     def rejection_status(self, footprint: VN97MobileFootprint) -> str | None:
         if footprint.model_image_bytes > self.max_model_image_bytes:
