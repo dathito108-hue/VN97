@@ -79,6 +79,9 @@ class VN97GameAgentController(
             MAX_OBJECTIVE_UTF8_BYTES) {
             "game objective exceeds UTF-8 byte bound"
         }
+        check(application.assistant.openIfActivated()) {
+            "trusted VN97 model is not active"
+        }
         check(application.screenCaptureBroker.isActive()) {
             "VN97 game agent requires active user-approved screen capture"
         }
