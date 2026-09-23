@@ -28,14 +28,15 @@ jobs:
         with:
           gradle-version: "9.6.0"
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
       - name: Install pinned Android packages
         shell: bash
+        env:
+          ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
         run: |
-          yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager             "platforms;android-37"             "build-tools;36.0.0"             "ndk;28.2.13676358"             "cmake;3.22.1"
+          SDKMANAGER="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          test -x "$SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" "platforms;android-37" "build-tools;36.0.0" "ndk;28.2.13676358" "cmake;3.22.1"
 
       - name: Build VN97 debug APK
         shell: bash
