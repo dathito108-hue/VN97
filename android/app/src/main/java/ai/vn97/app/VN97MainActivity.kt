@@ -5,8 +5,10 @@ import ai.vn97.avatar.AvatarCommand
 import ai.vn97.avatar.AvatarGesture
 import ai.vn97.avatar.VN97AvatarView
 import ai.vn97.platform.VN97AssistantTurnState
+import android.Manifest
 import android.app.Activity
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
@@ -24,6 +26,7 @@ class VN97MainActivity : Activity() {
     private lateinit var avatar: VN97AvatarView
     private lateinit var statusView: TextView
     private lateinit var floatingAssistantButton: Button
+    private lateinit var voicePermissionButton: Button
     private lateinit var transcriptView: TextView
     private lateinit var inputView: EditText
     private lateinit var sendButton: Button
@@ -116,6 +119,17 @@ class VN97MainActivity : Activity() {
         }
         root.addView(
             floatingAssistantButton,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ),
+        )
+
+        voicePermissionButton = Button(this).apply {
+            setOnClickListener { requestMicrophonePermissionIfNeeded() }
+        }
+        root.addView(
+            voicePermissionButton,
             LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT,
@@ -317,8 +331,15 @@ class VN97MainActivity : Activity() {
 
         setContentView(root)
         refreshFloatingAssistantButton()
+        refreshVoicePermissionButton()
         render(state)
         attachTrustedModel()
+        if (
+            intent?.action ==
+                VN97FloatingAssistantService.ACTION_REQUEST_MICROPHONE_PERMISSION
+        ) {
+            requestMicrophonePermissionIfNeeded()
+        }
     }
 
     override fun onResume() {
@@ -331,6 +352,35 @@ class VN97MainActivity : Activity() {
             }
         }
         refreshFloatingAssistantButton()
+        refreshVoicePermissionButton()
+    }
+
+    override fun onNewIntent(intent: Intent?) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (
+            intent?.action ==
+                VN97FloatingAssistantService.ACTION_REQUEST_MICROPHONE_PERMISSION
+        ) {
+            requestMicrophonePermissionIfNeeded()
+        }
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray,
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == REQUEST_MICROPHONE_PERMISSION) {
+            refreshVoicePermissionButton()
+            statusView.text =
+                if (hasMicrophonePermission()) {
+                    "Microphone enabled for local VN97 voice capture."
+                } else {
+                    "Microphone permission was not granted."
+                }
+        }
     }
 
     override fun onPause() {
@@ -341,6 +391,31 @@ class VN97MainActivity : Activity() {
     override fun onDestroy() {
         worker.shutdownNow()
         super.onDestroy()
+    }
+
+    private fun hasMicrophonePermission(): Boolean =
+        checkSelfPermission(Manifest.permission.RECORD_AUDIO) ==
+            PackageManager.PERMISSION_GRANTED
+
+    private fun requestMicrophonePermissionIfNeeded() {
+        if (hasMicrophonePermission()) {
+            refreshVoicePermissionButton()
+            return
+        }
+        requestPermissions(
+            arrayOf(Manifest.permission.RECORD_AUDIO),
+            REQUEST_MICROPHONE_PERMISSION,
+        )
+    }
+
+    private fun refreshVoicePermissionButton() {
+        voicePermissionButton.text =
+            if (hasMicrophonePermission()) {
+                "Microphone voice enabled"
+            } else {
+                "Enable microphone voice"
+            }
+        voicePermissionButton.isEnabled = !hasMicrophonePermission()
     }
 
     private fun toggleFloatingAssistant() {
@@ -754,5 +829,6 @@ class VN97MainActivity : Activity() {
         private const val REQUEST_PACKAGE = 4101
         private const val REQUEST_SIGNATURE = 4102
         private const val REQUEST_PUBLISHER_KEY = 4103
+        private const val REQUEST_MICROPHONE_PERMISSION = 4201
     }
 }

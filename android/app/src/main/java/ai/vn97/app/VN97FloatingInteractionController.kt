@@ -2,6 +2,7 @@ package ai.vn97.app
 
 import ai.vn97.avatar.AssistantMode
 import ai.vn97.platform.VN97AssistantTurnState
+import ai.vn97.runtime.NativeAudioModality
 import android.content.Context
 import android.graphics.Color
 import android.graphics.PixelFormat
@@ -9,6 +10,7 @@ import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
@@ -27,6 +29,9 @@ internal class VN97FloatingInteractionController(
     private val assistant: VN97AppAssistant,
     private val anchorProvider: () -> WindowManager.LayoutParams?,
     private val publishMode: (AssistantMode, Float) -> Unit,
+    private val publishListeningLevel: (Float, Long) -> Unit,
+    private val requestMicrophonePermission: () -> Boolean,
+    private val setMicrophoneForegroundActive: (Boolean) -> Boolean,
 ) : AutoCloseable {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val worker = Executors.newSingleThreadExecutor()
@@ -39,12 +44,21 @@ internal class VN97FloatingInteractionController(
     private var transcriptScroll: ScrollView? = null
     private var approvalView: TextView? = null
     private var inputView: EditText? = null
+    private var voiceButton: Button? = null
     private var sendButton: Button? = null
     private var approveButton: Button? = null
     private var rejectButton: Button? = null
 
     private var state = VN97AppState(
         status = "Opening trusted VN97 model…",
+    )
+    private var lastVoiceLevelMillis = 0L
+
+    private val voiceCapture = VN97VoiceCapture(
+        context = context,
+        onLevel = { level -> handleVoiceLevel(level) },
+        onUtterance = { utterance -> handleVoiceUtterance(utterance) },
+        onFailure = { message -> handleVoiceFailure(message) },
     )
 
     fun initialize() {
@@ -239,11 +253,17 @@ internal class VN97FloatingInteractionController(
             setTextColor(Color.WHITE)
             setHintTextColor(Color.GRAY)
         }
+        val voice = Button(context).apply {
+            text = "Mic"
+            contentDescription = "Start or stop local VN97 voice capture"
+            setOnClickListener { toggleVoiceCapture() }
+        }
         val send = Button(context).apply {
             text = "Send"
             setOnClickListener { submitTurn() }
         }
         inputView = input
+        voiceButton = voice
         sendButton = send
         inputRow.addView(
             input,
@@ -251,6 +271,13 @@ internal class VN97FloatingInteractionController(
                 0,
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 1f,
+            ),
+        )
+        inputRow.addView(
+            voice,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
             ),
         )
         inputRow.addView(
@@ -280,6 +307,7 @@ internal class VN97FloatingInteractionController(
         transcriptScroll = null
         approvalView = null
         inputView = null
+        voiceButton = null
         sendButton = null
         approveButton = null
         rejectButton = null
@@ -288,6 +316,124 @@ internal class VN97FloatingInteractionController(
         } catch (_: IllegalArgumentException) {
             // Window is already detached.
         }
+    }
+
+    private fun toggleVoiceCapture() {
+        if (closed || state.phase != VN97AppPhase.READY) return
+
+        if (voiceCapture.isRecording) {
+            voiceCapture.stop()
+            voiceButton?.isEnabled = false
+            return
+        }
+
+        if (!voiceCapture.hasPermission()) {
+            val opened = requestMicrophonePermission()
+            render(
+                state.copy(
+                    status = if (opened) {
+                        "Grant microphone permission in VN97, then tap Mic again."
+                    } else {
+                        "Microphone permission is required for local voice capture."
+                    },
+                    inputEnabled = true,
+                )
+            )
+            return
+        }
+
+        if (!setMicrophoneForegroundActive(true)) {
+            render(
+                state.copy(
+                    status = "Android blocked background microphone access. Open VN97 and try Mic again.",
+                    inputEnabled = true,
+                )
+            )
+            return
+        }
+
+        lastVoiceLevelMillis = SystemClock.elapsedRealtime()
+        render(
+            state.copy(
+                status = "Listening locally… tap Stop when finished.",
+                inputEnabled = false,
+            )
+        )
+        if (!voiceCapture.start()) {
+            setMicrophoneForegroundActive(false)
+            render(
+                state.copy(
+                    status = "Microphone capture could not start.",
+                    inputEnabled = true,
+                )
+            )
+        }
+    }
+
+    private fun handleVoiceLevel(level: Float) {
+        if (closed) return
+        val now = SystemClock.elapsedRealtime()
+        val delta = (now - lastVoiceLevelMillis).coerceIn(0L, 1000L)
+        lastVoiceLevelMillis = now
+        publishListeningLevel(level, delta)
+        voiceButton?.apply {
+            text = if (voiceCapture.isRecording) "Stop" else "Mic"
+            isEnabled = true
+        }
+    }
+
+    private fun handleVoiceUtterance(utterance: VN97VoiceUtterance) {
+        if (closed) return
+        setMicrophoneForegroundActive(false)
+        render(
+            state.copy(
+                status = "Preparing voice through native VN97 M3B ingress…",
+                inputEnabled = false,
+            )
+        )
+        worker.execute {
+            try {
+                val prepared = NativeAudioModality.preparePcm16(utterance.pcm16)
+                mainHandler.post {
+                    if (closed) return@post
+                    render(
+                        state.copy(
+                            status =
+                                "Local voice captured: " +
+                                    utterance.durationMillis +
+                                    " ms / " +
+                                    prepared.frameCount +
+                                    " native audio frames. " +
+                                    "Semantic speech weights remain part of M11 production intelligence.",
+                            inputEnabled = true,
+                        )
+                    )
+                }
+            } catch (exc: Throwable) {
+                mainHandler.post {
+                    if (!closed) {
+                        render(
+                            state.copy(
+                                status = "Native voice ingress failed: " +
+                                    exc::class.java.simpleName,
+                                inputEnabled = true,
+                            )
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private fun handleVoiceFailure(message: String) {
+        if (closed) return
+        setMicrophoneForegroundActive(false)
+        render(
+            state.copy(
+                status = message,
+                inputEnabled = state.phase == VN97AppPhase.READY,
+            )
+        )
     }
 
     private fun submitTurn() {
@@ -429,6 +575,15 @@ internal class VN97FloatingInteractionController(
         }
         inputView?.isEnabled = next.inputEnabled
         sendButton?.isEnabled = next.inputEnabled
+        voiceButton?.apply {
+            text = if (voiceCapture.isRecording) "Stop" else "Mic"
+            isEnabled =
+                if (voiceCapture.isRecording) {
+                    true
+                } else {
+                    next.phase == VN97AppPhase.READY
+                }
+        }
 
         val mode = when (next.phase) {
             VN97AppPhase.MODEL_REQUIRED -> AssistantMode.SLEEPING
@@ -501,6 +656,8 @@ internal class VN97FloatingInteractionController(
     override fun close() {
         if (closed) return
         closed = true
+        voiceCapture.close()
+        setMicrophoneForegroundActive(false)
         removePanel()
         worker.shutdownNow()
     }
