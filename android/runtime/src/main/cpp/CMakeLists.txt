@@ -19,6 +19,7 @@ add_library(
     vn97_model_jni.cpp
     vn97_generation_jni.cpp
     vn97_memory_jni.cpp
+    vn97_modality_jni.cpp
 )
 target_compile_features(vn97_jni PRIVATE cxx_std_17)
 target_compile_options(vn97_jni PRIVATE -Wall -Wextra -Werror)
@@ -29,4 +30,5 @@ target_link_libraries(
     vn97_model_image
     vn97_generation
     vn97_memory
+    vn97_modality
 )
