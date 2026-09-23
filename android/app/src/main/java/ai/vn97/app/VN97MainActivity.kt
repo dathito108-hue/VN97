@@ -145,7 +145,11 @@ class VN97MainActivity : Activity() {
         )
 
         provisioningView = TextView(this).apply {
-            text = "No active VN97 model. A signed bundled model will activate automatically when present."
+            text = if (BuildConfig.VN97_TURNKEY_REQUIRED) {
+                "Preparing bundled VN97 intelligence…"
+            } else {
+                "No active VN97 model. A signed bundled model will activate automatically when present."
+            }
             setTextIsSelectable(true)
         }
         root.addView(
@@ -158,7 +162,12 @@ class VN97MainActivity : Activity() {
 
         importModelButton = Button(this).apply {
             text = "IMPORT VN97 MODEL"
+            visibility =
+                if (BuildConfig.VN97_TURNKEY_REQUIRED) View.GONE else View.VISIBLE
             setOnClickListener {
+                if (BuildConfig.VN97_TURNKEY_REQUIRED) {
+                    return@setOnClickListener
+                }
                 advancedProvisioningContainer.visibility =
                     if (advancedProvisioningContainer.visibility == View.VISIBLE) {
                         View.GONE
@@ -320,8 +329,9 @@ class VN97MainActivity : Activity() {
                 var bundled = false
                 if (!active) {
                     bundled =
-                        app.bundledBootstrap.activateIfPresent() ==
-                            VN97BundledBootstrapOutcome.ACTIVATED
+                        app.bundledBootstrap.activateIfPresent(
+                            required = BuildConfig.VN97_TURNKEY_REQUIRED,
+                        ) == VN97BundledBootstrapOutcome.ACTIVATED
                     if (bundled) {
                         active = app.assistant.openIfActivated()
                         check(active) {
@@ -352,7 +362,7 @@ class VN97MainActivity : Activity() {
                     } else {
                         render(state)
                         provisioningView.text =
-                            "No VN97 model is bundled in this APK. Import a signed VN97 model to enable chat."
+                            "Developer build: no bundled VN97 model. Import a signed VN97 model to enable chat."
                     }
                 }
             } catch (exc: Throwable) {
@@ -481,9 +491,12 @@ class VN97MainActivity : Activity() {
     }
 
     private fun provisioningAllowed(): Boolean =
-        state.phase == VN97AppPhase.MODEL_REQUIRED ||
-            state.phase == VN97AppPhase.READY ||
-            state.phase == VN97AppPhase.ERROR
+        !BuildConfig.VN97_TURNKEY_REQUIRED &&
+            (
+                state.phase == VN97AppPhase.MODEL_REQUIRED ||
+                    state.phase == VN97AppPhase.READY ||
+                    state.phase == VN97AppPhase.ERROR
+            )
 
     private fun setProvisioningControlsEnabled(enabled: Boolean) {
         val allowed = enabled && provisioningAllowed()
