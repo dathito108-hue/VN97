@@ -3,6 +3,62 @@ package ai.vn97.runtime
 class NativeRuntimeOwner(
     private val checkpointStore: AtomicCheckpointStore,
 ) : AutoCloseable {
+    companion object {
+        fun createModelBoundSeedSnapshot(
+            model: NativeActivatedModel,
+            config: NativeRuntimeConfig = NativeRuntimeConfig(
+                layers = model.info.layers,
+                batch = 1,
+                dModel = model.info.dModel,
+                dState = model.info.dState,
+            ),
+        ): NativeRuntimeCheckpointSnapshot {
+            require(config.batch == 1) {
+                "autonomous continuation seed requires batch=1"
+            }
+            require(
+                config.layers == model.info.layers &&
+                    config.dModel == model.info.dModel &&
+                    config.dState == model.info.dState
+            ) {
+                "autonomous continuation runtime geometry must match activated model"
+            }
+            require(model.info.hasTokenizer) {
+                "autonomous continuation seed requires VN97TK1 tokenizer"
+            }
+
+            NativeRuntimeSession.create(config).use { session ->
+                session.activate()
+                val seed = model.encodeUtf8(
+                    "",
+                    addBos = true,
+                    addText = false,
+                    addEos = false,
+                )
+                check(seed.size == 1) {
+                    "VN97TK1 BOS seed must contain exactly one token"
+                }
+                session.prefill(model, seed)
+                session.suspend()
+                val info = session.info()
+                val binding = session.modelBinding()
+                check(binding.bound) {
+                    "autonomous continuation seed did not bind model identity"
+                }
+                check(binding.modelId.contentEquals(model.info.modelId)) {
+                    "autonomous continuation seed model identity mismatch"
+                }
+                return NativeRuntimeCheckpointSnapshot(
+                    checkpoint = session.checkpoint(),
+                    info = info,
+                    modelBinding = RuntimeModelBinding(
+                        bound = true,
+                        modelId = binding.modelId.copyOf(),
+                    ),
+                )
+            }
+        }
+    }
     private var session: NativeRuntimeSession? = null
 
     @Synchronized
