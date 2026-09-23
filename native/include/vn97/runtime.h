@@ -81,6 +81,18 @@ public:
         const std::uint32_t* input_ids,
         float* hidden,
         std::size_t hidden_count);
+    RuntimeStatus InferEmbeddingStep(
+        const LanguageModelView& model,
+        const float* input_embeddings,
+        std::size_t embedding_count,
+        float* logits,
+        std::size_t logits_count);
+    RuntimeStatus InferEmbeddingStepHidden(
+        const LanguageModelView& model,
+        const float* input_embeddings,
+        std::size_t embedding_count,
+        float* hidden,
+        std::size_t hidden_count);
     RuntimeStatus ModelBinding(
         bool* bound,
         std::uint8_t* model_id,
@@ -99,6 +111,8 @@ private:
     RuntimeStatus InferStepOutput(
         const LanguageModelView& model,
         const std::uint32_t* input_ids,
+        const float* input_embeddings,
+        std::size_t embedding_count,
         float* output,
         std::size_t output_count,
         bool hidden_only);
@@ -192,6 +206,22 @@ int vn97_runtime_infer_step_hidden(
     const vn97::LanguageModelView* language_model_view,
     const std::uint32_t* input_ids,
     std::size_t input_count,
+    float* hidden,
+    std::size_t hidden_count);
+
+int vn97_runtime_infer_embedding_step(
+    std::uint64_t handle,
+    const vn97::LanguageModelView* language_model_view,
+    const float* input_embeddings,
+    std::size_t embedding_count,
+    float* logits,
+    std::size_t logits_count);
+
+int vn97_runtime_infer_embedding_step_hidden(
+    std::uint64_t handle,
+    const vn97::LanguageModelView* language_model_view,
+    const float* input_embeddings,
+    std::size_t embedding_count,
     float* hidden,
     std::size_t hidden_count);
 
