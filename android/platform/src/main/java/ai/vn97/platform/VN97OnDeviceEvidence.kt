@@ -112,7 +112,7 @@ data class VN97MobileEvidenceRecord(
         append('"')
         for (ch in value) {
             when (ch) {
-                '"' -> append("\\"")
+                '"' -> append("\\\"")
                 '\\' -> append("\\\\")
                 '\b' -> append("\\b")
                 '\u000c' -> append("\\f")
