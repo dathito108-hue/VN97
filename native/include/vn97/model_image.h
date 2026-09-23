@@ -1,6 +1,7 @@
 #pragma once
 
 #include "vn97/language.h"
+#include "vn97/modality.h"
 #include "vn97/tokenizer.h"
 
 #include <cstddef>
@@ -43,6 +44,8 @@ struct ActivatedModelInfo {
     LanguageEmbeddingKind embedding_kind = LanguageEmbeddingKind::kFullF32;
     std::uint32_t embedding_rank = 0;
     bool has_tokenizer = false;
+    bool has_audio_projection = false;
+    std::uint32_t audio_frame_size = 0;
     std::size_t image_bytes = 0;
 };
 
@@ -63,6 +66,9 @@ public:
     const TokenizerView* tokenizer() const {
         return has_tokenizer_ ? &tokenizer_ : nullptr;
     }
+    const AudioProjectionView* audio_projection() const {
+        return has_audio_projection_ ? &audio_projection_ : nullptr;
+    }
     ActivatedModelInfo Info() const;
 
 private:
@@ -78,7 +84,9 @@ private:
     std::size_t image_bytes_ = 0;
     LanguageModelView language_model_;
     TokenizerView tokenizer_;
+    AudioProjectionView audio_projection_;
     bool has_tokenizer_ = false;
+    bool has_audio_projection_ = false;
     std::unique_ptr<LanguageLayerView[]> layers_;
     std::unique_ptr<float[]> stable_a_;
 };
@@ -96,6 +104,8 @@ struct vn97_model_info {
     std::uint32_t embedding_kind;
     std::uint32_t embedding_rank;
     int has_tokenizer;
+    int has_audio_projection;
+    std::uint32_t audio_frame_size;
     std::size_t image_bytes;
 };
 
@@ -126,6 +136,16 @@ int vn97_model_runtime_infer_step_hidden(
     std::size_t input_count,
     float* hidden,
     std::size_t hidden_count);
+
+int vn97_model_runtime_prefill_audio(
+    std::uint64_t model_handle,
+    std::uint64_t runtime_handle,
+    std::uint32_t audio_prefix_token,
+    const float* prepared_frames,
+    std::size_t frame_value_count,
+    std::size_t frame_count,
+    float* final_logits,
+    std::size_t logits_count);
 
 int vn97_model_runtime_prefill(
     std::uint64_t model_handle,
