@@ -195,6 +195,21 @@ class VN97AppAssistant(
         resources?.session?.hasActiveTurn == true
     }
 
+    fun cancelActiveTurn(
+        reason: String = "cancelled by app host",
+    ): VN97AppTurnResult? = exclusive {
+        require(reason.isNotBlank()) {
+            "assistant cancellation reason must not be blank"
+        }
+        pendingResult = null
+        val session = resources?.session ?: return@exclusive null
+        val update = session.cancelActiveTurn(reason) ?: return@exclusive null
+        VN97AppTurnResult(
+            userMessage = "",
+            update = update,
+        )
+    }
+
     fun releaseForBackgroundContinuation(): Boolean =
         exclusive {
             check(pendingResult == null) {
