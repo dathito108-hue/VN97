@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import stat
@@ -96,6 +97,91 @@ def _parse_private_key(data: bytes) -> bytes:
     )
 
 
+def _load_speech_training_report(
+    path: Path,
+    *,
+    checkpoint_sha256: str,
+    tokenizer_sha256: str,
+) -> tuple[dict[str, object], str]:
+    data = _read_regular_file(
+        path,
+        max_bytes=1024 * 1024,
+        label="speech training report",
+    )
+    try:
+        text = data.decode("utf-8", errors="strict")
+        report = json.loads(text)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError("speech training report must be strict UTF-8 JSON") from exc
+    expected_keys = {
+        "base_checkpoint_sha256",
+        "checkpoint_sha256",
+        "dataset_sha256",
+        "examples",
+        "final_loss",
+        "mean_loss",
+        "schema",
+        "steps",
+        "target_tokens",
+        "tokenizer_sha256",
+        "training",
+    }
+    if not isinstance(report, dict) or set(report) != expected_keys:
+        raise ValueError("speech training report keys are not exact")
+    if report["schema"] != "VN97SPEECHTRAIN1":
+        raise ValueError("speech training report schema mismatch")
+    if report["checkpoint_sha256"] != checkpoint_sha256:
+        raise ValueError(
+            "speech training report checkpoint does not match release checkpoint"
+        )
+    if report["tokenizer_sha256"] != tokenizer_sha256:
+        raise ValueError(
+            "speech training report tokenizer does not match release tokenizer"
+        )
+    for key in (
+        "base_checkpoint_sha256",
+        "checkpoint_sha256",
+        "dataset_sha256",
+        "tokenizer_sha256",
+    ):
+        value = report[key]
+        if (
+            not isinstance(value, str)
+            or len(value) != 64
+            or any(ch not in "0123456789abcdef" for ch in value)
+        ):
+            raise ValueError(f"speech training report {key} is invalid")
+    if (
+        type(report["examples"]) is not int
+        or report["examples"] <= 0
+        or type(report["steps"]) is not int
+        or report["steps"] <= 0
+        or type(report["target_tokens"]) is not int
+        or report["target_tokens"] <= 0
+    ):
+        raise ValueError("speech training report work counters are invalid")
+    for key in ("final_loss", "mean_loss"):
+        value = report[key]
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(float(value))
+        ):
+            raise ValueError(f"speech training report {key} is invalid")
+    if not isinstance(report["training"], dict):
+        raise ValueError("speech training report training config is invalid")
+    canonical = json.dumps(
+        report,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    )
+    if canonical != text:
+        raise ValueError("speech training report must use canonical JSON")
+    return report, hashlib.sha256(data).hexdigest()
+
+
 def _canonical_json(value: object) -> str:
     return json.dumps(
         value,
@@ -159,6 +245,12 @@ def _parser() -> argparse.ArgumentParser:
         default=4,
     )
     parser.add_argument("--validation-device", default="auto")
+    parser.add_argument(
+        "--speech-training-report",
+        help=(
+            "canonical VN97SPEECHTRAIN1 report matching the speech-enabled checkpoint"
+        ),
+    )
     parser.add_argument(
         "--speech-validation-input",
         help=(
@@ -244,6 +336,7 @@ def main(argv: list[str] | None = None) -> int:
         raise ValueError(
             "VN97TK1 tokenizer vocabulary does not match VN97CK1 checkpoint"
         )
+    tokenizer_sha256 = hashlib.sha256(tokenizer_bytes).hexdigest()
 
     if (
         args.validation_max_input_bytes <= 0
@@ -301,7 +394,20 @@ def main(argv: list[str] | None = None) -> int:
 
     speech_evaluation = None
     speech_dataset_sha256 = None
+    speech_training_report = None
+    speech_training_report_sha256 = None
     if loaded.audio_adapter is not None:
+        if args.speech_training_report is None:
+            raise ValueError(
+                "speech-enabled VN97CK1 requires --speech-training-report"
+            )
+        speech_training_report, speech_training_report_sha256 = (
+            _load_speech_training_report(
+                Path(args.speech_training_report),
+                checkpoint_sha256=loaded.checkpoint_sha256,
+                tokenizer_sha256=tokenizer_sha256,
+            )
+        )
         if args.speech_validation_input is None:
             raise ValueError(
                 "speech-enabled VN97CK1 requires --speech-validation-input"
@@ -323,6 +429,13 @@ def main(argv: list[str] | None = None) -> int:
             Path(args.speech_validation_input),
             max_examples=args.speech_validation_max_examples,
         )
+        if (
+            speech_training_report["dataset_sha256"]
+            == speech_dataset_sha256
+        ):
+            raise ValueError(
+                "speech validation dataset must differ from the training dataset"
+            )
         speech_config = VN97SpeechTrainingConfig(
             epochs=1,
             seed=0,
@@ -347,9 +460,12 @@ def main(argv: list[str] | None = None) -> int:
                 min_examples=args.min_speech_validation_examples,
             ),
         )
-    elif args.speech_validation_input is not None:
+    elif (
+        args.speech_validation_input is not None
+        or args.speech_training_report is not None
+    ):
         raise ValueError(
-            "speech validation input was provided but VN97CK1 has no audio adapter"
+            "speech release inputs were provided but VN97CK1 has no audio adapter"
         )
 
     # Private signing material is not opened until all held-out quality gates pass.
@@ -394,7 +510,7 @@ def main(argv: list[str] | None = None) -> int:
         ).hexdigest(),
         "schema": "VN97BOOTREL3",
         "speech_enabled": loaded.audio_adapter is not None,
-        "tokenizer_sha256": hashlib.sha256(tokenizer_bytes).hexdigest(),
+        "tokenizer_sha256": tokenizer_sha256,
         "validation": {
             "dataset_sha256": validation_sha256,
             "examples": len(validation_examples),
@@ -406,6 +522,7 @@ def main(argv: list[str] | None = None) -> int:
             "top1_accuracy": evaluation.top1_accuracy,
             "windows": evaluation.windows,
         },
+        "speech_training_report_sha256": speech_training_report_sha256,
         "speech_validation": (
             None
             if speech_evaluation is None
