@@ -745,13 +745,12 @@ class VN97MainActivity : Activity() {
                     Files.move(
                         temp.toPath(),
                         target.toPath(),
-                        StandardCopyOption.ATOMIC_MOVE,
                         StandardCopyOption.REPLACE_EXISTING,
                     )
                 } catch (exc: Throwable) {
                     temp.delete()
                     throw IllegalStateException(
-                        "could not atomically publish mobile evidence",
+                        "could not publish mobile evidence",
                         exc,
                     )
                 }
