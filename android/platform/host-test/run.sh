@@ -29,3 +29,15 @@ java -jar "$WORK/m7b2-approval-test.jar"
     -d "$WORK/m7o-external-handoff-test.jar"
 
 java -jar "$WORK/m7o-external-handoff-test.jar"
+
+"$KOTLINC" \
+    "$ROOT/android/platform/src/main/java/ai/vn97/platform/M6Approval.kt" \
+    "$ROOT/android/platform/src/main/java/ai/vn97/platform/M6ExternalHandoff.kt" \
+    "$ROOT/android/platform/src/main/java/ai/vn97/platform/M6ExecutionFabric.kt" \
+    "$HERE/M7PRuntimeStubs.kt" \
+    "$HERE/M7PExecutionFabricTest.kt" \
+    -Werror \
+    -include-runtime \
+    -d "$WORK/m7p-execution-fabric-test.jar"
+
+java -jar "$WORK/m7p-execution-fabric-test.jar"
