@@ -186,3 +186,17 @@ java -jar "$WORK/m10g-model-image-backend-test.jar"
     -d "$WORK/m10g-native-candidate-validator-test.jar"
 
 java -jar "$WORK/m10g-native-candidate-validator-test.jar"
+
+
+"$KOTLINC" \
+    "$ROOT/android/runtime/src/main/java/ai/vn97/runtime/CapabilityCompatibility.kt" \
+    "$ROOT/android/runtime/src/main/java/ai/vn97/runtime/CapabilityInventory.kt" \
+    "$ROOT/android/runtime/src/main/java/ai/vn97/runtime/CapabilityActivation.kt" \
+    "$ROOT/android/runtime/src/main/java/ai/vn97/runtime/ModelImageActivationBackend.kt" \
+    "$HERE/M10GIntegrationStubs.kt" \
+    "$HERE/M10GIntegrationTest.kt" \
+    -Werror \
+    -include-runtime \
+    -d "$WORK/m10g-production-interface-integration-test.jar"
+
+java -jar "$WORK/m10g-production-interface-integration-test.jar"
