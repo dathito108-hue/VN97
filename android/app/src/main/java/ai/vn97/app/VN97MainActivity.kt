@@ -329,19 +329,15 @@ class VN97MainActivity : Activity() {
                 var bundled = false
                 if (!active) {
                     bundled =
-                        app.bundledBootstrap.activateIfPresent() ==
-                            VN97BundledBootstrapOutcome.ACTIVATED
+                        app.bundledBootstrap.activateIfPresent(
+                            required = BuildConfig.VN97_TURNKEY_REQUIRED,
+                        ) == VN97BundledBootstrapOutcome.ACTIVATED
                     if (bundled) {
                         active = app.assistant.openIfActivated()
                         check(active) {
                             "bundled VN97 model activated but could not be opened"
                         }
                     }
-                }
-                if (!active && BuildConfig.VN97_TURNKEY_REQUIRED) {
-                    throw IllegalStateException(
-                        "turnkey VN97 release did not activate its bundled model"
-                    )
                 }
                 runOnUiThread {
                     if (active) {
