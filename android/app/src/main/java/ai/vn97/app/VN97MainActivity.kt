@@ -20,6 +20,9 @@ import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import java.io.File
+import java.io.FileOutputStream
+import java.nio.charset.StandardCharsets
 import java.util.concurrent.Executors
 
 class VN97MainActivity : Activity() {
@@ -27,6 +30,7 @@ class VN97MainActivity : Activity() {
     private lateinit var statusView: TextView
     private lateinit var floatingAssistantButton: Button
     private lateinit var voicePermissionButton: Button
+    private lateinit var mobileEvidenceButton: Button
     private lateinit var transcriptView: TextView
     private lateinit var inputView: EditText
     private lateinit var sendButton: Button
@@ -130,6 +134,20 @@ class VN97MainActivity : Activity() {
         }
         root.addView(
             voicePermissionButton,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ),
+        )
+
+        mobileEvidenceButton = Button(this).apply {
+            text = "Collect VN97 mobile evidence"
+            visibility =
+                if (BuildConfig.VN97_TURNKEY_REQUIRED) View.GONE else View.VISIBLE
+            setOnClickListener { collectMobileEvidence() }
+        }
+        root.addView(
+            mobileEvidenceButton,
             LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT,
@@ -687,6 +705,80 @@ class VN97MainActivity : Activity() {
             append("\nPlan SHA-256: ")
             append(review.planSha256)
             append("\n\nReview verified. Trust & Activate is an explicit user action.")
+        }
+    }
+
+    private fun collectMobileEvidence() {
+        if (BuildConfig.VN97_TURNKEY_REQUIRED) return
+        if (
+            state.phase != VN97AppPhase.READY ||
+            !state.inputEnabled
+        ) {
+            statusView.text =
+                "VN97 must be READY before collecting mobile evidence."
+            return
+        }
+
+        mobileEvidenceButton.isEnabled = false
+        sendButton.isEnabled = false
+        statusView.text =
+            "Collecting VN97 p50/p95 latency, PSS, thermal and energy evidence…"
+
+        worker.execute {
+            try {
+                val evidence = app.assistant.collectMobileEvidence()
+                val root =
+                    getExternalFilesDir(null) ?: filesDir
+                val target = File(root, "vn97-mobile-evidence.json")
+                val temp = File(root, ".vn97-mobile-evidence.tmp")
+                val bytes = evidence.toCanonicalJson().toByteArray(
+                    StandardCharsets.UTF_8
+                )
+                FileOutputStream(temp, false).use { output ->
+                    output.write(bytes)
+                    output.flush()
+                    output.fd.sync()
+                }
+                if (target.exists() && !target.delete()) {
+                    throw IllegalStateException(
+                        "could not replace previous mobile evidence"
+                    )
+                }
+                if (!temp.renameTo(target)) {
+                    temp.delete()
+                    throw IllegalStateException(
+                        "could not atomically publish mobile evidence"
+                    )
+                }
+                if (!target.readBytes().contentEquals(bytes)) {
+                    throw IllegalStateException(
+                        "mobile evidence post-write verification failed"
+                    )
+                }
+
+                runOnUiThread {
+                    statusView.text =
+                        "VN97 mobile evidence saved: ${target.absolutePath}\n" +
+                            "Model SHA-256: ${evidence.modelImageSha256}\n" +
+                            "Text p95: ${evidence.textPrefill.p95Ms} ms prefill / " +
+                            "${evidence.textDecodePerToken.p95Ms} ms per decode token"
+                    mobileEvidenceButton.isEnabled = true
+                    sendButton.isEnabled = state.inputEnabled
+        if (!BuildConfig.VN97_TURNKEY_REQUIRED) {
+            mobileEvidenceButton.isEnabled =
+                state.phase == VN97AppPhase.READY &&
+                    state.inputEnabled
+        }
+                }
+            } catch (exc: Throwable) {
+                runOnUiThread {
+                    statusView.text =
+                        "Mobile evidence failed: " +
+                            exc::class.java.simpleName
+                    mobileEvidenceButton.isEnabled = true
+                    sendButton.isEnabled = state.inputEnabled
+                }
+            }
         }
     }
 
