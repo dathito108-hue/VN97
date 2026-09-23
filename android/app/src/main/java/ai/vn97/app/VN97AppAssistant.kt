@@ -77,7 +77,12 @@ class VN97AppAssistant(
             try {
                 model?.close()
             } catch (exc: Throwable) {
-                if (failure == null) failure = exc else failure.addSuppressed(exc)
+                val firstFailure = failure
+                if (firstFailure == null) {
+                    failure = exc
+                } else {
+                    firstFailure.addSuppressed(exc)
+                }
             } finally {
                 model = null
             }
