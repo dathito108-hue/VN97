@@ -533,6 +533,7 @@ class VN97GameEpisodeMemory internal constructor(
         private val GAME_CAPABILITIES = setOf(
             "device.game.tap",
             "device.game.swipe",
+            "device.game.multitouch",
             "device.game.back",
         )
     }
