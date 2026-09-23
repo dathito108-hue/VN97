@@ -37,7 +37,9 @@ class VN97PaperTradingJobService : JobService() {
 
     override fun onStopJob(params: JobParameters): Boolean {
         stopped?.set(true)
-        return false
+        val app = application as? VN97Application
+            ?: return false
+        return app.paperTrading.shouldSystemRetry(params.jobId)
     }
 
     override fun onDestroy() {
