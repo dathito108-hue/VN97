@@ -32,6 +32,10 @@
         android:usesCleartextTraffic="false"
         android:theme="@android:style/Theme.Material.NoActionBar">
         <activity
+            android:name=".VN97PaperTradingActivity"
+            android:exported="false" />
+
+        <activity
             android:name=".VN97MainActivity"
             android:exported="true">
             <intent-filter>
