@@ -652,7 +652,7 @@ class VN97TurnMemoryWriter internal constructor(
     }
 }
 
-private fun computeTurnKey(turn: VN97AssistantTurn): String {
+internal fun computeTurnKey(turn: VN97AssistantTurn): String {
     val plan = turn.controller.plan
     return sha256Hex(
         buildString {
