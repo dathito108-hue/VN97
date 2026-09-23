@@ -46,6 +46,9 @@ struct ActivatedModelInfo {
     bool has_tokenizer = false;
     bool has_audio_projection = false;
     std::uint32_t audio_frame_size = 0;
+    bool has_vision_projection = false;
+    std::uint32_t vision_channels = 0;
+    std::uint32_t vision_patch_size = 0;
     std::size_t image_bytes = 0;
 };
 
@@ -69,6 +72,9 @@ public:
     const AudioProjectionView* audio_projection() const {
         return has_audio_projection_ ? &audio_projection_ : nullptr;
     }
+    const VisionProjectionView* vision_projection() const {
+        return has_vision_projection_ ? &vision_projection_ : nullptr;
+    }
     ActivatedModelInfo Info() const;
 
 private:
@@ -85,8 +91,10 @@ private:
     LanguageModelView language_model_;
     TokenizerView tokenizer_;
     AudioProjectionView audio_projection_;
+    VisionProjectionView vision_projection_;
     bool has_tokenizer_ = false;
     bool has_audio_projection_ = false;
+    bool has_vision_projection_ = false;
     std::unique_ptr<LanguageLayerView[]> layers_;
     std::unique_ptr<float[]> stable_a_;
 };
@@ -106,6 +114,9 @@ struct vn97_model_info {
     int has_tokenizer;
     int has_audio_projection;
     std::uint32_t audio_frame_size;
+    int has_vision_projection;
+    std::uint32_t vision_channels;
+    std::uint32_t vision_patch_size;
     std::size_t image_bytes;
 };
 
@@ -144,6 +155,16 @@ int vn97_model_runtime_prefill_audio(
     const float* prepared_frames,
     std::size_t frame_value_count,
     std::size_t frame_count,
+    float* final_logits,
+    std::size_t logits_count);
+
+int vn97_model_runtime_prefill_vision(
+    std::uint64_t model_handle,
+    std::uint64_t runtime_handle,
+    std::uint32_t vision_prefix_token,
+    const float* prepared_patches,
+    std::size_t patch_value_count,
+    std::size_t patch_count,
     float* final_logits,
     std::size_t logits_count);
 
