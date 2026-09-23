@@ -16,3 +16,15 @@ KOTLINC="${KOTLINC:-kotlinc}"
     -d "$WORK/m10a-app-state-test.jar"
 
 java -jar "$WORK/m10a-app-state-test.jar"
+
+
+"$KOTLINC" \
+    "$ROOT/android/runtime/src/main/java/ai/vn97/runtime/StrictJson.kt" \
+    "$ROOT/android/runtime/src/main/java/ai/vn97/runtime/ActivatedInventoryEvidence.kt" \
+    "$HERE/M10BStrictJsonStub.kt" \
+    "$HERE/M10BInventoryEvidenceTest.kt" \
+    -Werror \
+    -include-runtime \
+    -d "$WORK/m10b-inventory-evidence-test.jar"
+
+java -jar "$WORK/m10b-inventory-evidence-test.jar"
