@@ -28,6 +28,23 @@ class NativeRuntimeOwner(
     }
 
     @Synchronized
+    fun restoreComposite(
+        config: NativeRuntimeConfig,
+        continuity: NativeCompositeContinuity,
+    ): NativeRuntimeInfo {
+        check(session == null) { "runtime owner already has a session" }
+        val opened = continuity.restoreRuntime(config)
+        return try {
+            val info = opened.info()
+            session = opened
+            info
+        } catch (exc: Throwable) {
+            opened.close()
+            throw exc
+        }
+    }
+
+    @Synchronized
     fun info(): NativeRuntimeInfo = requireSession().info()
 
     @Synchronized
@@ -86,7 +103,7 @@ class NativeRuntimeOwner(
     )
 
     @Synchronized
-    fun suspendAndPersist(): NativeRuntimeInfo {
+    fun suspendAndSnapshot(): NativeRuntimeCheckpointSnapshot {
         val runtime = requireSession()
         val before = runtime.info()
         if (before.lifecycle == RuntimeLifecycle.ACTIVE) {
@@ -96,8 +113,20 @@ class NativeRuntimeOwner(
                 "runtime must be ACTIVE or SUSPENDED before persistence"
             }
         }
-        checkpointStore.save(runtime.checkpoint())
-        return runtime.info()
+        val info = runtime.info()
+        val binding = runtime.modelBinding()
+        return NativeRuntimeCheckpointSnapshot(
+            checkpoint = runtime.checkpoint(),
+            info = info,
+            modelBinding = RuntimeModelBinding(binding.bound, binding.modelId.copyOf()),
+        )
+    }
+
+    @Synchronized
+    fun suspendAndPersist(): NativeRuntimeInfo {
+        val snapshot = suspendAndSnapshot()
+        checkpointStore.save(snapshot.checkpoint)
+        return snapshot.info
     }
 
     @Synchronized
