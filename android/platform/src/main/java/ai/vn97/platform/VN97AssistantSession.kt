@@ -256,6 +256,26 @@ class VN97AssistantSession(
         }
     }
 
+    @Synchronized
+    fun cancelActiveTurn(
+        turn: VN97AssistantTurn,
+        reason: String,
+    ): VN97AssistantTurnUpdate {
+        requireActive(turn)
+        require(reason.isNotBlank()) {
+            "assistant turn cancellation reason must not be blank"
+        }
+        pendingApproval = null
+        if (!turn.controller.plan.isTerminal()) {
+            turn.controller.cancel(reason.take(2048))
+        }
+        clearIfActive(turn)
+        return VN97AssistantTurnUpdate(
+            turn = turn,
+            state = VN97AssistantTurnState.CANCELLED,
+        )
+    }
+
     private fun createActiveTurn(
         controller: NativePlanController,
         principal: String,
