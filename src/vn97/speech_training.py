@@ -37,18 +37,21 @@ class VN97SpeechExample:
             raise ValueError("audio_sha256 must be lowercase SHA-256 or None")
 
 
-def speech_example_fingerprint(example: VN97SpeechExample) -> str:
+def speech_audio_fingerprint(example: VN97SpeechExample) -> str:
     if not isinstance(example, VN97SpeechExample):
         raise TypeError("example must be VN97SpeechExample")
-    if example.audio_sha256 is None:
-        values = example.waveform.detach().cpu().to(torch.float32).contiguous()
-        digest = hashlib.sha256()
-        digest.update(b"VN97SPEECHAUDIO1\0")
-        for value in values.tolist():
-            digest.update(struct.pack("<f", float(value)))
-        audio_sha256 = digest.hexdigest()
-    else:
-        audio_sha256 = example.audio_sha256
+    if example.audio_sha256 is not None:
+        return example.audio_sha256
+    values = example.waveform.detach().cpu().to(torch.float32).contiguous()
+    digest = hashlib.sha256()
+    digest.update(b"VN97SPEECHAUDIO1\0")
+    for value in values.tolist():
+        digest.update(struct.pack("<f", float(value)))
+    return digest.hexdigest()
+
+
+def speech_example_fingerprint(example: VN97SpeechExample) -> str:
+    audio_sha256 = speech_audio_fingerprint(example)
     digest = hashlib.sha256()
     digest.update(b"VN97SPEECHREC1\0")
     digest.update(bytes.fromhex(audio_sha256))
@@ -70,9 +73,13 @@ def require_disjoint_speech_splits(
         ("validation/release", validation, release),
     )
     for label, first, second in sets:
-        left = {speech_example_fingerprint(value) for value in first}
-        right = {speech_example_fingerprint(value) for value in second}
-        if left.intersection(right):
+        left_audio = {speech_audio_fingerprint(value) for value in first}
+        right_audio = {speech_audio_fingerprint(value) for value in second}
+        if left_audio.intersection(right_audio):
+            raise ValueError(f"{label} speech audio overlaps")
+        left_records = {speech_example_fingerprint(value) for value in first}
+        right_records = {speech_example_fingerprint(value) for value in second}
+        if left_records.intersection(right_records):
             raise ValueError(f"{label} speech records overlap")
 
 
