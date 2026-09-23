@@ -47,10 +47,23 @@ data class VN97AssistantContinuationSpec(
     val runtimeConfig: NativeRuntimeConfig,
     val binding: VN97AssistantContinuationBinding,
     val minimumLatencyMillis: Long = 0,
+    val overrideDeadlineMillis: Long = 0,
+    val requiresBatteryNotLow: Boolean = false,
+    val requiresCharging: Boolean = false,
 ) {
     init {
         require(jobId > 0) { "jobId must be positive" }
-        require(minimumLatencyMillis >= 0) { "minimumLatencyMillis must be non-negative" }
+        require(minimumLatencyMillis >= 0) {
+            "minimumLatencyMillis must be non-negative"
+        }
+        require(overrideDeadlineMillis >= 0) {
+            "overrideDeadlineMillis must be non-negative"
+        }
+        if (overrideDeadlineMillis > 0) {
+            require(overrideDeadlineMillis >= minimumLatencyMillis) {
+                "override deadline must not precede minimum latency"
+            }
+        }
     }
 }
 
@@ -159,6 +172,9 @@ class AndroidContinuationScheduler(private val context: Context) {
         return scheduleJob(
             jobId = spec.jobId,
             minimumLatencyMillis = spec.minimumLatencyMillis,
+            overrideDeadlineMillis = spec.overrideDeadlineMillis,
+            requiresBatteryNotLow = spec.requiresBatteryNotLow,
+            requiresCharging = spec.requiresCharging,
             extras = runtimeExtras(spec.runtimeConfig).apply {
                 putString(CONTINUATION_MODE_KEY, CONTINUATION_MODE_ASSISTANT)
                 putString(ASSISTANT_PRINCIPAL_KEY, spec.binding.principal)
@@ -187,9 +203,15 @@ class AndroidContinuationScheduler(private val context: Context) {
         jobId: Int,
         minimumLatencyMillis: Long,
         extras: PersistableBundle,
+        overrideDeadlineMillis: Long = 0L,
+        requiresBatteryNotLow: Boolean = false,
+        requiresCharging: Boolean = false,
     ): Int {
-        val component = ComponentName(context, VN97ContinuationJobService::class.java)
-        val job = JobInfo.Builder(jobId, component)
+        val component = ComponentName(
+            context,
+            VN97ContinuationJobService::class.java,
+        )
+        val builder = JobInfo.Builder(jobId, component)
             .setPersisted(true)
             .setMinimumLatency(minimumLatencyMillis)
             .setBackoffCriteria(
@@ -197,8 +219,12 @@ class AndroidContinuationScheduler(private val context: Context) {
                 JobInfo.BACKOFF_POLICY_EXPONENTIAL,
             )
             .setExtras(extras)
-            .build()
-        return scheduler.schedule(job)
+            .setRequiresBatteryNotLow(requiresBatteryNotLow)
+            .setRequiresCharging(requiresCharging)
+        if (overrideDeadlineMillis > 0L) {
+            builder.setOverrideDeadline(overrideDeadlineMillis)
+        }
+        return scheduler.schedule(builder.build())
     }
 }
 
