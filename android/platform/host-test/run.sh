@@ -80,3 +80,17 @@ java -jar "$WORK/m7r-production-capability-assembly-test.jar"
     -d "$WORK/m7s-end-to-end-external-coordinator-test.jar"
 
 java -jar "$WORK/m7s-end-to-end-external-coordinator-test.jar"
+
+"$KOTLINC" \
+    "$ROOT"/android/runtime/src/main/java/ai/vn97/runtime/*.kt \
+    "$ROOT/android/platform/src/main/java/ai/vn97/platform/M6Approval.kt" \
+    "$ROOT/android/platform/src/main/java/ai/vn97/platform/M6ExternalHandoff.kt" \
+    "$ROOT/android/platform/src/main/java/ai/vn97/platform/M6ExecutionFabric.kt" \
+    "$ROOT/android/platform/src/main/java/ai/vn97/platform/M6EndToEndExternalCoordinator.kt" \
+    "$ROOT/android/platform/src/main/java/ai/vn97/platform/VN97AssistantSession.kt" \
+    "$HERE/M7TProductionAssistantSessionTest.kt" \
+    -Werror \
+    -include-runtime \
+    -d "$WORK/m7t-production-assistant-session-test.jar"
+
+java -jar "$WORK/m7t-production-assistant-session-test.jar"
