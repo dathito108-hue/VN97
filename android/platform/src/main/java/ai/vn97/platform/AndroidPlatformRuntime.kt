@@ -6,6 +6,7 @@ import ai.vn97.runtime.NativeCognitionLimits
 import ai.vn97.runtime.NativeCognitionRuntimeConfig
 import ai.vn97.runtime.NativeMemoryRetriever
 import ai.vn97.runtime.NativeMemoryStore
+import ai.vn97.runtime.VN97KnowledgeAcquisitionSession
 import ai.vn97.runtime.NativeTypedCognitionAdapter
 import android.content.Context
 import java.io.File
@@ -472,6 +473,39 @@ class AndroidPlatformRuntime(
             file = file,
             startingCashMicros = startingCashMicros,
             riskPolicy = riskPolicy,
+        )
+    }
+
+    /**
+     * Create the M16A signed, data-only knowledge acquisition path. Imported
+     * records are embedded by the same activated VN97 cognition engine and
+     * written into the caller's existing canonical VN97MEM1 store.
+     *
+     * No M6 grant, dynamic handler, code loader or second memory database is
+     * created here.
+     */
+    fun createProductionKnowledgeAcquisitionSession(
+        model: NativeActivatedModel,
+        memory: NativeMemoryStore,
+        cognitionRuntimeConfig: NativeCognitionRuntimeConfig =
+            NativeCognitionRuntimeConfig(),
+    ): VN97KnowledgeAcquisitionSession {
+        require(memory.vectorDim == model.info.dModel) {
+            "knowledge acquisition VN97MEM1 dimension does not match activated model"
+        }
+        val root = File(
+            appContext.noBackupFilesDir,
+            "vn97-knowledge-acquisition",
+        )
+        return VN97KnowledgeAcquisitionSession.production(
+            stageRoot = File(root, "stage"),
+            trustRoot = File(root, "trust"),
+            ledgerRoot = File(root, "ledger"),
+            memory = memory,
+            inference = NativeCognitionInferenceEngine(
+                model = model,
+                config = cognitionRuntimeConfig,
+            ),
         )
     }
 
