@@ -5,6 +5,7 @@ import ai.vn97.runtime.VN97ModelImageProvisioningSession
 import ai.vn97.runtime.VN97ModelProvisioningReview
 import android.net.Uri
 import java.io.ByteArrayOutputStream
+import java.io.InputStream
 
 class VN97AppProvisioner(
     private val application: VN97Application,
@@ -43,24 +44,33 @@ class VN97AppProvisioner(
             maxBytes = 16 * 1024,
             label = "VN97SIG1",
         )
-        val publisherKey = parsePublisherKey(
-            readBounded(
-                publisherKeyUri,
-                maxBytes = 256,
-                label = "publisher public key",
-            )
+        val publisherKeyBytes = readBounded(
+            publisherKeyUri,
+            maxBytes = 256,
+            label = "publisher public key",
         )
         val packageInput = checkNotNull(resolver.openInputStream(packageUri)) {
             "VN97CAP1 document could not be opened"
         }
         return packageInput.use { input ->
-            session.review(
+            review(
                 packageInput = input,
                 signatureBytes = signatureBytes,
-                publisherPublicKey = publisherKey,
+                publisherKeyBytes = publisherKeyBytes,
             )
         }
     }
+
+    fun review(
+        packageInput: InputStream,
+        signatureBytes: ByteArray,
+        publisherKeyBytes: ByteArray,
+    ): VN97ModelProvisioningReview =
+        session.review(
+            packageInput = packageInput,
+            signatureBytes = signatureBytes,
+            publisherPublicKey = parsePublisherKey(publisherKeyBytes),
+        )
 
     fun activateReviewed() = session.activateReviewed()
 

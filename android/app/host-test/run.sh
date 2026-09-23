@@ -38,3 +38,13 @@ java -jar "$WORK/m10b-inventory-evidence-test.jar"
     -d "$WORK/m10c-approval-state-test.jar"
 
 java -jar "$WORK/m10c-approval-state-test.jar"
+
+
+"$KOTLINC" \
+    "$ROOT/android/app/src/main/java/ai/vn97/app/VN97BootstrapAssetContract.kt" \
+    "$HERE/M10JBootstrapAssetContractTest.kt" \
+    -Werror \
+    -include-runtime \
+    -d "$WORK/m10j-bootstrap-asset-contract-test.jar"
+
+java -jar "$WORK/m10j-bootstrap-asset-contract-test.jar"

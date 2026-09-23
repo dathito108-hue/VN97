@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - m10i-reproducible-apk-cold-start
+      - m10j-turnkey-bootstrap
   workflow_dispatch:
 
 permissions:

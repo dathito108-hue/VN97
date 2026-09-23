@@ -15,4 +15,8 @@ class VN97Application : Application() {
     val provisioner: VN97AppProvisioner by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         VN97AppProvisioner(this)
     }
+
+    val bundledBootstrap: VN97BundledBootstrap by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        VN97BundledBootstrap(this, provisioner)
+    }
 }

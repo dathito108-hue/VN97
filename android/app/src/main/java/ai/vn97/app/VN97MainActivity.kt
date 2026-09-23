@@ -29,6 +29,8 @@ class VN97MainActivity : Activity() {
     private lateinit var approveButton: Button
     private lateinit var rejectButton: Button
     private lateinit var provisioningView: TextView
+    private lateinit var importModelButton: Button
+    private lateinit var advancedProvisioningContainer: LinearLayout
     private lateinit var choosePackageButton: Button
     private lateinit var chooseSignatureButton: Button
     private lateinit var choosePublisherKeyButton: Button
@@ -143,7 +145,7 @@ class VN97MainActivity : Activity() {
         )
 
         provisioningView = TextView(this).apply {
-            text = "Model provisioning: select VN97CAP1, VN97SIG1, and publisher Ed25519 key."
+            text = "No active VN97 model. A signed bundled model will activate automatically when present."
             setTextIsSelectable(true)
         }
         root.addView(
@@ -153,6 +155,30 @@ class VN97MainActivity : Activity() {
                 ViewGroup.LayoutParams.WRAP_CONTENT,
             ),
         )
+
+        importModelButton = Button(this).apply {
+            text = "IMPORT VN97 MODEL"
+            setOnClickListener {
+                advancedProvisioningContainer.visibility =
+                    if (advancedProvisioningContainer.visibility == View.VISIBLE) {
+                        View.GONE
+                    } else {
+                        View.VISIBLE
+                    }
+            }
+        }
+        root.addView(
+            importModelButton,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ),
+        )
+
+        advancedProvisioningContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
+        }
 
         val provisioningRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -172,7 +198,7 @@ class VN97MainActivity : Activity() {
         provisioningRow.addView(choosePackageButton)
         provisioningRow.addView(chooseSignatureButton)
         provisioningRow.addView(choosePublisherKeyButton)
-        root.addView(
+        advancedProvisioningContainer.addView(
             provisioningRow,
             LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -195,8 +221,15 @@ class VN97MainActivity : Activity() {
         }
         provisioningActionRow.addView(reviewModelButton)
         provisioningActionRow.addView(activateModelButton)
-        root.addView(
+        advancedProvisioningContainer.addView(
             provisioningActionRow,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ),
+        )
+        root.addView(
+            advancedProvisioningContainer,
             LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT,
@@ -283,7 +316,19 @@ class VN97MainActivity : Activity() {
         worker.execute {
             try {
                 app.provisioner.recoverPending()
-                val active = app.assistant.openIfActivated()
+                var active = app.assistant.openIfActivated()
+                var bundled = false
+                if (!active) {
+                    bundled =
+                        app.bundledBootstrap.activateIfPresent() ==
+                            VN97BundledBootstrapOutcome.ACTIVATED
+                    if (bundled) {
+                        active = app.assistant.openIfActivated()
+                        check(active) {
+                            "bundled VN97 model activated but could not be opened"
+                        }
+                    }
+                }
                 runOnUiThread {
                     if (active) {
                         var next = VN97AppReducer.reduce(
@@ -297,8 +342,17 @@ class VN97MainActivity : Activity() {
                             )
                         }
                         render(next)
+                        provisioningView.text =
+                            if (bundled) {
+                                "Bundled signed VN97 model verified and activated."
+                            } else {
+                                "VN97 model active."
+                            }
+                        advancedProvisioningContainer.visibility = View.GONE
                     } else {
                         render(state)
+                        provisioningView.text =
+                            "No VN97 model is bundled in this APK. Import a signed VN97 model to enable chat."
                     }
                 }
             } catch (exc: Throwable) {
@@ -335,6 +389,7 @@ class VN97MainActivity : Activity() {
             else -> return
         }
         app.provisioner.clearReview()
+        advancedProvisioningContainer.visibility = View.VISIBLE
         activateModelButton.isEnabled = false
         renderProvisioningSelection()
     }
@@ -412,6 +467,7 @@ class VN97MainActivity : Activity() {
                         else -> state
                     }
                     render(next)
+                    advancedProvisioningContainer.visibility = View.GONE
                     setProvisioningControlsEnabled(true)
                 }
             } catch (exc: Throwable) {
@@ -431,6 +487,7 @@ class VN97MainActivity : Activity() {
 
     private fun setProvisioningControlsEnabled(enabled: Boolean) {
         val allowed = enabled && provisioningAllowed()
+        importModelButton.isEnabled = allowed
         choosePackageButton.isEnabled = allowed
         chooseSignatureButton.isEnabled = allowed
         choosePublisherKeyButton.isEnabled = allowed
@@ -594,6 +651,7 @@ class VN97MainActivity : Activity() {
         setProvisioningControlsEnabled(true)
         val pendingReview = app.provisioner.pendingReview()
         if (pendingReview != null) {
+            advancedProvisioningContainer.visibility = View.VISIBLE
             renderProvisioningReview(pendingReview)
             activateModelButton.isEnabled = provisioningAllowed()
         }
