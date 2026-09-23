@@ -71,8 +71,8 @@ private fun buildPackage(
     val header = ByteBuffer.allocate(96)
         .order(ByteOrder.LITTLE_ENDIAN)
     header.put("VN97CAP1".toByteArray())
-    header.putShort(1)
-    header.putShort(96)
+    header.putShort(1.toShort())
+    header.putShort(96.toShort())
     header.putInt(0)
     header.putInt(count)
     header.putInt(64)
@@ -131,9 +131,12 @@ fun main() {
 
     val signature = VN97CapabilitySignatureParser.parse(signatureBytes)
     check(signature.packageSha256 == parsed.packageSha256)
-    check(signature.signingMessage().startsWith(
-        "VN97CAP1-SIGNATURE-V1\u0000".toByteArray()
-    ))
+    val signingPrefix = "VN97CAP1-SIGNATURE-V1\u0000".toByteArray()
+    check(
+        signature.signingMessage()
+            .copyOfRange(0, signingPrefix.size)
+            .contentEquals(signingPrefix)
+    )
 
     val root = createTempDirectory("m10d-stage-").toFile()
     val stager = VN97CapabilityStager(root)
