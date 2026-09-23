@@ -59,6 +59,12 @@ class VN97Application :
         VN97AppKnowledgeAcquisition(this)
     }
 
+    val remoteCapabilityFetch: VN97AppRemoteCapabilityFetch by lazy(
+        LazyThreadSafetyMode.SYNCHRONIZED
+    ) {
+        VN97AppRemoteCapabilityFetch(this)
+    }
+
     val bundledBootstrap: VN97BundledBootstrap by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         VN97BundledBootstrap(this, provisioner)
     }
