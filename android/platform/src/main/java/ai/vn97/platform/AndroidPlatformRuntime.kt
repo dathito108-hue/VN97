@@ -59,6 +59,15 @@ class AndroidPlatformRuntime(
         ),
     )
 
+    fun collectProductionMobileEvidence(
+        model: NativeActivatedModel,
+        config: VN97MobileEvidenceConfig = VN97MobileEvidenceConfig(),
+    ): VN97MobileEvidenceRecord =
+        VN97OnDeviceEvidenceCollector(appContext).collect(
+            model = model,
+            config = config,
+        )
+
     fun createProductionExternalExecutionFabric(
         grants: List<M6PolicyGrant>,
         auditFileName: String = "m6-actions.jsonl",
