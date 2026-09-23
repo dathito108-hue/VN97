@@ -212,12 +212,17 @@ class VN97MainActivity : Activity() {
                 val active = app.assistant.openIfActivated()
                 runOnUiThread {
                     if (active) {
-                        render(
-                            VN97AppReducer.reduce(
-                                state,
-                                VN97AppEvent.TrustedModelActivated,
-                            )
+                        var next = VN97AppReducer.reduce(
+                            state,
+                            VN97AppEvent.TrustedModelActivated,
                         )
+                        if (app.assistant.pendingApproval() != null) {
+                            next = VN97AppReducer.reduce(
+                                next,
+                                VN97AppEvent.ApprovalRequired,
+                            )
+                        }
+                        render(next)
                     } else {
                         render(state)
                     }
