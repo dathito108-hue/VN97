@@ -1,10 +1,5 @@
 package ai.vn97.app
 
-private const val VN97_GOA_VN97_GOA_VERSION = 1
-private const val VN97_GOA_VN97_GOA_HEADER_BYTES = 48
-private val VN97_GOA_VN97_GOA_MAGIC =
-    "VN97GOA1".toByteArray(StandardCharsets.US_ASCII)
-
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
@@ -17,6 +12,11 @@ import java.nio.file.Files
 import java.nio.file.LinkOption
 import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
+
+private const val VN97_GOA_VERSION = 1
+private const val VN97_GOA_HEADER_BYTES = 48
+private val VN97_GOA_MAGIC =
+    "VN97GOA1".toByteArray(StandardCharsets.US_ASCII)
 
 enum class VN97AutonomousGoalState(val code: Int) {
     SCHEDULED(1),
