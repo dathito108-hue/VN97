@@ -158,6 +158,14 @@ internal object NativeRuntimeBindings {
         frameCount: Int,
         finalLogits: FloatArray,
     ): Int
+    external fun nativePrefillVision(
+        runtimeHandle: Long,
+        modelHandle: Long,
+        visionPrefixToken: Int,
+        preparedPatches: FloatArray,
+        patchCount: Int,
+        finalLogits: FloatArray,
+    ): Int
     external fun nativePrefillHidden(
         runtimeHandle: Long,
         modelHandle: Long,
@@ -371,6 +379,55 @@ class NativeRuntimeSession private constructor(private var handle: Long) : AutoC
                         logits,
                     ),
                     "runtime audio prefill",
+                )
+            }
+        }
+        return logits
+    }
+
+    fun prefillVision(
+        model: NativeActivatedModel,
+        prepared: NativePreparedVision,
+        visionPrefixToken: Int = 5,
+    ): FloatArray {
+        require(visionPrefixToken >= 0) {
+            "vision prefix token must be non-negative"
+        }
+        require(model.info.hasVisionProjection) {
+            "activated VN97 model has no signed vision projection"
+        }
+        require(prepared.channels == model.info.visionChannels) {
+            "prepared vision channels do not match activated model"
+        }
+        require(prepared.patchSize == model.info.visionPatchSize) {
+            "prepared vision patch size does not match activated model"
+        }
+
+        val runtimeInfo = info()
+        require(runtimeInfo.config.batch == 1) {
+            "vision prefill currently requires batch=1"
+        }
+        require(
+            model.info.layers == runtimeInfo.config.layers &&
+                model.info.dModel == runtimeInfo.config.dModel &&
+                model.info.dState == runtimeInfo.config.dState
+        ) {
+            "activated model geometry does not match runtime session"
+        }
+
+        val logits = FloatArray(model.info.vocabSize)
+        model.withHandle { modelHandle ->
+            withHandle<Unit> { runtimeHandle ->
+                checkStatus(
+                    NativeRuntimeBindings.nativePrefillVision(
+                        runtimeHandle,
+                        modelHandle,
+                        visionPrefixToken,
+                        prepared.normalizedPatches,
+                        prepared.patchCount,
+                        logits,
+                    ),
+                    "runtime vision prefill",
                 )
             }
         }
