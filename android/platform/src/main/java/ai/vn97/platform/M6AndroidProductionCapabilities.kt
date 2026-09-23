@@ -19,6 +19,10 @@ internal interface M6AndroidActionPort {
         endYBasisPoints: Int,
         durationMillis: Long,
     ): String
+    fun gameMultiTouch(
+        packageName: String,
+        strokes: List<VN97GameTouchStroke>,
+    ): String
     fun gameBack(packageName: String): String
 }
 
@@ -61,6 +65,16 @@ class M6AndroidProductionCapabilities internal constructor(
             maxPayloadUtf8Bytes = 192,
             payloadSchemaJson =
                 "{\"duration_ms\":300,\"end_x_bps\":8000,\"end_y_bps\":5000,\"start_x_bps\":2000,\"start_y_bps\":5000}",
+            maxLeaseNs = GAME_ACTION_LEASE_NS,
+            maxLeaseUses = 1,
+        ),
+        M6CapabilityDescriptor(
+            capabilityId = GAME_MULTITOUCH_CAPABILITY,
+            requiredScopeKeys = setOf(APP_PACKAGE_SCOPE),
+            approvalRequired = false,
+            maxPayloadUtf8Bytes = MAX_GAME_MULTITOUCH_PAYLOAD_UTF8_BYTES,
+            payloadSchemaJson =
+                "{\"strokes\":[{\"duration_ms\":600,\"end_x_bps\":2600,\"end_y_bps\":7600,\"start_ms\":0,\"start_x_bps\":1800,\"start_y_bps\":8200},{\"duration_ms\":80,\"end_x_bps\":8600,\"end_y_bps\":7200,\"start_ms\":120,\"start_x_bps\":8600,\"start_y_bps\":7200}]}",
             maxLeaseNs = GAME_ACTION_LEASE_NS,
             maxLeaseUses = 1,
         ),
@@ -147,6 +161,21 @@ class M6AndroidProductionCapabilities internal constructor(
             registry.register(
                 descriptors[4],
                 M6CapabilityHandler { action ->
+                    val request =
+                        validateGameMultiTouchRequest(action.request)
+                    M6ActionOutcome(
+                        success = true,
+                        result = actions.gameMultiTouch(
+                            request.packageName,
+                            request.strokes,
+                        ),
+                    )
+                },
+                M6PayloadValidator(::validateGameMultiTouchRequest),
+            )
+            registry.register(
+                descriptors[5],
+                M6CapabilityHandler { action ->
                     val packageName =
                         validateGameBackRequest(action.request)
                     M6ActionOutcome(
@@ -200,6 +229,21 @@ class M6AndroidProductionCapabilities internal constructor(
             registry.register(
                 gameDescriptors[2],
                 M6CapabilityHandler { action ->
+                    val request =
+                        validateGameMultiTouchRequest(action.request)
+                    M6ActionOutcome(
+                        success = true,
+                        result = actions.gameMultiTouch(
+                            request.packageName,
+                            request.strokes,
+                        ),
+                    )
+                },
+                M6PayloadValidator(::validateGameMultiTouchRequest),
+            )
+            registry.register(
+                gameDescriptors[3],
+                M6CapabilityHandler { action ->
                     val packageName =
                         validateGameBackRequest(action.request)
                     M6ActionOutcome(
@@ -244,6 +288,11 @@ class M6AndroidProductionCapabilities internal constructor(
         val endXBasisPoints: Int,
         val endYBasisPoints: Int,
         val durationMillis: Long,
+    )
+
+    private data class GameMultiTouchRequest(
+        val packageName: String,
+        val strokes: List<VN97GameTouchStroke>,
     )
 
     private fun validateGameScope(
@@ -326,6 +375,103 @@ class M6AndroidProductionCapabilities internal constructor(
         )
     }
 
+    private fun validateGameMultiTouchRequest(
+        request: M6ExternalActionRequest,
+    ): GameMultiTouchRequest {
+        val packageName = validateGameScope(
+            request,
+            GAME_MULTITOUCH_CAPABILITY,
+        )
+        val wrapper =
+            GAME_MULTITOUCH_PAYLOAD.matchEntire(request.payloadJson)
+                ?: throw IllegalArgumentException(
+                    "game multi-touch payload must match canonical schema"
+                )
+        val body = wrapper.groupValues[1]
+        require(body.isNotEmpty()) {
+            "game multi-touch strokes must not be empty"
+        }
+        val matches =
+            GAME_MULTITOUCH_STROKE.findAll(body).toList()
+        require(matches.size in MIN_MULTI_TOUCH_STROKES..MAX_MULTI_TOUCH_STROKES) {
+            "game multi-touch stroke count is outside bounds"
+        }
+        require(
+            matches.joinToString(",") { it.value } == body
+        ) {
+            "game multi-touch strokes must be canonical and contiguous"
+        }
+
+        val strokes = matches.map { match ->
+            val duration = match.groupValues[1].toLong()
+            val endX = match.groupValues[2].toInt()
+            val endY = match.groupValues[3].toInt()
+            val startMillis = match.groupValues[4].toLong()
+            val startX = match.groupValues[5].toInt()
+            val startY = match.groupValues[6].toInt()
+            require(
+                duration in
+                    MIN_MULTI_TOUCH_STROKE_MILLIS..
+                    MAX_MULTI_TOUCH_DURATION_MILLIS
+            ) {
+                "game multi-touch stroke duration is outside bounds"
+            }
+            require(startMillis in 0L..MAX_MULTI_TOUCH_DURATION_MILLIS) {
+                "game multi-touch stroke start is outside bounds"
+            }
+            require(
+                listOf(startX, startY, endX, endY).all {
+                    it in 0..BASIS_POINTS
+                }
+            ) {
+                "game multi-touch coordinate is outside basis-point bounds"
+            }
+            val endMillis = Math.addExact(startMillis, duration)
+            require(endMillis <= MAX_MULTI_TOUCH_DURATION_MILLIS) {
+                "game multi-touch gesture duration exceeds bound"
+            }
+            VN97GameTouchStroke(
+                startXBasisPoints = startX,
+                startYBasisPoints = startY,
+                endXBasisPoints = endX,
+                endYBasisPoints = endY,
+                startMillis = startMillis,
+                durationMillis = duration,
+            )
+        }
+        require(
+            strokes.zipWithNext().all { (left, right) ->
+                left.startMillis <= right.startMillis
+            }
+        ) {
+            "game multi-touch strokes must be ordered by start_ms"
+        }
+        require(hasTemporalOverlap(strokes)) {
+            "game multi-touch requires overlapping strokes"
+        }
+        return GameMultiTouchRequest(packageName, strokes)
+    }
+
+    private fun hasTemporalOverlap(
+        strokes: List<VN97GameTouchStroke>,
+    ): Boolean {
+        for (leftIndex in strokes.indices) {
+            val left = strokes[leftIndex]
+            val leftEnd = left.startMillis + left.durationMillis
+            for (rightIndex in leftIndex + 1 until strokes.size) {
+                val right = strokes[rightIndex]
+                val rightEnd = right.startMillis + right.durationMillis
+                if (
+                    left.startMillis < rightEnd &&
+                    right.startMillis < leftEnd
+                ) {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
     private fun validateGameBackRequest(
         request: M6ExternalActionRequest,
     ): String {
@@ -388,6 +534,7 @@ class M6AndroidProductionCapabilities internal constructor(
             return listOf(
                 GAME_TAP_CAPABILITY,
                 GAME_SWIPE_CAPABILITY,
+                GAME_MULTITOUCH_CAPABILITY,
                 GAME_BACK_CAPABILITY,
             ).map { capabilityId ->
                 M6PolicyGrant(
@@ -421,6 +568,7 @@ class M6AndroidProductionCapabilities internal constructor(
         const val CLIPBOARD_WRITE_CAPABILITY = "device.clipboard.write"
         const val GAME_TAP_CAPABILITY = "device.game.tap"
         const val GAME_SWIPE_CAPABILITY = "device.game.swipe"
+        const val GAME_MULTITOUCH_CAPABILITY = "device.game.multitouch"
         const val GAME_BACK_CAPABILITY = "device.game.back"
         const val APP_PACKAGE_SCOPE = "package"
         const val CLIPBOARD_CHANNEL_SCOPE = "channel"
@@ -433,16 +581,26 @@ class M6AndroidProductionCapabilities internal constructor(
         private const val MAX_TAP_MILLIS = 1_500L
         private const val MIN_SWIPE_MILLIS = 50L
         private const val MAX_SWIPE_MILLIS = 3_000L
+        private const val MIN_MULTI_TOUCH_STROKES = 2
+        private const val MAX_MULTI_TOUCH_STROKES = 4
+        private const val MIN_MULTI_TOUCH_STROKE_MILLIS = 20L
+        private const val MAX_MULTI_TOUCH_DURATION_MILLIS = 3_000L
+        private const val MAX_GAME_MULTITOUCH_PAYLOAD_UTF8_BYTES = 1_024
         private const val GAME_ACTION_LEASE_NS = 10_000_000_000L
         private val GAME_CAPABILITY_IDS = setOf(
             GAME_TAP_CAPABILITY,
             GAME_SWIPE_CAPABILITY,
+            GAME_MULTITOUCH_CAPABILITY,
             GAME_BACK_CAPABILITY,
         )
         private val GAME_TAP_PAYLOAD =
             Regex("^\\{\\\"duration_ms\\\":([0-9]+),\\\"x_bps\\\":([0-9]+),\\\"y_bps\\\":([0-9]+)\\}$")
         private val GAME_SWIPE_PAYLOAD =
             Regex("^\\{\\\"duration_ms\\\":([0-9]+),\\\"end_x_bps\\\":([0-9]+),\\\"end_y_bps\\\":([0-9]+),\\\"start_x_bps\\\":([0-9]+),\\\"start_y_bps\\\":([0-9]+)\\}$")
+        private val GAME_MULTITOUCH_PAYLOAD =
+            Regex("^\\{\\\"strokes\\\":\\[(.*)]}$")
+        private val GAME_MULTITOUCH_STROKE =
+            Regex("\\{\\\"duration_ms\\\":([0-9]+),\\\"end_x_bps\\\":([0-9]+),\\\"end_y_bps\\\":([0-9]+),\\\"start_ms\\\":([0-9]+),\\\"start_x_bps\\\":([0-9]+),\\\"start_y_bps\\\":([0-9]+)\\}")
         private val PACKAGE_RE =
             Regex("^[A-Za-z][A-Za-z0-9_]*(?:\\.[A-Za-z][A-Za-z0-9_]*)+$")
 
