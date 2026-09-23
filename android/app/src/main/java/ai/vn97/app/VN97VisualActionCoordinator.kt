@@ -16,6 +16,7 @@ data class VN97VisualActionResult(
     val turn: VN97AppTurnResult? = null,
     val afterObservation: String? = null,
     val verification: String? = null,
+    val verificationFailure: String? = null,
 ) {
     init {
         require(beforeObservation.isNotBlank())
@@ -26,6 +27,12 @@ data class VN97VisualActionResult(
             (afterObservation == null) == (verification == null)
         ) {
             "post-action observation and verification must appear together"
+        }
+        require(
+            verificationFailure == null ||
+                (afterObservation == null && verification == null)
+        ) {
+            "verification failure cannot coexist with a completed verification"
         }
     }
 }
@@ -160,25 +167,41 @@ class VN97VisualActionCoordinator(
             )
         }
 
-        val postActionBoundary = SystemClock.elapsedRealtimeNanos()
-        val captured = screenCaptureBroker.awaitFreshFrame(
-            afterElapsedRealtimeNs = postActionBoundary,
-            timeoutMs = SCREEN_VERIFY_TIMEOUT_MS,
-        )
-        val after = assistant.perceiveVision(captured.prepared)
-        val verification = assistant.verifyVisualOutcome(
-            goal = context.goal,
-            beforeObservation = context.beforeObservation,
-            afterObservation = after,
-        )
-        return VN97VisualActionResult(
-            source = context.source,
-            userGoal = context.goal,
-            beforeObservation = context.beforeObservation,
-            turn = turn,
-            afterObservation = after,
-            verification = verification,
-        )
+        return try {
+            val postActionBoundary =
+                SystemClock.elapsedRealtimeNanos()
+            val captured = screenCaptureBroker.awaitFreshFrame(
+                afterElapsedRealtimeNs = postActionBoundary,
+                timeoutMs = SCREEN_VERIFY_TIMEOUT_MS,
+            )
+            val after =
+                assistant.perceiveVision(captured.prepared)
+            val verification =
+                assistant.verifyVisualOutcome(
+                    goal = context.goal,
+                    beforeObservation =
+                        context.beforeObservation,
+                    afterObservation = after,
+                )
+            VN97VisualActionResult(
+                source = context.source,
+                userGoal = context.goal,
+                beforeObservation = context.beforeObservation,
+                turn = turn,
+                afterObservation = after,
+                verification = verification,
+            )
+        } catch (exc: Throwable) {
+            VN97VisualActionResult(
+                source = context.source,
+                userGoal = context.goal,
+                beforeObservation = context.beforeObservation,
+                turn = turn,
+                verificationFailure =
+                    "Post-action visual verification unavailable: " +
+                        exc::class.java.simpleName,
+            )
+        }
     }
 
     private fun visualGoalPrompt(
