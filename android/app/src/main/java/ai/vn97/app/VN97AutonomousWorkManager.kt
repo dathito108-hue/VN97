@@ -42,13 +42,21 @@ class VN97AutonomousWorkManager(
     )
     private val scheduler =
         AndroidContinuationScheduler(application)
+    private val notifier =
+        VN97AutonomousNotifier(application)
     private var foregroundApproval:
         VN97ForegroundAssistantContinuationSession? = null
     private var foregroundApprovalJobId: Int? = null
     private var reopenForegroundAssistantAfterApproval = false
 
+    fun startGoal(goal: String): VN97AutonomousGoalRecord =
+        startGoal(goal, VN97AutonomousSchedulePolicy())
+
     @Synchronized
-    fun startGoal(goal: String): VN97AutonomousGoalRecord {
+    fun startGoal(
+        goal: String,
+        policy: VN97AutonomousSchedulePolicy,
+    ): VN97AutonomousGoalRecord {
         require(goal.isNotBlank()) {
             "autonomous goal must not be blank"
         }
@@ -56,6 +64,13 @@ class VN97AutonomousWorkManager(
             store.list().count { !it.terminal } < MAX_ACTIVE_GOALS
         ) {
             "active autonomous goal bound exceeded"
+        }
+        val startWallTimeMillis = System.currentTimeMillis()
+        require(
+            policy.deadlineWallTimeMillis == 0L ||
+                policy.deadlineWallTimeMillis > startWallTimeMillis
+        ) {
+            "autonomous deadline must be in the future"
         }
 
         val seed = application.assistant.createAutonomousSeed(goal)
@@ -73,9 +88,21 @@ class VN97AutonomousWorkManager(
             modelIdHex = binding.modelIdHex,
             principal = binding.principal,
             goal = seed.plan.goal,
-            state = VN97AutonomousGoalState.SCHEDULED,
+            state =
+                if (policy.dependencyKey.isEmpty()) {
+                    VN97AutonomousGoalState.SCHEDULED
+                } else {
+                    VN97AutonomousGoalState.WAITING_DEPENDENCY
+                },
             createdNs = createdNs,
             updatedNs = createdNs,
+            notBeforeWallTimeMillis =
+                policy.notBeforeWallTimeMillis,
+            deadlineWallTimeMillis =
+                policy.deadlineWallTimeMillis,
+            dependencyKey = policy.dependencyKey,
+            dependencySatisfied = policy.dependencyKey.isEmpty(),
+            powerPolicy = policy.powerPolicy,
         )
         try {
             store.save(record)
@@ -84,33 +111,13 @@ class VN97AutonomousWorkManager(
             throw exc
         }
 
-        val schedulingFailure = runCatching {
-            scheduler.scheduleAssistant(
-                VN97AssistantContinuationSpec(
-                    jobId = jobId,
-                    runtimeConfig = seed.runtimeConfig,
-                    binding = binding,
-                    minimumLatencyMillis = 0L,
-                )
-            )
-        }.fold(
-            onSuccess = { result ->
-                if (result > 0) null
-                else "Android JobScheduler rejected initial scheduling"
-            },
-            onFailure = { exc ->
-                "Android JobScheduler scheduling failed: " +
-                    exc::class.java.simpleName
-            },
-        )
-        if (schedulingFailure != null) {
-            record = record.copy(
-                state = VN97AutonomousGoalState.PAUSED,
-                updatedNs = wallNowNs(),
-                terminalReason = schedulingFailure,
-            )
-            store.save(record)
+        if (!record.dependencySatisfied) {
+            return record
         }
+        record = schedulePersistedRecord(
+            record = record,
+            runtimeConfig = seed.runtimeConfig,
+        )
         return record
     }
 
@@ -273,6 +280,7 @@ class VN97AutonomousWorkManager(
                 } else {
                     updated
                 }
+                notifyTerminalIfNeeded(result.jobId)
                 reopenForegroundAssistantLocked()
                 result
             } catch (exc: Throwable) {
@@ -288,6 +296,71 @@ class VN97AutonomousWorkManager(
     @Synchronized
     fun releaseForegroundApprovalSession() {
         closeForegroundApprovalLocked()
+    }
+
+    @Synchronized
+    fun signalDependency(
+        dependencyKey: String,
+    ): List<VN97AutonomousGoalRecord> {
+        require(dependencyKey.isNotBlank()) {
+            "dependencyKey must not be blank"
+        }
+        require(
+            dependencyKey.toByteArray(Charsets.UTF_8).size <=
+                VN97AutonomousGoalRecord.MAX_DEPENDENCY_KEY_BYTES
+        ) {
+            "dependencyKey exceeds UTF-8 byte bound"
+        }
+
+        val now = wallNowNs()
+        val matches = store.list()
+            .asSequence()
+            .filter {
+                !it.terminal &&
+                    it.dependencyKey == dependencyKey &&
+                    !it.dependencySatisfied
+            }
+            .take(MAX_EVENT_WAKEUPS)
+            .toList()
+
+        return matches.map { record ->
+            val satisfied = record.copy(
+                state = VN97AutonomousGoalState.SCHEDULED,
+                updatedNs = maxOf(record.updatedNs, now),
+                dependencySatisfied = true,
+                terminalReason = "",
+            )
+            store.save(satisfied)
+            reschedule(satisfied.jobId)
+        }
+    }
+
+    @Synchronized
+    fun reconcileAfterSystemRestart():
+        List<VN97AutonomousGoalRecord> {
+        val active = store.list()
+            .filter { !it.terminal }
+            .sortedWith(
+                compareBy<VN97AutonomousGoalRecord> {
+                    if (it.deadlineWallTimeMillis > 0L) {
+                        it.deadlineWallTimeMillis
+                    } else {
+                        Long.MAX_VALUE
+                    }
+                }.thenBy { it.createdNs }
+            )
+            .take(MAX_RECONCILE_GOALS)
+
+        val reconciled = active.map { record ->
+            reconcileRecord(record)
+        }
+        store.list()
+            .filter {
+                it.terminal && !it.terminalNotificationSent
+            }
+            .take(MAX_RECONCILE_GOALS)
+            .forEach { notifyTerminalIfNeeded(it.jobId) }
+        return reconciled
     }
 
     @Synchronized
@@ -307,37 +380,11 @@ class VN97AutonomousWorkManager(
         val model = openActivatedModel()
         model.use {
             requireModelIdentity(record, model.info.modelId)
-            val runtimeConfig = NativeRuntimeConfig(
-                layers = model.info.layers,
-                batch = 1,
-                dModel = model.info.dModel,
-                dState = model.info.dState,
-                recurrentBackend = NativeBackend.AUTO,
-                packedBackend = NativeBackend.AUTO,
+            return schedulePersistedRecord(
+                record = record,
+                runtimeConfig = runtimeConfigFor(model),
             )
-            val binding =
-                ai.vn97.platform.VN97AssistantContinuationBinding(
-                    principal = record.principal,
-                    planId = record.planId,
-                    modelIdHex = record.modelIdHex,
-                )
-            val result = scheduler.scheduleAssistant(
-                VN97AssistantContinuationSpec(
-                    jobId = record.jobId,
-                    runtimeConfig = runtimeConfig,
-                    binding = binding,
-                    minimumLatencyMillis = 0L,
-                )
-            )
-            check(result > 0) {
-                "Android JobScheduler rejected autonomous goal"
-            }
         }
-        return record.copy(
-            state = VN97AutonomousGoalState.SCHEDULED,
-            updatedNs = wallNowNs(),
-            terminalReason = "",
-        ).also(store::save)
     }
 
     @Synchronized
@@ -359,7 +406,11 @@ class VN97AutonomousWorkManager(
 
     fun createContinuationWork(): VN97AssistantContinuationWork =
         VN97AssistantContinuationWork { context ->
-            runContinuation(context)
+            try {
+                runContinuation(context)
+            } finally {
+                notifyTerminalIfNeeded(context.jobId)
+            }
         }
 
     private fun runContinuation(
@@ -372,6 +423,38 @@ class VN97AutonomousWorkManager(
         }
         requireContextIdentity(initial, context)
         if (initial.terminal) return ContinuationOutcome.COMPLETE
+
+        val scheduleWindow =
+            initial.scheduleWindow(System.currentTimeMillis())
+        if (scheduleWindow.expired) {
+            if (!context.controller.plan.isTerminal()) {
+                context.controller.cancel(
+                    "autonomous deadline expired"
+                )
+            }
+            store.save(
+                initial.copy(
+                    state = VN97AutonomousGoalState.FAILED,
+                    updatedNs = wallNowNs(),
+                    terminalReason = "autonomous deadline expired",
+                )
+            )
+            return ContinuationOutcome.COMPLETE
+        }
+        if (!initial.dependencySatisfied) {
+            store.save(
+                initial.copy(
+                    state =
+                        VN97AutonomousGoalState.WAITING_DEPENDENCY,
+                    updatedNs = wallNowNs(),
+                    terminalReason = "waiting for dependency event",
+                )
+            )
+            return ContinuationOutcome.COMPLETE
+        }
+        if (scheduleWindow.minimumLatencyMillis > 0L) {
+            return ContinuationOutcome.RESCHEDULE
+        }
 
         if (initial.wakeCount >= MAX_WAKE_COUNT) {
             if (!context.controller.plan.isTerminal()) {
@@ -691,6 +774,13 @@ class VN97AutonomousWorkManager(
             previousJobId = current.jobId,
             createdNs = seed.plan.createdNs,
             updatedNs = seed.plan.createdNs,
+            notBeforeWallTimeMillis =
+                current.notBeforeWallTimeMillis,
+            deadlineWallTimeMillis =
+                current.deadlineWallTimeMillis,
+            dependencyKey = current.dependencyKey,
+            dependencySatisfied = current.dependencySatisfied,
+            powerPolicy = current.powerPolicy,
         )
         try {
             store.save(successor)
@@ -699,33 +789,10 @@ class VN97AutonomousWorkManager(
             throw exc
         }
 
-        val schedulingFailure = runCatching {
-            scheduler.scheduleAssistant(
-                VN97AssistantContinuationSpec(
-                    jobId = jobId,
-                    runtimeConfig = seed.runtimeConfig,
-                    binding = binding,
-                    minimumLatencyMillis = 0L,
-                )
-            )
-        }.fold(
-            onSuccess = { result ->
-                if (result > 0) null
-                else "Android JobScheduler rejected replan generation"
-            },
-            onFailure = { exc ->
-                "replan scheduling failed: " +
-                    exc::class.java.simpleName
-            },
+        successor = schedulePersistedRecord(
+            record = successor,
+            runtimeConfig = seed.runtimeConfig,
         )
-        if (schedulingFailure != null) {
-            successor = successor.copy(
-                state = VN97AutonomousGoalState.PAUSED,
-                updatedNs = wallNowNs(),
-                terminalReason = schedulingFailure,
-            )
-            store.save(successor)
-        }
         store.save(
             terminalRecord.copy(
                 updatedNs = maxOf(
@@ -883,6 +950,194 @@ class VN97AutonomousWorkManager(
                         "planner stalled after approval resolution",
                 )
         }
+    }
+
+    private fun reconcileRecord(
+        record: VN97AutonomousGoalRecord,
+    ): VN97AutonomousGoalRecord {
+        val window = record.scheduleWindow(
+            System.currentTimeMillis()
+        )
+        if (window.expired) {
+            scheduler.cancelAssistantAndDelete(record.jobId)
+            val failed = record.copy(
+                state = VN97AutonomousGoalState.FAILED,
+                updatedNs = wallNowNs(),
+                terminalReason = "autonomous deadline expired",
+            )
+            store.save(failed)
+            notifyTerminalIfNeeded(failed.jobId)
+            return failed
+        }
+        if (
+            record.state ==
+                VN97AutonomousGoalState.WAITING_APPROVAL
+        ) {
+            scheduler.cancel(record.jobId)
+            return record
+        }
+        if (!record.dependencySatisfied) {
+            scheduler.cancel(record.jobId)
+            val waiting = record.copy(
+                state =
+                    VN97AutonomousGoalState.WAITING_DEPENDENCY,
+                updatedNs = maxOf(record.updatedNs, wallNowNs()),
+                terminalReason = "waiting for dependency event",
+            )
+            store.save(waiting)
+            return waiting
+        }
+        if (record.state == VN97AutonomousGoalState.PAUSED) {
+            return record
+        }
+        if (scheduler.hasPendingJob(record.jobId)) {
+            if (record.state == VN97AutonomousGoalState.RUNNING) {
+                val scheduled = record.copy(
+                    state = VN97AutonomousGoalState.SCHEDULED,
+                    updatedNs = maxOf(record.updatedNs, wallNowNs()),
+                    terminalReason = "",
+                )
+                store.save(scheduled)
+                return scheduled
+            }
+            return record
+        }
+        val reset =
+            if (record.state == VN97AutonomousGoalState.RUNNING) {
+                record.copy(
+                    state = VN97AutonomousGoalState.SCHEDULED,
+                    updatedNs = maxOf(record.updatedNs, wallNowNs()),
+                    terminalReason = "",
+                ).also(store::save)
+            } else {
+                record
+            }
+        return reschedule(reset.jobId)
+    }
+
+    private fun schedulePersistedRecord(
+        record: VN97AutonomousGoalRecord,
+        runtimeConfig: NativeRuntimeConfig,
+    ): VN97AutonomousGoalRecord {
+        check(!record.terminal) {
+            "terminal autonomous goal cannot be scheduled"
+        }
+        val nowMillis = System.currentTimeMillis()
+        val window = record.scheduleWindow(nowMillis)
+        if (window.expired) {
+            scheduler.cancelAssistantAndDelete(record.jobId)
+            val failed = record.copy(
+                state = VN97AutonomousGoalState.FAILED,
+                updatedNs = wallNowNs(),
+                terminalReason = "autonomous deadline expired",
+            )
+            store.save(failed)
+            notifyTerminalIfNeeded(failed.jobId)
+            return failed
+        }
+        if (!record.dependencySatisfied) {
+            scheduler.cancel(record.jobId)
+            val waiting = record.copy(
+                state =
+                    VN97AutonomousGoalState.WAITING_DEPENDENCY,
+                updatedNs = maxOf(record.updatedNs, wallNowNs()),
+                terminalReason = "waiting for dependency event",
+            )
+            store.save(waiting)
+            return waiting
+        }
+        if (record.scheduleAttemptCount >= MAX_SCHEDULE_ATTEMPTS) {
+            scheduler.cancelAssistantAndDelete(record.jobId)
+            val failed = record.copy(
+                state = VN97AutonomousGoalState.FAILED,
+                updatedNs = wallNowNs(),
+                terminalReason =
+                    "autonomous scheduling attempt bound exhausted",
+            )
+            store.save(failed)
+            notifyTerminalIfNeeded(failed.jobId)
+            return failed
+        }
+
+        val binding =
+            ai.vn97.platform.VN97AssistantContinuationBinding(
+                principal = record.principal,
+                planId = record.planId,
+                modelIdHex = record.modelIdHex,
+            )
+        val result = runCatching {
+            scheduler.scheduleAssistant(
+                VN97AssistantContinuationSpec(
+                    jobId = record.jobId,
+                    runtimeConfig = runtimeConfig,
+                    binding = binding,
+                    minimumLatencyMillis =
+                        window.minimumLatencyMillis,
+                    overrideDeadlineMillis =
+                        window.overrideDeadlineMillis,
+                    requiresBatteryNotLow =
+                        record.powerPolicy ==
+                            VN97AutonomousPowerPolicy.BATTERY_NOT_LOW,
+                    requiresCharging =
+                        record.powerPolicy ==
+                            VN97AutonomousPowerPolicy.CHARGING_ONLY,
+                )
+            )
+        }
+        val scheduled = result.getOrNull()
+        val nowNs = wallNowNs()
+        val updated =
+            if (scheduled != null && scheduled > 0) {
+                record.copy(
+                    state = VN97AutonomousGoalState.SCHEDULED,
+                    updatedNs = maxOf(record.updatedNs, nowNs),
+                    terminalReason = "",
+                    scheduleAttemptCount =
+                        record.scheduleAttemptCount + 1,
+                    lastScheduledWallTimeMillis = nowMillis,
+                )
+            } else {
+                record.copy(
+                    state = VN97AutonomousGoalState.SCHEDULED,
+                    updatedNs = maxOf(record.updatedNs, nowNs),
+                    terminalReason =
+                        if (result.isFailure) {
+                            "autonomous scheduling failed: " +
+                                result.exceptionOrNull()
+                                    ?.javaClass?.simpleName
+                        } else {
+                            "Android JobScheduler rejected autonomous goal"
+                        },
+                    scheduleAttemptCount =
+                        record.scheduleAttemptCount + 1,
+                    lastScheduledWallTimeMillis = nowMillis,
+                )
+            }
+        store.save(updated)
+        return updated
+    }
+
+    private fun notifyTerminalIfNeeded(jobId: Int) {
+        val record = store.loadOrNull(jobId) ?: return
+        if (!record.terminal || record.terminalNotificationSent) {
+            return
+        }
+        if (
+            store.list().any {
+                it.previousJobId == record.jobId
+            }
+        ) {
+            return
+        }
+        if (!notifier.postTerminal(record)) {
+            return
+        }
+        store.save(
+            record.copy(
+                updatedNs = maxOf(record.updatedNs, wallNowNs()),
+                terminalNotificationSent = true,
+            )
+        )
     }
 
     private fun closeForegroundApprovalLocked() {
@@ -1072,6 +1327,9 @@ class VN97AutonomousWorkManager(
         private const val MAX_WAKE_COUNT = 256
         private const val MAX_REPLAN_GENERATIONS = 3
         private const val MAX_REPLAN_FEEDBACK_CHARS = 8 * 1024
+        private const val MAX_SCHEDULE_ATTEMPTS = 64
+        private const val MAX_EVENT_WAKEUPS = 32
+        private const val MAX_RECONCILE_GOALS = 32
         private const val MAX_JOB_PROBES = 128
         private const val JOB_PREFIX = 0x40000000
         private const val JOB_MASK = 0x3fffffff
