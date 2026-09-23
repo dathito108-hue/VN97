@@ -287,9 +287,7 @@ class VN97SelfImprovementActivity : Activity() {
                     )
             }
             runOnUiThread {
-                result.onSuccess {
-                        pair,
-                    ->
+                result.onSuccess { pair ->
                     val review = pair.first
                     val candidate = pair.second
                     statusView.text =
@@ -375,9 +373,7 @@ class VN97SelfImprovementActivity : Activity() {
                     .rejectImprovementCandidate()
             }
             runOnUiThread {
-                result.onSuccess {
-                        candidate,
-                    ->
+                result.onSuccess { candidate ->
                     statusView.text =
                         "Candidate rejected durably: " +
                             candidate.candidateId
