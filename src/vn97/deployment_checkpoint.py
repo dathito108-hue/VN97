@@ -150,6 +150,7 @@ def _audio_config_object(adapter: AudioFrameAdapter) -> dict[str, object]:
         "hop_size": int(config.hop_size),
         "rms_eps": float(adapter.norm.eps),
         "schema": "VN97AUDIO1",
+        "ternary_threshold": float(adapter.projection.threshold),
     }
 
 
@@ -160,6 +161,7 @@ def _parse_audio_config(raw: object, *, d_model: int) -> AudioFrameAdapter:
         "hop_size",
         "rms_eps",
         "schema",
+        "ternary_threshold",
     }:
         raise VN97DeploymentCheckpointFormatError(
             "VN97CK1 audio config keys are not exact"
@@ -175,7 +177,7 @@ def _parse_audio_config(raw: object, *, d_model: int) -> AudioFrameAdapter:
             "VN97CK1 audio frame geometry must be integer"
         )
     values: dict[str, float] = {}
-    for key in ("eps", "rms_eps"):
+    for key in ("eps", "rms_eps", "ternary_threshold"):
         value = raw[key]
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             raise VN97DeploymentCheckpointFormatError(
@@ -194,6 +196,7 @@ def _parse_audio_config(raw: object, *, d_model: int) -> AudioFrameAdapter:
     try:
         return AudioFrameAdapter(
             d_model,
+            ternary_threshold=values["ternary_threshold"],
             config=AudioAdapterConfig(
                 frame_size=frame_size,
                 hop_size=hop_size,
@@ -308,6 +311,8 @@ def build_deployment_checkpoint(
             or audio_adapter.config.hop_size != 320
             or float(audio_adapter.config.eps) != 1e-5
             or float(audio_adapter.norm.eps) != float(model.config.rms_eps)
+            or float(audio_adapter.projection.threshold)
+                != float(model.config.ternary_threshold)
         ):
             raise VN97DeploymentCheckpointFormatError(
                 "VN97CK1 audio adapter must use canonical production geometry"
