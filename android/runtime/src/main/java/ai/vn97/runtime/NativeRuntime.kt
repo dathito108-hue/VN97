@@ -150,6 +150,14 @@ internal object NativeRuntimeBindings {
         stepCount: Int,
         finalLogits: FloatArray,
     ): Int
+    external fun nativePrefillAudio(
+        runtimeHandle: Long,
+        modelHandle: Long,
+        audioPrefixToken: Int,
+        preparedFrames: FloatArray,
+        frameCount: Int,
+        finalLogits: FloatArray,
+    ): Int
     external fun nativePrefillHidden(
         runtimeHandle: Long,
         modelHandle: Long,
@@ -317,6 +325,52 @@ class NativeRuntimeSession private constructor(private var handle: Long) : AutoC
                         logits,
                     ),
                     "runtime prefill",
+                )
+            }
+        }
+        return logits
+    }
+
+    fun prefillAudio(
+        model: NativeActivatedModel,
+        prepared: NativePreparedAudio,
+        audioPrefixToken: Int = 4,
+    ): FloatArray {
+        require(audioPrefixToken >= 0) {
+            "audio prefix token must be non-negative"
+        }
+        require(model.info.hasAudioProjection) {
+            "activated VN97 model has no signed audio projection"
+        }
+        require(prepared.frameSize == model.info.audioFrameSize) {
+            "prepared audio frame size does not match activated model"
+        }
+
+        val runtimeInfo = info()
+        require(runtimeInfo.config.batch == 1) {
+            "audio prefill currently requires batch=1"
+        }
+        require(
+            model.info.layers == runtimeInfo.config.layers &&
+                model.info.dModel == runtimeInfo.config.dModel &&
+                model.info.dState == runtimeInfo.config.dState
+        ) {
+            "activated model geometry does not match runtime session"
+        }
+
+        val logits = FloatArray(model.info.vocabSize)
+        model.withHandle { modelHandle ->
+            withHandle<Unit> { runtimeHandle ->
+                checkStatus(
+                    NativeRuntimeBindings.nativePrefillAudio(
+                        runtimeHandle,
+                        modelHandle,
+                        audioPrefixToken,
+                        prepared.normalizedFrames,
+                        prepared.frameCount,
+                        logits,
+                    ),
+                    "runtime audio prefill",
                 )
             }
         }
