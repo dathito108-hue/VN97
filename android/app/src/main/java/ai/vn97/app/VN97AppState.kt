@@ -33,6 +33,10 @@ data class VN97AppState(
 sealed interface VN97AppEvent {
     data object TrustedModelActivated : VN97AppEvent
     data object TurnStarted : VN97AppEvent
+    data class VisualObserved(
+        val source: String,
+        val observation: String,
+    ) : VN97AppEvent
     data object ApprovalRequired : VN97AppEvent
     data class ApprovalRejected(val user: String) : VN97AppEvent
     data class TurnCompleted(val user: String, val assistant: String) : VN97AppEvent
@@ -57,6 +61,25 @@ object VN97AppReducer {
                 phase = VN97AppPhase.RUNNING,
                 status = "VN97 is thinking…",
                 inputEnabled = false,
+            )
+        }
+
+        is VN97AppEvent.VisualObserved -> {
+            check(state.phase == VN97AppPhase.RUNNING)
+            require(event.source.isNotBlank()) {
+                "visual observation source must not be blank"
+            }
+            require(event.observation.isNotBlank()) {
+                "visual observation must not be blank"
+            }
+            state.copy(
+                phase = VN97AppPhase.READY,
+                status = "Visual perception complete.",
+                inputEnabled = true,
+                transcript = boundedTranscript(
+                    state.transcript +
+                        ("VN97 " + event.source + ": " + event.observation)
+                ),
             )
         }
 
