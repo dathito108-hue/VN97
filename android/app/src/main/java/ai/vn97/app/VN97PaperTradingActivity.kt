@@ -187,7 +187,6 @@ class VN97PaperTradingActivity : Activity() {
         root.addView(statusView, fullWidth())
 
         setContentView(scroll)
-        refreshStatus()
     }
 
     override fun onResume() {
