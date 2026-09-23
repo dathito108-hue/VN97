@@ -6,6 +6,7 @@ on:
       - m10i-reproducible-apk-cold-start
       - m10j-turnkey-bootstrap
       - m13c-long-horizon-autonomous-operations
+      - m14a-governed-game-control
   workflow_dispatch:
 
 permissions:
