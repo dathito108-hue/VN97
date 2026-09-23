@@ -5,6 +5,7 @@ on:
     branches:
       - m10i-reproducible-apk-cold-start
       - m10j-turnkey-bootstrap
+      - m16b-capability-acquisition-ui
   workflow_dispatch:
 
 permissions:
