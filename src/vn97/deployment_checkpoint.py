@@ -24,7 +24,12 @@ from .bootstrap_bundle import (
 from .capability_package import CapabilitySource
 from .config import VN97Config
 from .model import VN97LanguageCore
-from .modality import AudioAdapterConfig, AudioFrameAdapter
+from .modality import (
+    AudioAdapterConfig,
+    AudioFrameAdapter,
+    VisionAdapterConfig,
+    VisionPatchAdapter,
+)
 from .tokenizer import VN97TokenizerPackage
 
 
@@ -32,7 +37,8 @@ MAGIC = b"VN97CK1\0"
 VERSION = 1
 HEADER_SIZE = 80
 FLAG_AUDIO_ADAPTER = 1 << 0
-KNOWN_FLAGS = FLAG_AUDIO_ADAPTER
+FLAG_VISION_ADAPTER = 1 << 1
+KNOWN_FLAGS = FLAG_AUDIO_ADAPTER | FLAG_VISION_ADAPTER
 MAX_MANIFEST_BYTES = 4 * 1024 * 1024
 MAX_TENSORS = 10_000
 MAX_CHECKPOINT_BYTES = 2 * 1024 * 1024 * 1024
@@ -73,6 +79,7 @@ class VN97LoadedDeploymentCheckpoint:
     checkpoint_sha256: str
     tensor_count: int
     audio_adapter: AudioFrameAdapter | None = None
+    vision_adapter: VisionPatchAdapter | None = None
 
 
 def _canonical_json(value: object) -> bytes:
@@ -219,6 +226,90 @@ def _parse_audio_config(raw: object, *, d_model: int) -> AudioFrameAdapter:
         ) from exc
 
 
+def _vision_config_object(
+    adapter: VisionPatchAdapter,
+) -> dict[str, object]:
+    config = adapter.config
+    return {
+        "channels": int(config.channels),
+        "eps": float(config.eps),
+        "patch_size": int(config.patch_size),
+        "rms_eps": float(adapter.norm.eps),
+        "schema": "VN97VISION1",
+        "ternary_threshold": float(adapter.projection.threshold),
+    }
+
+
+def _parse_vision_config(
+    raw: object,
+    *,
+    d_model: int,
+) -> VisionPatchAdapter:
+    if not isinstance(raw, dict) or set(raw) != {
+        "channels",
+        "eps",
+        "patch_size",
+        "rms_eps",
+        "schema",
+        "ternary_threshold",
+    }:
+        raise VN97DeploymentCheckpointFormatError(
+            "VN97CK1 vision config keys are not exact"
+        )
+    if raw["schema"] != "VN97VISION1":
+        raise VN97DeploymentCheckpointFormatError(
+            "VN97CK1 vision config schema mismatch"
+        )
+    channels = raw["channels"]
+    patch_size = raw["patch_size"]
+    if type(channels) is not int or type(patch_size) is not int:
+        raise VN97DeploymentCheckpointFormatError(
+            "VN97CK1 vision geometry must be integer"
+        )
+    values: dict[str, float] = {}
+    for key in ("eps", "rms_eps", "ternary_threshold"):
+        value = raw[key]
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise VN97DeploymentCheckpointFormatError(
+                f"VN97CK1 vision {key} must be numeric"
+            )
+        numeric = float(value)
+        if not math.isfinite(numeric):
+            raise VN97DeploymentCheckpointFormatError(
+                f"VN97CK1 vision {key} must be finite"
+            )
+        if key == "ternary_threshold":
+            if not 0.0 <= numeric <= 1.0:
+                raise VN97DeploymentCheckpointFormatError(
+                    "VN97CK1 vision ternary_threshold must be in [0, 1]"
+                )
+        elif numeric <= 0.0:
+            raise VN97DeploymentCheckpointFormatError(
+                f"VN97CK1 vision {key} must be positive"
+            )
+        values[key] = numeric
+
+    if channels != 3 or patch_size != 16 or values["eps"] != 1e-5:
+        raise VN97DeploymentCheckpointFormatError(
+            "VN97CK1 production vision config must use RGB, 16x16 patches and eps=1e-5"
+        )
+    try:
+        return VisionPatchAdapter(
+            d_model,
+            ternary_threshold=values["ternary_threshold"],
+            config=VisionAdapterConfig(
+                channels=channels,
+                patch_size=patch_size,
+                eps=values["eps"],
+            ),
+            rms_eps=values["rms_eps"],
+        )
+    except ValueError as exc:
+        raise VN97DeploymentCheckpointFormatError(
+            f"VN97CK1 vision config is invalid: {exc}"
+        ) from exc
+
+
 def _parse_config(raw: object) -> VN97Config:
     if not isinstance(raw, dict) or set(raw) != set(_CONFIG_KEYS):
         raise VN97DeploymentCheckpointFormatError(
@@ -301,6 +392,7 @@ def build_deployment_checkpoint(
     model: VN97LanguageCore,
     *,
     audio_adapter: AudioFrameAdapter | None = None,
+    vision_adapter: VisionPatchAdapter | None = None,
 ) -> bytes:
     if not isinstance(model, VN97LanguageCore):
         raise TypeError("model must be VN97LanguageCore")
@@ -330,6 +422,30 @@ def build_deployment_checkpoint(
             state[f"audio_adapter.{name}"] = tensor
         flags |= FLAG_AUDIO_ADAPTER
         audio_manifest = _audio_config_object(audio_adapter)
+
+    vision_manifest: dict[str, object] | None = None
+    if vision_adapter is not None:
+        if not isinstance(vision_adapter, VisionPatchAdapter):
+            raise TypeError("vision_adapter must be VisionPatchAdapter")
+        if vision_adapter.projection.out_features != model.config.d_model:
+            raise VN97DeploymentCheckpointFormatError(
+                "VN97CK1 vision adapter d_model does not match language core"
+            )
+        if (
+            vision_adapter.config.channels != 3
+            or vision_adapter.config.patch_size != 16
+            or float(vision_adapter.config.eps) != 1e-5
+            or float(vision_adapter.norm.eps) != float(model.config.rms_eps)
+            or float(vision_adapter.projection.threshold)
+                != float(model.config.ternary_threshold)
+        ):
+            raise VN97DeploymentCheckpointFormatError(
+                "VN97CK1 vision adapter must use canonical production geometry"
+            )
+        for name, tensor in vision_adapter.state_dict().items():
+            state[f"vision_adapter.{name}"] = tensor
+        flags |= FLAG_VISION_ADAPTER
+        vision_manifest = _vision_config_object(vision_adapter)
 
     names = sorted(state)
     if not names or len(names) > MAX_TENSORS:
@@ -369,6 +485,8 @@ def build_deployment_checkpoint(
     }
     if audio_manifest is not None:
         manifest_object["audio"] = audio_manifest
+    if vision_manifest is not None:
+        manifest_object["vision"] = vision_manifest
     manifest = _canonical_json(manifest_object)
     if not 0 < len(manifest) <= MAX_MANIFEST_BYTES:
         raise VN97DeploymentCheckpointFormatError(
@@ -588,11 +706,12 @@ def load_deployment_checkpoint(
     payload = blob[HEADER_SIZE + manifest_size :]
     manifest = _strict_json_object(manifest_bytes)
     has_audio = bool(flags & FLAG_AUDIO_ADAPTER)
-    expected_manifest_keys = (
-        {"audio", "config", "schema", "tensors"}
-        if has_audio
-        else {"config", "schema", "tensors"}
-    )
+    has_vision = bool(flags & FLAG_VISION_ADAPTER)
+    expected_manifest_keys = {"config", "schema", "tensors"}
+    if has_audio:
+        expected_manifest_keys.add("audio")
+    if has_vision:
+        expected_manifest_keys.add("vision")
     if set(manifest) != expected_manifest_keys:
         raise VN97DeploymentCheckpointFormatError(
             "VN97CK1 manifest keys are not exact for header flags"
@@ -615,6 +734,14 @@ def load_deployment_checkpoint(
         if has_audio
         else None
     )
+    vision_adapter = (
+        _parse_vision_config(
+            manifest["vision"],
+            d_model=config.d_model,
+        )
+        if has_vision
+        else None
+    )
     if audio_adapter is not None and (
         float(audio_adapter.norm.eps) != float(config.rms_eps)
         or float(audio_adapter.projection.threshold)
@@ -623,10 +750,21 @@ def load_deployment_checkpoint(
         raise VN97DeploymentCheckpointFormatError(
             "VN97CK1 audio quantization/norm config does not match language core"
         )
+    if vision_adapter is not None and (
+        float(vision_adapter.norm.eps) != float(config.rms_eps)
+        or float(vision_adapter.projection.threshold)
+            != float(config.ternary_threshold)
+    ):
+        raise VN97DeploymentCheckpointFormatError(
+            "VN97CK1 vision quantization/norm config does not match language core"
+        )
     expected_state = dict(model.state_dict())
     if audio_adapter is not None:
         for name, tensor in audio_adapter.state_dict().items():
             expected_state[f"audio_adapter.{name}"] = tensor
+    if vision_adapter is not None:
+        for name, tensor in vision_adapter.state_dict().items():
+            expected_state[f"vision_adapter.{name}"] = tensor
     expected_names = sorted(expected_state)
     actual_names = [entry[0] for entry in metadata]
     if actual_names != expected_names:
@@ -656,7 +794,10 @@ def load_deployment_checkpoint(
     language_tensors = {
         name: tensor
         for name, tensor in tensors.items()
-        if not name.startswith("audio_adapter.")
+        if (
+            not name.startswith("audio_adapter.")
+            and not name.startswith("vision_adapter.")
+        )
     }
     _require_tied_checkpoint_values(language_tensors, config)
 
@@ -668,6 +809,15 @@ def load_deployment_checkpoint(
                     name.removeprefix("audio_adapter."): tensor
                     for name, tensor in tensors.items()
                     if name.startswith("audio_adapter.")
+                },
+                strict=True,
+            )
+        if vision_adapter is not None:
+            vision_adapter.load_state_dict(
+                {
+                    name.removeprefix("vision_adapter."): tensor
+                    for name, tensor in tensors.items()
+                    if name.startswith("vision_adapter.")
                 },
                 strict=True,
             )
@@ -693,12 +843,15 @@ def load_deployment_checkpoint(
     model.eval()
     if audio_adapter is not None:
         audio_adapter.eval()
+    if vision_adapter is not None:
+        vision_adapter.eval()
     return VN97LoadedDeploymentCheckpoint(
         model=model,
         config=config,
         checkpoint_sha256=hashlib.sha256(blob).hexdigest(),
         tensor_count=tensor_count,
         audio_adapter=audio_adapter,
+        vision_adapter=vision_adapter,
     )
 
 
@@ -707,10 +860,12 @@ def save_deployment_checkpoint(
     path: str | os.PathLike[str],
     *,
     audio_adapter: AudioFrameAdapter | None = None,
+    vision_adapter: VisionPatchAdapter | None = None,
 ) -> str:
     blob = build_deployment_checkpoint(
         model,
         audio_adapter=audio_adapter,
+        vision_adapter=vision_adapter,
     )
     target = Path(path)
     if target.is_symlink():
@@ -830,6 +985,7 @@ def build_bootstrap_bundle_from_checkpoint(
         loaded.model,
         tokenizer=tokenizer,
         audio_adapter=loaded.audio_adapter,
+        vision_adapter=loaded.vision_adapter,
         source=source,
         capability_version=capability_version,
         signer=signer,
