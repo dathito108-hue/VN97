@@ -18,3 +18,5 @@ rootProject.name = "VN97Android"
 include(":runtime")
 include(":platform")
 include(":avatar")
+
+include(":app")
