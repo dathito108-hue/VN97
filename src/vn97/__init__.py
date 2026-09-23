@@ -145,6 +145,11 @@ from .cognition_adapter import (
     VN97InferenceLimits,
 )
 from .config import VN97Config
+from .continual_training import (
+    VN97FineTuneQualityError,
+    VN97FineTuneResult,
+    guarded_fine_tune_vn97,
+)
 from .deployment_checkpoint import (
     HEADER_SIZE as DEPLOYMENT_CHECKPOINT_HEADER_SIZE,
     MAGIC as DEPLOYMENT_CHECKPOINT_MAGIC,
@@ -285,6 +290,9 @@ __all__ = [
     "VN97BootstrapSigner",
     "build_bootstrap_bundle",
     "write_bootstrap_assets",
+    "VN97FineTuneQualityError",
+    "VN97FineTuneResult",
+    "guarded_fine_tune_vn97",
     "DEPLOYMENT_CHECKPOINT_HEADER_SIZE",
     "DEPLOYMENT_CHECKPOINT_MAGIC",
     "MAX_DEPLOYMENT_CHECKPOINT_BYTES",
