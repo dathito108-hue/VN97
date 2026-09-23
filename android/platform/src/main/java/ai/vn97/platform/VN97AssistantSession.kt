@@ -201,6 +201,25 @@ class VN97AssistantSession(
     }
 
     @Synchronized
+    fun cancelActiveTurn(
+        reason: String = "cancelled by host",
+    ): VN97AssistantTurnUpdate? {
+        require(reason.isNotBlank()) {
+            "assistant cancellation reason must not be blank"
+        }
+        val turn = active ?: return null
+        pendingApproval = null
+        if (!turn.controller.plan.isTerminal()) {
+            turn.controller.cancel(reason)
+        }
+        clearIfActive(turn)
+        return VN97AssistantTurnUpdate(
+            turn = turn,
+            state = VN97AssistantTurnState.CANCELLED,
+        )
+    }
+
+    @Synchronized
     fun continueTurn(
         turn: VN97AssistantTurn,
         memory: NativeMemoryRetriever? = null,
