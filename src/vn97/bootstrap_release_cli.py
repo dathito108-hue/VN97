@@ -189,6 +189,73 @@ def _load_speech_training_report(
     return report, hashlib.sha256(data).hexdigest()
 
 
+def _load_production_campaign_report(
+    path: Path,
+    *,
+    checkpoint_sha256: str,
+    tokenizer_sha256: str,
+    model_image_sha256: str,
+) -> str:
+    data = _read_regular_file(
+        path,
+        max_bytes=4 * 1024 * 1024,
+        label="production campaign report",
+    )
+    duplicates: list[str] = []
+
+    def hook(pairs):
+        output = {}
+        for key, value in pairs:
+            if key in output:
+                duplicates.append(key)
+            output[key] = value
+        return output
+
+    try:
+        text = data.decode("utf-8", errors="strict")
+        report = json.loads(
+            text,
+            object_pairs_hook=hook,
+            parse_constant=lambda raw: (_ for _ in ()).throw(
+                ValueError(raw)
+            ),
+        )
+    except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+        raise ValueError(
+            "production campaign report must be strict UTF-8 JSON"
+        ) from exc
+    if duplicates or not isinstance(report, dict):
+        raise ValueError(
+            "production campaign report must be one object without duplicate keys"
+        )
+    canonical = json.dumps(
+        report,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    )
+    if canonical != text:
+        raise ValueError(
+            "production campaign report must use canonical JSON"
+        )
+    if report.get("schema") != "VN97PRODCAMP1":
+        raise ValueError(
+            "production campaign report schema mismatch"
+        )
+    expected = {
+        "unified_checkpoint_sha256": checkpoint_sha256,
+        "tokenizer_sha256": tokenizer_sha256,
+        "model_image_sha256": model_image_sha256,
+    }
+    for key, value in expected.items():
+        if report.get(key) != value:
+            raise ValueError(
+                f"production campaign report {key} does not match release input"
+            )
+    return hashlib.sha256(data).hexdigest()
+
+
 def _canonical_json(value: object) -> str:
     return json.dumps(
         value,
@@ -326,6 +393,11 @@ def _parser() -> argparse.ArgumentParser:
         "--max-recurrent-state-bytes",
         type=int,
         default=512 * 1024 * 1024,
+    )
+    parser.add_argument("--production-campaign-report")
+    parser.add_argument(
+        "--require-production-campaign-report",
+        action="store_true",
     )
     parser.add_argument("--device-evidence")
     parser.add_argument(
@@ -563,6 +635,25 @@ def main(argv: list[str] | None = None) -> int:
         preview_image.data
     ).hexdigest()
 
+    production_campaign_report_sha256 = None
+    if (
+        args.require_production_campaign_report
+        and args.production_campaign_report is None
+    ):
+        raise ValueError(
+            "--require-production-campaign-report needs "
+            "--production-campaign-report"
+        )
+    if args.production_campaign_report is not None:
+        production_campaign_report_sha256 = (
+            _load_production_campaign_report(
+                Path(args.production_campaign_report),
+                checkpoint_sha256=loaded.checkpoint_sha256,
+                tokenizer_sha256=tokenizer_sha256,
+                model_image_sha256=preview_model_image_sha256,
+            )
+        )
+
     device_evidence = None
     device_evidence_criteria = None
     if args.require_device_evidence and args.device_evidence is None:
@@ -681,6 +772,9 @@ def main(argv: list[str] | None = None) -> int:
         "publisher_public_key_sha256": hashlib.sha256(
             bundle.publisher_public_key
         ).hexdigest(),
+        "production_campaign_report_sha256": (
+            production_campaign_report_sha256
+        ),
         "schema": "VN97BOOTREL4",
         "speech_enabled": loaded.audio_adapter is not None,
         "speech_runtime_budget": (
