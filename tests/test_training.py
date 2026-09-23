@@ -118,3 +118,23 @@ def test_native_training_loop_updates_model_and_exports_vn97ck1():
     checkpoint = build_deployment_checkpoint(model)
     restored = load_deployment_checkpoint(checkpoint)
     assert restored.config == model.config
+
+
+def test_training_window_bound_fails_closed():
+    tokenizer = VN97Tokenizer()
+    examples = [
+        encode_causal_text(tokenizer, "abcdef" * 20),
+        encode_causal_text(tokenizer, "ghijkl" * 20),
+    ]
+    config = VN97TrainingConfig(
+        sequence_length=8,
+        stride=4,
+        max_windows=2,
+    )
+    import pytest
+    with pytest.raises(ValueError, match="max_windows"):
+        build_training_windows(
+            examples,
+            config,
+            pad_token_id=tokenizer.pad_id,
+        )
