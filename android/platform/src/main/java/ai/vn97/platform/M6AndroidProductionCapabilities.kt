@@ -19,6 +19,10 @@ internal interface M6AndroidActionPort {
         endYBasisPoints: Int,
         durationMillis: Long,
     ): String
+    fun gameMultiTouch(
+        packageName: String,
+        strokes: List<VN97GameTouchStroke>,
+    ): String
     fun gameBack(packageName: String): String
 }
 
@@ -61,6 +65,17 @@ class M6AndroidProductionCapabilities internal constructor(
             maxPayloadUtf8Bytes = 192,
             payloadSchemaJson =
                 "{\"duration_ms\":300,\"end_x_bps\":8000,\"end_y_bps\":5000,\"start_x_bps\":2000,\"start_y_bps\":5000}",
+            maxLeaseNs = GAME_ACTION_LEASE_NS,
+            maxLeaseUses = 1,
+        ),
+        M6CapabilityDescriptor(
+            capabilityId = GAME_MULTITOUCH_CAPABILITY,
+            requiredScopeKeys = setOf(APP_PACKAGE_SCOPE),
+            approvalRequired = false,
+            maxPayloadUtf8Bytes =
+                VN97GameMultiTouchContract.MAX_PAYLOAD_UTF8_BYTES,
+            payloadSchemaJson =
+                VN97GameMultiTouchContract.PAYLOAD_SCHEMA_JSON,
             maxLeaseNs = GAME_ACTION_LEASE_NS,
             maxLeaseUses = 1,
         ),
@@ -147,6 +162,21 @@ class M6AndroidProductionCapabilities internal constructor(
             registry.register(
                 descriptors[4],
                 M6CapabilityHandler { action ->
+                    val request =
+                        validateGameMultiTouchRequest(action.request)
+                    M6ActionOutcome(
+                        success = true,
+                        result = actions.gameMultiTouch(
+                            request.packageName,
+                            request.strokes,
+                        ),
+                    )
+                },
+                M6PayloadValidator(::validateGameMultiTouchRequest),
+            )
+            registry.register(
+                descriptors[5],
+                M6CapabilityHandler { action ->
                     val packageName =
                         validateGameBackRequest(action.request)
                     M6ActionOutcome(
@@ -200,6 +230,21 @@ class M6AndroidProductionCapabilities internal constructor(
             registry.register(
                 gameDescriptors[2],
                 M6CapabilityHandler { action ->
+                    val request =
+                        validateGameMultiTouchRequest(action.request)
+                    M6ActionOutcome(
+                        success = true,
+                        result = actions.gameMultiTouch(
+                            request.packageName,
+                            request.strokes,
+                        ),
+                    )
+                },
+                M6PayloadValidator(::validateGameMultiTouchRequest),
+            )
+            registry.register(
+                gameDescriptors[3],
+                M6CapabilityHandler { action ->
                     val packageName =
                         validateGameBackRequest(action.request)
                     M6ActionOutcome(
@@ -244,6 +289,11 @@ class M6AndroidProductionCapabilities internal constructor(
         val endXBasisPoints: Int,
         val endYBasisPoints: Int,
         val durationMillis: Long,
+    )
+
+    private data class GameMultiTouchRequest(
+        val packageName: String,
+        val strokes: List<VN97GameTouchStroke>,
     )
 
     private fun validateGameScope(
@@ -326,6 +376,20 @@ class M6AndroidProductionCapabilities internal constructor(
         )
     }
 
+    private fun validateGameMultiTouchRequest(
+        request: M6ExternalActionRequest,
+    ): GameMultiTouchRequest {
+        val packageName = validateGameScope(
+            request,
+            GAME_MULTITOUCH_CAPABILITY,
+        )
+        val strokes =
+            VN97GameMultiTouchContract.parseCanonical(
+                request.payloadJson
+            )
+        return GameMultiTouchRequest(packageName, strokes)
+    }
+
     private fun validateGameBackRequest(
         request: M6ExternalActionRequest,
     ): String {
@@ -388,6 +452,7 @@ class M6AndroidProductionCapabilities internal constructor(
             return listOf(
                 GAME_TAP_CAPABILITY,
                 GAME_SWIPE_CAPABILITY,
+                GAME_MULTITOUCH_CAPABILITY,
                 GAME_BACK_CAPABILITY,
             ).map { capabilityId ->
                 M6PolicyGrant(
@@ -421,6 +486,7 @@ class M6AndroidProductionCapabilities internal constructor(
         const val CLIPBOARD_WRITE_CAPABILITY = "device.clipboard.write"
         const val GAME_TAP_CAPABILITY = "device.game.tap"
         const val GAME_SWIPE_CAPABILITY = "device.game.swipe"
+        const val GAME_MULTITOUCH_CAPABILITY = "device.game.multitouch"
         const val GAME_BACK_CAPABILITY = "device.game.back"
         const val APP_PACKAGE_SCOPE = "package"
         const val CLIPBOARD_CHANNEL_SCOPE = "channel"
@@ -437,6 +503,7 @@ class M6AndroidProductionCapabilities internal constructor(
         private val GAME_CAPABILITY_IDS = setOf(
             GAME_TAP_CAPABILITY,
             GAME_SWIPE_CAPABILITY,
+            GAME_MULTITOUCH_CAPABILITY,
             GAME_BACK_CAPABILITY,
         )
         private val GAME_TAP_PAYLOAD =

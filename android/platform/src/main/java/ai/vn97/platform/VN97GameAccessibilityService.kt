@@ -84,6 +84,14 @@ object VN97GameAccessibilityController {
             durationMillis,
         )
 
+    internal fun multiTouch(
+        packageName: String,
+        strokes: List<VN97GameTouchStroke>,
+    ): Boolean =
+        checkNotNull(service) {
+            "VN97 game accessibility service is not connected"
+        }.dispatchMultiTouch(packageName, strokes)
+
     internal fun back(packageName: String): Boolean =
         checkNotNull(service) {
             "VN97 game accessibility service is not connected"
@@ -168,6 +176,40 @@ class VN97GameAccessibilityService : AccessibilityService() {
             )
             .build()
         return dispatchAndAwait(gesture)
+    }
+
+    internal fun dispatchMultiTouch(
+        targetPackage: String,
+        strokes: List<VN97GameTouchStroke>,
+    ): Boolean {
+        requireForegroundPackage(targetPackage)
+        VN97GameMultiTouchContract.requireValid(strokes)
+
+        val builder = GestureDescription.Builder()
+        strokes.forEach { stroke ->
+            val start = mapPoint(
+                stroke.startXBasisPoints,
+                stroke.startYBasisPoints,
+            )
+            val end = mapPoint(
+                stroke.endXBasisPoints,
+                stroke.endYBasisPoints,
+            )
+            val path = Path().apply {
+                moveTo(start.first, start.second)
+                if (start != end) {
+                    lineTo(end.first, end.second)
+                }
+            }
+            builder.addStroke(
+                GestureDescription.StrokeDescription(
+                    path,
+                    stroke.startMillis,
+                    stroke.durationMillis,
+                )
+            )
+        }
+        return dispatchAndAwait(builder.build())
     }
 
     internal fun dispatchBack(targetPackage: String): Boolean {
