@@ -235,7 +235,7 @@ def test_release_cli_requires_and_reports_speech_quality_for_speech_checkpoint(
     ) == 0
 
     report = json.loads(capsys.readouterr().out)
-    assert report["schema"] == "VN97BOOTREL3"
+    assert report["schema"] == "VN97BOOTREL4"
     assert report["speech_enabled"] is True
     assert report["speech_validation"]["examples"] == 1
     assert report["speech_validation"]["target_tokens"] > 0
