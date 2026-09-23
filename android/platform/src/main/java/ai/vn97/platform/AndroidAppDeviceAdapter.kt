@@ -13,6 +13,7 @@ internal object PlatformCapabilityIds {
     const val CLIPBOARD_WRITE = M6AndroidProductionCapabilities.CLIPBOARD_WRITE_CAPABILITY
     const val GAME_TAP = M6AndroidProductionCapabilities.GAME_TAP_CAPABILITY
     const val GAME_SWIPE = M6AndroidProductionCapabilities.GAME_SWIPE_CAPABILITY
+    const val GAME_MULTITOUCH = M6AndroidProductionCapabilities.GAME_MULTITOUCH_CAPABILITY
     const val GAME_BACK = M6AndroidProductionCapabilities.GAME_BACK_CAPABILITY
 }
 
@@ -85,6 +86,24 @@ internal class AndroidAppDeviceAdapter(
             "game swipe was not completed"
         }
         return "game:swipe:$packageName"
+    }
+
+    override fun gameMultiTouch(
+        packageName: String,
+        strokes: List<VN97GameTouchStroke>,
+    ): String {
+        validatePackageName(packageName)
+        permissionBroker.requireGranted(PlatformCapabilityIds.GAME_MULTITOUCH)
+        gameControlPolicy.requireAuthorized(packageName)
+        check(
+            VN97GameAccessibilityController.multiTouch(
+                packageName,
+                strokes,
+            )
+        ) {
+            "game multi-touch action was not completed"
+        }
+        return "game:multitouch:$packageName:${strokes.size}"
     }
 
     override fun gameBack(packageName: String): String {
