@@ -24,6 +24,7 @@ class VN97FloatingAssistantService : Service() {
     private lateinit var windowManager: WindowManager
     private var avatar: VN97AvatarView? = null
     private var layoutParams: WindowManager.LayoutParams? = null
+    private var interaction: VN97FloatingInteractionController? = null
     private var sequence = 1L
 
     private var downRawX = 0f
@@ -68,6 +69,7 @@ class VN97FloatingAssistantService : Service() {
     override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
         super.onConfigurationChanged(newConfig)
         clampAndApplyPosition()
+        interaction?.updatePosition()
     }
 
     override fun onDestroy() {
@@ -107,6 +109,9 @@ class VN97FloatingAssistantService : Service() {
                     energy = 0.38f,
                 )
             )
+            setOnClickListener {
+                interaction?.toggle()
+            }
             setOnTouchListener { touchedView, event ->
                 handleOverlayTouch(touchedView as VN97AvatarView, event)
             }
@@ -117,6 +122,23 @@ class VN97FloatingAssistantService : Service() {
         clampPosition(params)
         windowManager.addView(view, params)
         view.onAvatarResume()
+        interaction = VN97FloatingInteractionController(
+            context = this,
+            windowManager = windowManager,
+            assistant = (application as VN97Application).assistant,
+            anchorProvider = { layoutParams },
+            publishMode = { mode, energy ->
+                view.publish(
+                    AvatarCommand(
+                        sourceSequence = sequence++,
+                        mode = mode,
+                        energy = energy,
+                    )
+                )
+            },
+        ).also {
+            it.initialize()
+        }
     }
 
     private fun handleOverlayTouch(
@@ -145,6 +167,7 @@ class VN97FloatingAssistantService : Service() {
                     params.y = downWindowY + dy.toInt()
                     clampPosition(params)
                     windowManager.updateViewLayout(view, params)
+                    interaction?.updatePosition()
                 }
                 return true
             }
@@ -164,6 +187,8 @@ class VN97FloatingAssistantService : Service() {
     }
 
     private fun removeOverlay() {
+        interaction?.close()
+        interaction = null
         val view = avatar ?: return
         avatar = null
         layoutParams = null
@@ -276,7 +301,7 @@ class VN97FloatingAssistantService : Service() {
         return Notification.Builder(this, NOTIFICATION_CHANNEL)
             .setSmallIcon(R.drawable.ic_vn97_assistant)
             .setContentTitle("VN97")
-            .setContentText("Floating 3D assistant is active")
+            .setContentText("Floating assistant active — tap the avatar to interact")
             .setContentIntent(openApp)
             .setOngoing(true)
             .setCategory(Notification.CATEGORY_SERVICE)
