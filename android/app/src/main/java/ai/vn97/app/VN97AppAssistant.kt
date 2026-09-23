@@ -195,6 +195,25 @@ class VN97AppAssistant(
         resources?.session?.hasActiveTurn == true
     }
 
+    fun releaseForBackgroundContinuation(): Boolean =
+        exclusive {
+            check(pendingResult == null) {
+                "cannot hand off VN97 while approval is pending"
+            }
+            val activeResources = resources
+            check(
+                activeResources == null ||
+                    !activeResources.session.hasActiveTurn
+            ) {
+                "cannot hand off VN97 while a foreground turn is active"
+            }
+            val wasOpen = model != null && resources != null
+            if (wasOpen) {
+                closeLocked()
+            }
+            wasOpen
+        }
+
     fun runVoiceTurn(
         preparedAudio: NativePreparedAudio,
         maxAdvances: Int = 8,
