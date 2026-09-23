@@ -59,6 +59,16 @@
         </service>
 
         <service
+            android:name=".VN97GameAgentService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse"
+            android:stopWithTask="false">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="User-started bounded closed-loop game assistance over an explicitly authorized foreground game." />
+        </service>
+
+        <service
             android:name=".VN97FloatingAssistantService"
             android:exported="false"
             android:foregroundServiceType="microphone|specialUse"

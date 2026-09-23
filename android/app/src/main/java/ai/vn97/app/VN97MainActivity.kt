@@ -43,6 +43,8 @@ class VN97MainActivity : Activity() {
     private lateinit var gameAccessibilityButton: Button
     private lateinit var gameAuthorizeButton: Button
     private lateinit var gameRevokeButton: Button
+    private lateinit var gameAgentStartButton: Button
+    private lateinit var gameAgentStopButton: Button
     private lateinit var mobileEvidenceButton: Button
     private lateinit var transcriptView: TextView
     private lateinit var inputView: EditText
@@ -249,6 +251,41 @@ class VN97MainActivity : Activity() {
         )
         root.addView(
             gameControlRow,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ),
+        )
+
+        val gameAgentRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+        }
+        gameAgentStartButton = Button(this).apply {
+            text = "Start game agent"
+            setOnClickListener { startGameAgent() }
+        }
+        gameAgentStopButton = Button(this).apply {
+            text = "Stop game agent"
+            setOnClickListener { stopGameAgent() }
+        }
+        gameAgentRow.addView(
+            gameAgentStartButton,
+            LinearLayout.LayoutParams(
+                0,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                1f,
+            ),
+        )
+        gameAgentRow.addView(
+            gameAgentStopButton,
+            LinearLayout.LayoutParams(
+                0,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                1f,
+            ),
+        )
+        root.addView(
+            gameAgentRow,
             LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT,
@@ -743,6 +780,69 @@ class VN97MainActivity : Activity() {
         }
     }
 
+    private fun startGameAgent() {
+        if (
+            state.phase != VN97AppPhase.READY ||
+            !state.inputEnabled ||
+            autonomousApprovalActive
+        ) {
+            statusView.text =
+                "VN97 must be READY with no pending approval before game-agent start."
+            return
+        }
+        val activeSession = runCatching {
+            app.platformRuntime.gameControlPolicy
+                .activeSessionOrNull()
+        }.getOrNull()
+        if (activeSession == null) {
+            statusView.text =
+                "Authorize the exact target game package first."
+            refreshGameControlStatus()
+            return
+        }
+        if (!VN97GameAccessibilityController.isConnected()) {
+            statusView.text =
+                "Enable VN97 Game Control accessibility first."
+            return
+        }
+        if (!app.screenCaptureBroker.isActive()) {
+            statusView.text =
+                "Start user-approved screen sharing before the game agent."
+            return
+        }
+        if (!app.assistant.hasProductionVision()) {
+            statusView.text =
+                "The activated VN97 model has no production vision weights."
+            return
+        }
+        val goal = inputView.text.toString().trim()
+        if (goal.isEmpty()) {
+            statusView.text =
+                "Enter the game episode goal before starting the agent."
+            return
+        }
+        if (
+            goal.toByteArray(Charsets.UTF_8).size >
+                32 * 1024
+        ) {
+            statusView.text = "Game episode goal is too large."
+            return
+        }
+        inputView.text.clear()
+        VN97GameAgentService.start(this, goal)
+        statusView.text =
+            "Game agent started for " +
+                activeSession.packageName +
+                ". Open that game within 30 seconds."
+        refreshGameControlStatus()
+    }
+
+    private fun stopGameAgent() {
+        VN97GameAgentService.stop(this)
+        statusView.text = "Stopping the VN97 game agent…"
+        refreshGameControlStatus()
+    }
+
     private fun refreshGameControlStatus() {
         val connected =
             VN97GameAccessibilityController.isConnected()
@@ -784,9 +884,38 @@ class VN97MainActivity : Activity() {
             } else {
                 "Enable game accessibility"
             }
+        val agent = VN97GameAgentService.snapshot()
+        gameControlStatusView.append(
+            buildString {
+                append("\nagent=")
+                append(agent.state.name.lowercase())
+                append(" actions=")
+                append(agent.actionCount)
+                if (agent.detail.isNotBlank()) {
+                    append("\nagent_detail=")
+                    append(
+                        agent.detail
+                            .replace('\n', ' ')
+                            .take(512)
+                    )
+                }
+            }
+        )
+        val agentActive =
+            agent.state == VN97GameAgentState.WAITING_FOR_GAME ||
+                agent.state == VN97GameAgentState.RUNNING
         gameAuthorizeButton.isEnabled =
-            connected && !lastExternal.isNullOrBlank()
-        gameRevokeButton.isEnabled = active != null
+            connected &&
+                !lastExternal.isNullOrBlank() &&
+                !agentActive
+        gameRevokeButton.isEnabled =
+            active != null && !agentActive
+        gameAgentStartButton.isEnabled =
+            active != null &&
+                connected &&
+                app.screenCaptureBroker.isActive() &&
+                !agentActive
+        gameAgentStopButton.isEnabled = agentActive
     }
 
     private fun requestAutonomousNotificationPermissionIfNeeded() {

@@ -75,7 +75,16 @@ class M6AndroidProductionCapabilities internal constructor(
         ),
     )
 
-    val intentBinder: M6ExternalIntentBinder = M6ExternalIntentBinder(descriptors)
+    val intentBinder: M6ExternalIntentBinder =
+        M6ExternalIntentBinder(descriptors)
+
+    val gameDescriptors: List<M6CapabilityDescriptor> =
+        descriptors.filter {
+            it.capabilityId in GAME_CAPABILITY_IDS
+        }
+
+    val gameIntentBinder: M6ExternalIntentBinder =
+        M6ExternalIntentBinder(gameDescriptors)
 
     fun createSealedRegistry(): M6TypedCapabilityRegistry =
         M6TypedCapabilityRegistry().also { registry ->
@@ -137,6 +146,59 @@ class M6AndroidProductionCapabilities internal constructor(
             )
             registry.register(
                 descriptors[4],
+                M6CapabilityHandler { action ->
+                    val packageName =
+                        validateGameBackRequest(action.request)
+                    M6ActionOutcome(
+                        success = true,
+                        result = actions.gameBack(packageName),
+                    )
+                },
+                M6PayloadValidator(::validateGameBackRequest),
+            )
+            registry.seal()
+        }
+
+    fun createSealedGameRegistry(): M6TypedCapabilityRegistry =
+        M6TypedCapabilityRegistry().also { registry ->
+            registry.register(
+                gameDescriptors[0],
+                M6CapabilityHandler { action ->
+                    val request =
+                        validateGameTapRequest(action.request)
+                    M6ActionOutcome(
+                        success = true,
+                        result = actions.gameTap(
+                            request.packageName,
+                            request.xBasisPoints,
+                            request.yBasisPoints,
+                            request.durationMillis,
+                        ),
+                    )
+                },
+                M6PayloadValidator(::validateGameTapRequest),
+            )
+            registry.register(
+                gameDescriptors[1],
+                M6CapabilityHandler { action ->
+                    val request =
+                        validateGameSwipeRequest(action.request)
+                    M6ActionOutcome(
+                        success = true,
+                        result = actions.gameSwipe(
+                            request.packageName,
+                            request.startXBasisPoints,
+                            request.startYBasisPoints,
+                            request.endXBasisPoints,
+                            request.endYBasisPoints,
+                            request.durationMillis,
+                        ),
+                    )
+                },
+                M6PayloadValidator(::validateGameSwipeRequest),
+            )
+            registry.register(
+                gameDescriptors[2],
                 M6CapabilityHandler { action ->
                     val packageName =
                         validateGameBackRequest(action.request)
@@ -372,6 +434,11 @@ class M6AndroidProductionCapabilities internal constructor(
         private const val MIN_SWIPE_MILLIS = 50L
         private const val MAX_SWIPE_MILLIS = 3_000L
         private const val GAME_ACTION_LEASE_NS = 10_000_000_000L
+        private val GAME_CAPABILITY_IDS = setOf(
+            GAME_TAP_CAPABILITY,
+            GAME_SWIPE_CAPABILITY,
+            GAME_BACK_CAPABILITY,
+        )
         private val GAME_TAP_PAYLOAD =
             Regex("^\\{\\\"duration_ms\\\":([0-9]+),\\\"x_bps\\\":([0-9]+),\\\"y_bps\\\":([0-9]+)\\}$")
         private val GAME_SWIPE_PAYLOAD =

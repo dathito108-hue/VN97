@@ -43,7 +43,11 @@ class AndroidPlatformRuntime(
     private val productionCapabilities =
         M6AndroidProductionCapabilities(appDeviceAdapter)
 
-    val externalIntentBinder: M6ExternalIntentBinder = productionCapabilities.intentBinder
+    val externalIntentBinder: M6ExternalIntentBinder =
+        productionCapabilities.intentBinder
+
+    val gameIntentBinder: M6ExternalIntentBinder =
+        productionCapabilities.gameIntentBinder
 
     fun createExternalExecutionFabric(
         registry: M6TypedCapabilityRegistry,
@@ -100,6 +104,32 @@ class AndroidPlatformRuntime(
         binder = externalIntentBinder,
         approvals = externalApprovals,
         executionFabric = createProductionExternalExecutionFabric(
+            grants = grants,
+            auditFileName = auditFileName,
+        ),
+        cognitionLimits = cognitionLimits,
+    )
+
+    fun createProductionGameExternalExecutionFabric(
+        grants: List<M6PolicyGrant>,
+        auditFileName: String = "m14-game-actions.jsonl",
+    ): M6ExternalExecutionFabric = createDurableExternalExecutionFabric(
+        registry = productionCapabilities.createSealedGameRegistry(),
+        grants = grants,
+        auditRoot = appContext.noBackupFilesDir,
+        auditFileName = auditFileName,
+    )
+
+    fun createProductionGameExternalCoordinator(
+        cognition: NativeTypedCognitionAdapter,
+        grants: List<M6PolicyGrant>,
+        cognitionLimits: NativeCognitionLimits = NativeCognitionLimits(),
+        auditFileName: String = "m14-game-actions.jsonl",
+    ): M6EndToEndExternalCoordinator = M6EndToEndExternalCoordinator(
+        cognition = cognition,
+        binder = gameIntentBinder,
+        approvals = externalApprovals,
+        executionFabric = createProductionGameExternalExecutionFabric(
             grants = grants,
             auditFileName = auditFileName,
         ),

@@ -184,6 +184,17 @@ fun main() {
             it.payloadSchemaJson
         } == assembly.descriptors.map { it.payloadSchemaJson }
     )
+    check(
+        assembly.gameIntentBinder.capabilities.map {
+            it.capabilityId
+        } == listOf(
+            M6AndroidProductionCapabilities.GAME_TAP_CAPABILITY,
+            M6AndroidProductionCapabilities.GAME_SWIPE_CAPABILITY,
+            M6AndroidProductionCapabilities.GAME_BACK_CAPABILITY,
+        )
+    )
+    val gameOnlyRegistry = assembly.createSealedGameRegistry()
+    check(gameOnlyRegistry.sealed)
     assembly.descriptors.take(2).forEach { descriptor ->
         check(descriptor.approvalRequired)
         check(descriptor.maxLeaseUses == 1)
