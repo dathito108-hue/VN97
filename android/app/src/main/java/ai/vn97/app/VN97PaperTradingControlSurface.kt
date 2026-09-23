@@ -66,9 +66,9 @@ object VN97PaperTradingControlSurface {
 
         val symbols = symbolsText
             .split(',', ';', ' ', 10.toChar(), 13.toChar(), 9.toChar())
-            .map(String::trim)
-            .filter(String::isNotEmpty)
-            .map(String::uppercase)
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .map { it.uppercase() }
             .distinct()
             .sorted()
         require(symbols.isNotEmpty()) {
