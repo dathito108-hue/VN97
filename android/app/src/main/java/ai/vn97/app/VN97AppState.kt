@@ -62,7 +62,8 @@ object VN97AppReducer {
 
         VN97AppEvent.ApprovalRequired -> {
             check(
-                state.phase == VN97AppPhase.RUNNING ||
+                state.phase == VN97AppPhase.READY ||
+                    state.phase == VN97AppPhase.RUNNING ||
                     state.phase == VN97AppPhase.WAITING_APPROVAL
             )
             state.copy(
