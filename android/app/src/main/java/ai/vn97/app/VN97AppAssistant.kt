@@ -83,6 +83,10 @@ class VN97AppAssistant(
         )
     }
 
+    fun hasProductionVoice(): Boolean = synchronized(lock) {
+        model?.info?.hasAudioProjection == true
+    }
+
     fun runVoiceTurn(
         preparedAudio: NativePreparedAudio,
         maxAdvances: Int = 8,
