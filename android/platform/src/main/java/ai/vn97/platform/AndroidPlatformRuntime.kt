@@ -43,7 +43,11 @@ class AndroidPlatformRuntime(
     private val productionCapabilities =
         M6AndroidProductionCapabilities(appDeviceAdapter)
 
-    val externalIntentBinder: M6ExternalIntentBinder = productionCapabilities.intentBinder
+    val externalIntentBinder: M6ExternalIntentBinder =
+        productionCapabilities.intentBinder
+
+    val gameIntentBinder: M6ExternalIntentBinder =
+        productionCapabilities.gameIntentBinder
 
     fun createExternalExecutionFabric(
         registry: M6TypedCapabilityRegistry,
@@ -106,6 +110,32 @@ class AndroidPlatformRuntime(
         cognitionLimits = cognitionLimits,
     )
 
+    fun createProductionGameExternalExecutionFabric(
+        grants: List<M6PolicyGrant>,
+        auditFileName: String = "m14-game-actions.jsonl",
+    ): M6ExternalExecutionFabric = createDurableExternalExecutionFabric(
+        registry = productionCapabilities.createSealedGameRegistry(),
+        grants = grants,
+        auditRoot = appContext.noBackupFilesDir,
+        auditFileName = auditFileName,
+    )
+
+    fun createProductionGameExternalCoordinator(
+        cognition: NativeTypedCognitionAdapter,
+        grants: List<M6PolicyGrant>,
+        cognitionLimits: NativeCognitionLimits = NativeCognitionLimits(),
+        auditFileName: String = "m14-game-actions.jsonl",
+    ): M6EndToEndExternalCoordinator = M6EndToEndExternalCoordinator(
+        cognition = cognition,
+        binder = gameIntentBinder,
+        approvals = externalApprovals,
+        executionFabric = createProductionGameExternalExecutionFabric(
+            grants = grants,
+            auditFileName = auditFileName,
+        ),
+        cognitionLimits = cognitionLimits,
+    )
+
     /**
      * Production assistant path rooted directly in one activated VN97 model.
      * No generic inference/backend parameter is accepted here.
@@ -127,6 +157,7 @@ class AndroidPlatformRuntime(
         memory = null,
         turnMemoryWriter = null,
         turnMemoryRecovery = null,
+        gameOnlyCapabilities = false,
     )
 
     /**
@@ -147,6 +178,7 @@ class AndroidPlatformRuntime(
         maxTurnMemoryJournalEntries: Int = 200_000,
         turnMemoryImportance: Float = 0.75f,
         turnMemoryRecoveryFileName: String = "turn-memory-recovery.vn97tmr1",
+        gameOnlyCapabilities: Boolean = false,
     ): VN97ProductionAssistantResources {
         val memory = openOrCreateProductionMemory(
             model = model,
@@ -203,6 +235,7 @@ class AndroidPlatformRuntime(
                     memory = memory,
                     turnMemoryWriter = turnMemoryWriter,
                     turnMemoryRecovery = turnMemoryRecovery,
+                    gameOnlyCapabilities = gameOnlyCapabilities,
                 ),
                 memory = memory,
                 turnMemoryWriter = turnMemoryWriter,
@@ -265,6 +298,7 @@ class AndroidPlatformRuntime(
         memory: NativeMemoryRetriever?,
         turnMemoryWriter: VN97TurnMemoryWriter?,
         turnMemoryRecovery: VN97TurnMemoryRecovery?,
+        gameOnlyCapabilities: Boolean,
     ): VN97AssistantSession {
         val cognition = NativeTypedCognitionAdapter(
             NativeCognitionInferenceEngine(
@@ -272,13 +306,24 @@ class AndroidPlatformRuntime(
                 config = cognitionRuntimeConfig,
             )
         )
+        val coordinator =
+            if (gameOnlyCapabilities) {
+                createProductionGameExternalCoordinator(
+                    cognition = cognition,
+                    grants = grants,
+                    cognitionLimits = cognitionLimits,
+                    auditFileName = auditFileName,
+                )
+            } else {
+                createProductionExternalCoordinator(
+                    cognition = cognition,
+                    grants = grants,
+                    cognitionLimits = cognitionLimits,
+                    auditFileName = auditFileName,
+                )
+            }
         return VN97AssistantSession(
-            coordinator = createProductionExternalCoordinator(
-                cognition = cognition,
-                grants = grants,
-                cognitionLimits = cognitionLimits,
-                auditFileName = auditFileName,
-            ),
+            coordinator = coordinator,
             limits = sessionLimits,
             defaultMemory = memory,
             turnMemoryWriter = turnMemoryWriter,
