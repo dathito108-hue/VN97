@@ -53,6 +53,12 @@ class VN97Application :
         VN97AppProvisioner(this)
     }
 
+    val knowledgeAcquisition: VN97AppKnowledgeAcquisition by lazy(
+        LazyThreadSafetyMode.SYNCHRONIZED
+    ) {
+        VN97AppKnowledgeAcquisition(this)
+    }
+
     val bundledBootstrap: VN97BundledBootstrap by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         VN97BundledBootstrap(this, provisioner)
     }
