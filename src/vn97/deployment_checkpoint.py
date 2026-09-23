@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import re
 import struct
+import stat
 import sys
 import tempfile
 import zlib
@@ -609,21 +610,46 @@ def load_deployment_checkpoint_file(
     path: str | os.PathLike[str],
 ) -> VN97LoadedDeploymentCheckpoint:
     target = Path(path)
-    if target.is_symlink() or not target.is_file():
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        fd = os.open(target, flags)
+    except OSError as exc:
         raise VN97DeploymentCheckpointError(
-            "VN97CK1 source must be a non-symlink regular file"
-        )
-    size = target.stat().st_size
-    if not HEADER_SIZE <= size <= MAX_CHECKPOINT_BYTES:
-        raise VN97DeploymentCheckpointFormatError(
-            "VN97CK1 file size is outside bounds"
-        )
-    blob = target.read_bytes()
-    if len(blob) != size:
-        raise VN97DeploymentCheckpointIntegrityError(
-            "VN97CK1 file changed while being read"
-        )
-    return load_deployment_checkpoint(blob)
+            "VN97CK1 source could not be opened safely"
+        ) from exc
+
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode):
+            raise VN97DeploymentCheckpointError(
+                "VN97CK1 source must be a regular file"
+            )
+        size = info.st_size
+        if not HEADER_SIZE <= size <= MAX_CHECKPOINT_BYTES:
+            raise VN97DeploymentCheckpointFormatError(
+                "VN97CK1 file size is outside bounds"
+            )
+
+        out = bytearray()
+        while len(out) < size:
+            chunk = os.read(fd, min(1024 * 1024, size - len(out)))
+            if not chunk:
+                break
+            out.extend(chunk)
+
+        after = os.fstat(fd)
+        if (
+            len(out) != size
+            or after.st_size != size
+            or after.st_ino != info.st_ino
+            or after.st_dev != info.st_dev
+        ):
+            raise VN97DeploymentCheckpointIntegrityError(
+                "VN97CK1 file changed while being read"
+            )
+        return load_deployment_checkpoint(bytes(out))
+    finally:
+        os.close(fd)
 
 
 def build_bootstrap_bundle_from_checkpoint(
