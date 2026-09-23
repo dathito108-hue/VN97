@@ -74,6 +74,7 @@ class VN97TrainingConfig:
     max_grad_norm: float = 1.0
     seed: int = 97
     shuffle: bool = True
+    max_windows: int = 10_000
 
     def __post_init__(self) -> None:
         if self.sequence_length < 2:
@@ -90,6 +91,8 @@ class VN97TrainingConfig:
             raise ValueError("max_grad_norm must be finite and positive")
         if self.seed < 0:
             raise ValueError("seed must be non-negative")
+        if self.max_windows <= 0:
+            raise ValueError("max_windows must be positive")
 
 
 @dataclass(frozen=True)
@@ -248,6 +251,8 @@ def build_training_windows(
                 pad_token_id=pad_token_id,
             )
         )
+        if len(output) > config.max_windows:
+            raise ValueError("training window count exceeds max_windows")
     if not output:
         raise ValueError("training set produced no windows")
     return tuple(output)
