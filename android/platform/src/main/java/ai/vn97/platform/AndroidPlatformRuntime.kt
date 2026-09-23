@@ -157,7 +157,6 @@ class AndroidPlatformRuntime(
         memory = null,
         turnMemoryWriter = null,
         turnMemoryRecovery = null,
-        gameOnlyCapabilities = false,
     )
 
     /**
@@ -178,7 +177,6 @@ class AndroidPlatformRuntime(
         maxTurnMemoryJournalEntries: Int = 200_000,
         turnMemoryImportance: Float = 0.75f,
         turnMemoryRecoveryFileName: String = "turn-memory-recovery.vn97tmr1",
-        gameOnlyCapabilities: Boolean = false,
     ): VN97ProductionAssistantResources {
         val memory = openOrCreateProductionMemory(
             model = model,
@@ -235,7 +233,6 @@ class AndroidPlatformRuntime(
                     memory = memory,
                     turnMemoryWriter = turnMemoryWriter,
                     turnMemoryRecovery = turnMemoryRecovery,
-                    gameOnlyCapabilities = gameOnlyCapabilities,
                 ),
                 memory = memory,
                 turnMemoryWriter = turnMemoryWriter,
@@ -298,7 +295,6 @@ class AndroidPlatformRuntime(
         memory: NativeMemoryRetriever?,
         turnMemoryWriter: VN97TurnMemoryWriter?,
         turnMemoryRecovery: VN97TurnMemoryRecovery?,
-        gameOnlyCapabilities: Boolean,
     ): VN97AssistantSession {
         val cognition = NativeTypedCognitionAdapter(
             NativeCognitionInferenceEngine(
@@ -306,24 +302,13 @@ class AndroidPlatformRuntime(
                 config = cognitionRuntimeConfig,
             )
         )
-        val coordinator =
-            if (gameOnlyCapabilities) {
-                createProductionGameExternalCoordinator(
-                    cognition = cognition,
-                    grants = grants,
-                    cognitionLimits = cognitionLimits,
-                    auditFileName = auditFileName,
-                )
-            } else {
-                createProductionExternalCoordinator(
-                    cognition = cognition,
-                    grants = grants,
-                    cognitionLimits = cognitionLimits,
-                    auditFileName = auditFileName,
-                )
-            }
         return VN97AssistantSession(
-            coordinator = coordinator,
+            coordinator = createProductionExternalCoordinator(
+                cognition = cognition,
+                grants = grants,
+                cognitionLimits = cognitionLimits,
+                auditFileName = auditFileName,
+            ),
             limits = sessionLimits,
             defaultMemory = memory,
             turnMemoryWriter = turnMemoryWriter,
