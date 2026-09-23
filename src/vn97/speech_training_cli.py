@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import stat
+import struct
 import sys
 import tempfile
 import wave
@@ -218,13 +219,11 @@ def load_speech_manifest(
         except ValueError as exc:
             raise ValueError("speech audio path escapes manifest directory") from exc
         waveform = _load_pcm16_mono_16k(resolved)
-        wav_hash = hashlib.sha256(
-            _read_regular_file(
-                resolved,
-                max_bytes=_MAX_WAV_BYTES,
-                label="speech WAV",
-            )
-        ).digest()
+        audio_digest = hashlib.sha256()
+        audio_digest.update(b"VN97PCMF32LE1\0")
+        for sample in waveform.tolist():
+            audio_digest.update(struct.pack("<f", float(sample)))
+        wav_hash = audio_digest.digest()
         digest.update(len(value["audio"].encode("utf-8")).to_bytes(8, "little"))
         digest.update(value["audio"].encode("utf-8"))
         digest.update(wav_hash)
