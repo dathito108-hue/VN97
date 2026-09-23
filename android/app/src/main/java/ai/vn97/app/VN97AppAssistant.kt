@@ -11,6 +11,7 @@ import ai.vn97.runtime.NativeActivatedModel
 import ai.vn97.runtime.NativeCognitionInferenceEngine
 import ai.vn97.runtime.NativePreparedAudio
 import ai.vn97.runtime.NativePreparedVision
+import android.content.Intent
 import android.os.SystemClock
 import java.io.File
 
@@ -44,11 +45,7 @@ class VN97AppAssistant(
         val assistant = try {
             application.platformRuntime.createProductionMemoryBackedAssistant(
                 model = opened,
-                grants = listOf(
-                    M6AndroidProductionCapabilities.userApprovedClipboardGrant(
-                        APP_PRINCIPAL
-                    )
-                ),
+                grants = productionGrants(),
             )
         } catch (exc: Throwable) {
             opened.close()
@@ -114,6 +111,64 @@ class VN97AppAssistant(
         }
         NativeCognitionInferenceEngine(activeModel)
             .perceiveVision(preparedVision)
+    }
+
+    fun verifyVisualOutcome(
+        goal: String,
+        beforeObservation: String,
+        afterObservation: String,
+        maxNewTokens: Int = 384,
+    ): String = synchronized(lock) {
+        require(goal.isNotBlank()) { "visual verification goal must not be blank" }
+        require(beforeObservation.isNotBlank()) {
+            "beforeObservation must not be blank"
+        }
+        require(afterObservation.isNotBlank()) {
+            "afterObservation must not be blank"
+        }
+        require(maxNewTokens in 1..1024) {
+            "visual verification token budget is invalid"
+        }
+        check(pendingResult == null) {
+            "cannot verify visual outcome while approval is pending"
+        }
+        val activeResources = checkNotNull(resources) {
+            "trusted VN97 model is not active"
+        }
+        check(!activeResources.session.hasActiveTurn) {
+            "cannot verify visual outcome while a turn is active"
+        }
+        val activeModel = checkNotNull(model) {
+            "trusted VN97 model is not active"
+        }
+        check(activeModel.info.hasVisionProjection) {
+            "activated VN97 model has no production vision weights"
+        }
+        val prompt = buildString {
+            append("VN97VISVERIFY1\n")
+            append("Use only the supplied before/after visual observations. ")
+            append("State whether the user goal is visibly satisfied and what ")
+            append("remains uncertain. Do not request or execute tools.\n")
+            append("goal=")
+            append(goal.take(MAX_VISUAL_VERIFY_FIELD_CHARS))
+            append("\nbefore=")
+            append(beforeObservation.take(MAX_VISUAL_VERIFY_FIELD_CHARS))
+            append("\nafter=")
+            append(afterObservation.take(MAX_VISUAL_VERIFY_FIELD_CHARS))
+            append("\nverification=")
+        }
+        NativeCognitionInferenceEngine(activeModel)
+            .generateText(prompt, maxNewTokens)
+            .trim()
+            .ifEmpty {
+                throw IllegalStateException(
+                    "VN97 visual verification returned empty output"
+                )
+            }
+    }
+
+    fun hasActiveTurn(): Boolean = synchronized(lock) {
+        resources?.session?.hasActiveTurn == true
     }
 
     fun runVoiceTurn(
@@ -261,6 +316,35 @@ class VN97AppAssistant(
         }
     }
 
+    private fun productionGrants() =
+        buildList {
+            add(
+                M6AndroidProductionCapabilities.userApprovedClipboardGrant(
+                    APP_PRINCIPAL
+                )
+            )
+            val launcher = Intent(Intent.ACTION_MAIN).apply {
+                addCategory(Intent.CATEGORY_LAUNCHER)
+            }
+            application.packageManager
+                .queryIntentActivities(launcher, 0)
+                .asSequence()
+                .mapNotNull { it.activityInfo?.packageName }
+                .filter { it.isNotBlank() }
+                .distinct()
+                .sorted()
+                .take(MAX_LAUNCHABLE_APP_GRANTS)
+                .forEach { packageName ->
+                    runCatching {
+                        M6AndroidProductionCapabilities
+                            .userApprovedAppLaunchGrant(
+                                APP_PRINCIPAL,
+                                packageName,
+                            )
+                    }.getOrNull()?.let(::add)
+                }
+        }
+
     private fun closeLocked() {
         var failure: Throwable? = null
         try {
@@ -287,5 +371,7 @@ class VN97AppAssistant(
 
     companion object {
         const val APP_PRINCIPAL = "runtime.user"
+        private const val MAX_LAUNCHABLE_APP_GRANTS = 512
+        private const val MAX_VISUAL_VERIFY_FIELD_CHARS = 2 * 1024
     }
 }

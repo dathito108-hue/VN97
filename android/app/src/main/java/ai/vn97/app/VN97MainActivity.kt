@@ -9,8 +9,10 @@ import android.Manifest
 import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.projection.MediaProjectionManager
 import android.net.Uri
 import android.os.Bundle
+import android.os.SystemClock
 import android.provider.Settings
 import android.view.Gravity
 import android.view.View
@@ -32,6 +34,9 @@ class VN97MainActivity : Activity() {
     private lateinit var statusView: TextView
     private lateinit var floatingAssistantButton: Button
     private lateinit var voicePermissionButton: Button
+    private lateinit var screenShareButton: Button
+    private lateinit var screenAnalyzeButton: Button
+    private lateinit var cameraAnalyzeButton: Button
     private lateinit var mobileEvidenceButton: Button
     private lateinit var transcriptView: TextView
     private lateinit var inputView: EditText
@@ -52,6 +57,7 @@ class VN97MainActivity : Activity() {
     private var signatureUri: Uri? = null
     private var publisherKeyUri: Uri? = null
     private var pendingFloatingAssistantEnable = false
+    private var pendingCameraCapture = false
 
     private val worker = Executors.newSingleThreadExecutor()
     private var state = VN97AppState()
@@ -136,6 +142,41 @@ class VN97MainActivity : Activity() {
         }
         root.addView(
             voicePermissionButton,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ),
+        )
+
+        screenShareButton = Button(this).apply {
+            setOnClickListener { toggleScreenPerception() }
+        }
+        root.addView(
+            screenShareButton,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ),
+        )
+
+        screenAnalyzeButton = Button(this).apply {
+            text = "Analyze shared screen"
+            setOnClickListener { analyzeScreenPerception() }
+        }
+        root.addView(
+            screenAnalyzeButton,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ),
+        )
+
+        cameraAnalyzeButton = Button(this).apply {
+            text = "Analyze camera"
+            setOnClickListener { analyzeCameraPerception() }
+        }
+        root.addView(
+            cameraAnalyzeButton,
             LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT,
@@ -352,6 +393,7 @@ class VN97MainActivity : Activity() {
         setContentView(root)
         refreshFloatingAssistantButton()
         refreshVoicePermissionButton()
+        refreshVisualButtons()
         render(state)
         attachTrustedModel()
         if (
@@ -373,6 +415,7 @@ class VN97MainActivity : Activity() {
         }
         refreshFloatingAssistantButton()
         refreshVoicePermissionButton()
+        refreshVisualButtons()
     }
 
     override fun onNewIntent(intent: Intent?) {
@@ -400,6 +443,22 @@ class VN97MainActivity : Activity() {
                 } else {
                     "Microphone permission was not granted."
                 }
+        }
+        if (requestCode == REQUEST_CAMERA_PERMISSION) {
+            val granted = hasCameraPermission()
+            statusView.text =
+                if (granted) {
+                    "Camera enabled for explicit VN97 visual capture."
+                } else {
+                    "Camera permission was not granted."
+                }
+            if (granted && pendingCameraCapture) {
+                pendingCameraCapture = false
+                analyzeCameraPerception()
+            } else {
+                pendingCameraCapture = false
+            }
+            refreshVisualButtons()
         }
     }
 
@@ -436,6 +495,256 @@ class VN97MainActivity : Activity() {
                 "Enable microphone voice"
             }
         voicePermissionButton.isEnabled = !hasMicrophonePermission()
+    }
+
+    private fun hasCameraPermission(): Boolean =
+        checkSelfPermission(Manifest.permission.CAMERA) ==
+            PackageManager.PERMISSION_GRANTED
+
+    private fun requestCameraPermissionIfNeeded(): Boolean {
+        if (hasCameraPermission()) return true
+        pendingCameraCapture = true
+        requestPermissions(
+            arrayOf(Manifest.permission.CAMERA),
+            REQUEST_CAMERA_PERMISSION,
+        )
+        return false
+    }
+
+    private fun toggleScreenPerception() {
+        if (app.screenCaptureBroker.isActive()) {
+            VN97ScreenCaptureService.stop(this)
+            statusView.text = "Screen perception stopped."
+            refreshVisualButtons()
+            return
+        }
+        if (!app.assistant.hasProductionVision()) {
+            statusView.text =
+                "Activated VN97 model has no production vision weights."
+            return
+        }
+        val manager = getSystemService(
+            MediaProjectionManager::class.java
+        ) ?: run {
+            statusView.text =
+                "MediaProjectionManager unavailable."
+            return
+        }
+        startActivityForResult(
+            manager.createScreenCaptureIntent(),
+            REQUEST_SCREEN_CAPTURE,
+        )
+    }
+
+    private fun analyzeScreenPerception() {
+        if (
+            state.phase != VN97AppPhase.READY ||
+            !state.inputEnabled
+        ) {
+            statusView.text =
+                "VN97 must be READY before visual perception."
+            return
+        }
+        if (!app.assistant.hasProductionVision()) {
+            statusView.text =
+                "Activated VN97 model has no production vision weights."
+            return
+        }
+        if (!app.screenCaptureBroker.isActive()) {
+            statusView.text =
+                "Start user-approved screen sharing first."
+            return
+        }
+
+        val goal = inputView.text.toString().trim()
+        if (goal.isNotEmpty()) {
+            inputView.text.clear()
+        }
+        render(
+            VN97AppReducer.reduce(
+                state,
+                VN97AppEvent.TurnStarted,
+            )
+        )
+        statusView.text =
+            if (goal.isEmpty()) {
+                "VN97 is perceiving the shared screen…"
+            } else {
+                "VN97 is perceiving the screen and planning the requested task…"
+            }
+
+        val after = SystemClock.elapsedRealtimeNanos()
+        worker.execute {
+            try {
+                val frame = app.screenCaptureBroker.awaitFreshFrame(
+                    afterElapsedRealtimeNs = after,
+                )
+                val visual = if (goal.isEmpty()) {
+                    app.visualActions.observe(
+                        VN97VisualSource.SCREEN,
+                        frame.prepared,
+                    )
+                } else {
+                    app.visualActions.runGoal(
+                        VN97VisualSource.SCREEN,
+                        frame.prepared,
+                        goal,
+                    )
+                }
+                runOnUiThread {
+                    applyVisualResult(visual)
+                }
+            } catch (exc: Throwable) {
+                runOnUiThread {
+                    render(
+                        VN97AppReducer.reduce(
+                            state,
+                            VN97AppEvent.VisualFailed(
+                                "Screen perception failed: " +
+                                    exc::class.java.simpleName
+                            ),
+                        )
+                    )
+                }
+            }
+        }
+    }
+
+    private fun analyzeCameraPerception() {
+        if (
+            state.phase != VN97AppPhase.READY ||
+            !state.inputEnabled
+        ) {
+            statusView.text =
+                "VN97 must be READY before visual perception."
+            return
+        }
+        if (!app.assistant.hasProductionVision()) {
+            statusView.text =
+                "Activated VN97 model has no production vision weights."
+            return
+        }
+        if (!requestCameraPermissionIfNeeded()) {
+            statusView.text =
+                "Camera permission is required for this explicit capture."
+            return
+        }
+
+        val goal = inputView.text.toString().trim()
+        if (goal.isNotEmpty()) {
+            inputView.text.clear()
+        }
+        render(
+            VN97AppReducer.reduce(
+                state,
+                VN97AppEvent.TurnStarted,
+            )
+        )
+        statusView.text =
+            if (goal.isEmpty()) {
+                "Capturing one camera frame for local VN97 perception…"
+            } else {
+                "Capturing one camera frame for the requested VN97 task…"
+            }
+
+        VN97CameraCapture(applicationContext).capture { capture ->
+            worker.execute {
+                try {
+                    val prepared = capture.getOrThrow()
+                    val visual = if (goal.isEmpty()) {
+                        app.visualActions.observe(
+                            VN97VisualSource.CAMERA,
+                            prepared,
+                        )
+                    } else {
+                        app.visualActions.runGoal(
+                            VN97VisualSource.CAMERA,
+                            prepared,
+                            goal,
+                        )
+                    }
+                    runOnUiThread {
+                        applyVisualResult(visual)
+                    }
+                } catch (exc: Throwable) {
+                    runOnUiThread {
+                        render(
+                            VN97AppReducer.reduce(
+                                state,
+                                VN97AppEvent.VisualFailed(
+                                    "Camera perception failed: " +
+                                        exc::class.java.simpleName
+                                ),
+                            )
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private fun applyVisualResult(
+        visual: VN97VisualActionResult,
+    ) {
+        val turn = visual.turn
+        if (turn == null) {
+            render(
+                VN97AppReducer.reduce(
+                    state,
+                    VN97AppEvent.VisualObserved(
+                        source = visual.source.name.lowercase(),
+                        observation = visual.beforeObservation,
+                    ),
+                )
+            )
+            refreshVisualButtons()
+            return
+        }
+
+        val extra = when {
+            visual.verification != null &&
+                visual.afterObservation != null ->
+                "\n\nVisual verification: " +
+                    visual.verification
+            visual.verificationFailure != null ->
+                "\n\n" + visual.verificationFailure
+            else -> ""
+        }
+        val withVerification =
+            if (
+                turn.update.state ==
+                    VN97AssistantTurnState.COMPLETED &&
+                extra.isNotEmpty()
+            ) {
+                turn.copy(
+                    update = turn.update.copy(
+                        finalResponse =
+                            turn.update.finalResponse + extra
+                    )
+                )
+            } else {
+                turn
+            }
+        applyTurnResult(withVerification)
+        refreshVisualButtons()
+    }
+
+    private fun refreshVisualButtons() {
+        val vision = app.assistant.hasProductionVision()
+        val ready =
+            vision &&
+                state.phase == VN97AppPhase.READY &&
+                state.inputEnabled
+        val sharing = app.screenCaptureBroker.isActive()
+        screenShareButton.text =
+            if (sharing) {
+                "Stop screen perception"
+            } else {
+                "Start screen perception"
+            }
+        screenShareButton.isEnabled = sharing || ready
+        screenAnalyzeButton.isEnabled = ready && sharing
+        cameraAnalyzeButton.isEnabled = ready
     }
 
     private fun toggleFloatingAssistant() {
@@ -537,6 +846,28 @@ class VN97MainActivity : Activity() {
         data: Intent?,
     ) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == REQUEST_SCREEN_CAPTURE) {
+            if (resultCode == RESULT_OK && data != null) {
+                try {
+                    VN97ScreenCaptureService.start(
+                        this,
+                        resultCode,
+                        data,
+                    )
+                    statusView.text =
+                        "Screen sharing approved. VN97 perception stays local on-device."
+                } catch (exc: Throwable) {
+                    statusView.text =
+                        "Screen perception failed to start: " +
+                            exc::class.java.simpleName
+                }
+            } else {
+                statusView.text =
+                    "Screen sharing was not approved."
+            }
+            refreshVisualButtons()
+            return
+        }
         if (resultCode != RESULT_OK) return
         val uri = data?.data ?: return
         try {
@@ -818,8 +1149,21 @@ class VN97MainActivity : Activity() {
         )
         worker.execute {
             try {
-                val result = app.assistant.resolvePendingApproval(approved)
-                runOnUiThread { applyTurnResult(result) }
+                if (app.visualActions.hasPendingVisualApproval()) {
+                    val visual =
+                        app.visualActions.resolvePendingApproval(
+                            approved
+                        )
+                    runOnUiThread {
+                        applyVisualResult(visual)
+                    }
+                } else {
+                    val result =
+                        app.assistant.resolvePendingApproval(approved)
+                    runOnUiThread {
+                        applyTurnResult(result)
+                    }
+                }
             } catch (exc: Throwable) {
                 runOnUiThread {
                     renderFailure(
@@ -907,6 +1251,8 @@ class VN97MainActivity : Activity() {
             VN97AppPhase.WAITING_APPROVAL -> AssistantMode.WAITING_APPROVAL
             VN97AppPhase.ERROR -> AssistantMode.ERROR
         }
+        refreshVisualButtons()
+
         avatar.publish(
             AvatarCommand(
                 sourceSequence = avatarSequence++,
@@ -926,5 +1272,7 @@ class VN97MainActivity : Activity() {
         private const val REQUEST_SIGNATURE = 4102
         private const val REQUEST_PUBLISHER_KEY = 4103
         private const val REQUEST_MICROPHONE_PERMISSION = 4201
+        private const val REQUEST_SCREEN_CAPTURE = 4301
+        private const val REQUEST_CAMERA_PERMISSION = 4302
     }
 }
