@@ -113,7 +113,7 @@ Java_ai_vn97_runtime_NativeRuntimeBindings_nativeModelInfo(
     jintArray ints_out,
     jlongArray longs_out,
     jbyteArray model_id_out) {
-    if (!HasLength(env, ints_out, 9) || !HasLength(env, longs_out, 1) ||
+    if (!HasLength(env, ints_out, 12) || !HasLength(env, longs_out, 1) ||
         !HasLength(env, model_id_out, 32)) {
         return kModelNullArgument;
     }
@@ -123,7 +123,7 @@ Java_ai_vn97_runtime_NativeRuntimeBindings_nativeModelInfo(
     if (info.image_bytes > static_cast<std::size_t>(std::numeric_limits<jlong>::max())) {
         return kModelInvalidRange;
     }
-    const jint ints[9] = {
+    const jint ints[12] = {
         static_cast<jint>(info.vocab_size),
         static_cast<jint>(info.d_model),
         static_cast<jint>(info.n_layers),
@@ -133,9 +133,12 @@ Java_ai_vn97_runtime_NativeRuntimeBindings_nativeModelInfo(
         info.has_tokenizer != 0 ? 1 : 0,
         info.has_audio_projection != 0 ? 1 : 0,
         static_cast<jint>(info.audio_frame_size),
+        info.has_vision_projection != 0 ? 1 : 0,
+        static_cast<jint>(info.vision_channels),
+        static_cast<jint>(info.vision_patch_size),
     };
     const jlong longs[1] = {static_cast<jlong>(info.image_bytes)};
-    env->SetIntArrayRegion(ints_out, 0, 9, ints);
+    env->SetIntArrayRegion(ints_out, 0, 12, ints);
     env->SetLongArrayRegion(longs_out, 0, 1, longs);
     env->SetByteArrayRegion(
         model_id_out,
@@ -325,6 +328,62 @@ Java_ai_vn97_runtime_NativeRuntimeBindings_nativePrefillAudio(
     env->ReleaseFloatArrayElements(
         prepared_frames,
         frames,
+        JNI_ABORT);
+    env->ReleaseFloatArrayElements(
+        final_logits,
+        logits,
+        status == 0 ? 0 : JNI_ABORT);
+    return status;
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_ai_vn97_runtime_NativeRuntimeBindings_nativePrefillVision(
+    JNIEnv* env,
+    jobject,
+    jlong runtime_handle,
+    jlong model_handle,
+    jint vision_prefix_token,
+    jfloatArray prepared_patches,
+    jint patch_count,
+    jfloatArray final_logits) {
+    if (
+        vision_prefix_token < 0 ||
+        patch_count <= 0 ||
+        prepared_patches == nullptr ||
+        final_logits == nullptr
+    ) {
+        return kRuntimeInvalidConfig;
+    }
+    const jsize patch_value_count =
+        env->GetArrayLength(prepared_patches);
+    const jsize logits_count =
+        env->GetArrayLength(final_logits);
+    jfloat* patches =
+        env->GetFloatArrayElements(prepared_patches, nullptr);
+    if (patches == nullptr) return kRuntimeInvalidConfig;
+    jfloat* logits =
+        env->GetFloatArrayElements(final_logits, nullptr);
+    if (logits == nullptr) {
+        env->ReleaseFloatArrayElements(
+            prepared_patches,
+            patches,
+            JNI_ABORT);
+        return kRuntimeInvalidConfig;
+    }
+
+    const int status = vn97_model_runtime_prefill_vision(
+        static_cast<std::uint64_t>(model_handle),
+        static_cast<std::uint64_t>(runtime_handle),
+        static_cast<std::uint32_t>(vision_prefix_token),
+        patches,
+        static_cast<std::size_t>(patch_value_count),
+        static_cast<std::size_t>(patch_count),
+        logits,
+        static_cast<std::size_t>(logits_count));
+
+    env->ReleaseFloatArrayElements(
+        prepared_patches,
+        patches,
         JNI_ABORT);
     env->ReleaseFloatArrayElements(
         final_logits,
