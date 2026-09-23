@@ -171,6 +171,40 @@ class AndroidPlatformRuntime(
         )
     }
 
+    /**
+     * Create the M7W idempotent write-back transaction layer over the exact native
+     * VN97MEM1 store and activated VN97 cognition embedder.
+     */
+    fun createProductionTurnMemoryWriter(
+        model: NativeActivatedModel,
+        memory: NativeMemoryStore,
+        cognitionRuntimeConfig: NativeCognitionRuntimeConfig = NativeCognitionRuntimeConfig(),
+        journalFileName: String = "turn-memory.vn97twj1",
+        recoverTornTail: Boolean = true,
+        maxJournalEntries: Int = 200_000,
+        importance: Float = 0.75f,
+    ): VN97TurnMemoryWriter {
+        require(memory.vectorDim == model.info.dModel) {
+            "VN97MEM1 vector dimension does not match activated model dModel"
+        }
+        val engine = NativeCognitionInferenceEngine(
+            model = model,
+            config = cognitionRuntimeConfig,
+        )
+        val root = File(appContext.noBackupFilesDir, "vn97-memory")
+        return VN97TurnMemoryWriter(
+            backend = NativeVN97TurnMemoryBackend(memory),
+            embedder = VN97TurnMemoryEmbedder { text, vectorDim ->
+                engine.embedText(text, vectorDim)
+            },
+            journalRoot = root,
+            journalFileName = journalFileName,
+            recoverTornTail = recoverTornTail,
+            maxJournalEntries = maxJournalEntries,
+            importance = importance,
+        )
+    }
+
     /** Open the canonical native VN97MEM1 store from app-private no-backup storage. */
     fun openOrCreateProductionMemory(
         model: NativeActivatedModel,

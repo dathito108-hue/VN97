@@ -47,6 +47,25 @@ data class NativeMemoryStoreStats(
     }
 }
 
+data class NativeMemoryRecord(
+    val recordId: Long,
+    val timestampNs: Long,
+    val parentId: Long,
+    val kind: NativeMemoryKind,
+    val importance: Float,
+    val source: String,
+    val content: String,
+) {
+    init {
+        require(recordId > 0L) { "recordId must be positive" }
+        require(timestampNs >= 0L) { "timestampNs must be non-negative" }
+        require(parentId >= 0L) { "parentId must be non-negative" }
+        require(importance.isFinite() && importance in 0.0f..1.0f) {
+            "importance must be finite and in [0, 1]"
+        }
+    }
+}
+
 data class NativeMemoryRetentionPolicy(
     val maxRecords: Long = 0L,
     val maxAgeNs: Long = 0L,
@@ -348,6 +367,11 @@ class NativeMemoryStore private constructor(
         }
     }
 
+    fun record(recordId: Long): NativeMemoryRecord {
+        require(recordId > 0L) { "recordId must be positive" }
+        return withHandle { h -> readRecordForHandle(h, recordId) }
+    }
+
     fun compact(
         policy: NativeMemoryRetentionPolicy,
         nowNs: Long = clockNs(),
@@ -396,7 +420,7 @@ class NativeMemoryStore private constructor(
     private fun readRecordForHandle(
         handle: Long,
         recordId: Long,
-    ): DecodedRecord {
+    ): NativeMemoryRecord {
         val ints = IntArray(3)
         val longs = LongArray(2)
         val floats = FloatArray(1)
@@ -424,17 +448,23 @@ class NativeMemoryStore private constructor(
             ),
             "memory record read",
         )
-        return DecodedRecord(
+        return NativeMemoryRecord(
+            recordId = recordId,
+            timestampNs = longs[0],
+            parentId = longs[1],
+            kind = memoryKindFromCode(ints[0]),
+            importance = floats[0],
             source = strictUtf8(source),
             content = strictUtf8(content),
         )
     }
 }
 
-private data class DecodedRecord(
-    val source: String,
-    val content: String,
-)
+private fun memoryKindFromCode(code: Int): NativeMemoryKind = when (code) {
+    1 -> NativeMemoryKind.EPISODIC
+    2 -> NativeMemoryKind.SEMANTIC
+    else -> throw IllegalStateException("native memory returned unknown kind: $code")
+}
 
 private fun kindCode(kind: NativeMemoryKind): Int = when (kind) {
     NativeMemoryKind.EPISODIC -> 1
