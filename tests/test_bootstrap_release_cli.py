@@ -5,6 +5,7 @@ import torch
 
 from vn97 import (
     VN97Config,
+    VN97ReleaseQualityError,
     VN97LanguageCore,
     VN97TokenizerPackage,
     save_deployment_checkpoint,
@@ -36,11 +37,16 @@ def _checkpoint_and_tokenizer(tmp_path):
     save_deployment_checkpoint(model, checkpoint)
     tokenizer_path = tmp_path / "tokenizer.vn97tk1"
     tokenizer_path.write_bytes(tokenizer.to_bytes())
-    return checkpoint, tokenizer_path
+    validation = tmp_path / "validation.jsonl"
+    validation.write_text(
+        '{"text":"VN97 validation sample for release quality."}\n',
+        encoding="utf-8",
+    )
+    return checkpoint, tokenizer_path, validation
 
 
 def test_release_cli_writes_exact_m10j_assets(tmp_path, capsys):
-    checkpoint, tokenizer = _checkpoint_and_tokenizer(tmp_path)
+    checkpoint, tokenizer, validation = _checkpoint_and_tokenizer(tmp_path)
     private = cryptography.Ed25519PrivateKey.generate()
     raw_private = private.private_bytes(
         encoding=serialization.Encoding.Raw,
@@ -61,6 +67,12 @@ def test_release_cli_writes_exact_m10j_assets(tmp_path, capsys):
             "--source-origin", "vn97-training",
             "--source-license", "proprietary",
             "--assets-dir", str(assets),
+            "--validation-input", str(validation),
+            "--validation-format", "text",
+            "--validation-sequence-length", "32",
+            "--validation-batch-size", "1",
+            "--min-validation-target-tokens", "1",
+            "--max-validation-loss", "100",
             "--tile-rows", "4",
             "--tile-cols", "4",
         ]
@@ -83,14 +95,17 @@ def test_release_cli_writes_exact_m10j_assets(tmp_path, capsys):
     )
 
     report = json.loads(capsys.readouterr().out)
-    assert report["schema"] == "VN97BOOTREL1"
+    assert report["schema"] == "VN97BOOTREL2"
     assert report["publisher_key_id"] == "publisher.main"
     assert len(report["checkpoint_sha256"]) == 64
     assert len(report["package_sha256"]) == 64
+    assert report["validation"]["target_tokens"] > 0
+    assert report["validation"]["mean_loss"] <= 100
+    assert len(report["validation"]["dataset_sha256"]) == 64
 
 
 def test_release_cli_accepts_lowercase_hex_private_key(tmp_path):
-    checkpoint, tokenizer = _checkpoint_and_tokenizer(tmp_path)
+    checkpoint, tokenizer, validation = _checkpoint_and_tokenizer(tmp_path)
     raw_private = bytes(range(32))
     private_path = tmp_path / "publisher.hex"
     private_path.write_text(raw_private.hex(), encoding="ascii")
@@ -106,13 +121,19 @@ def test_release_cli_accepts_lowercase_hex_private_key(tmp_path):
             "--source-origin", "vn97-training",
             "--source-license", "proprietary",
             "--assets-dir", str(assets),
+            "--validation-input", str(validation),
+            "--validation-format", "text",
+            "--validation-sequence-length", "32",
+            "--validation-batch-size", "1",
+            "--min-validation-target-tokens", "1",
+            "--max-validation-loss", "100",
         ]
     ) == 0
     assert (assets / "model.vn97cap1").is_file()
 
 
 def test_release_cli_rejects_private_key_symlink(tmp_path):
-    checkpoint, tokenizer = _checkpoint_and_tokenizer(tmp_path)
+    checkpoint, tokenizer, validation = _checkpoint_and_tokenizer(tmp_path)
     key = tmp_path / "real-key"
     key.write_bytes(bytes(range(32)))
     link = tmp_path / "key-link"
@@ -131,3 +152,29 @@ def test_release_cli_rejects_private_key_symlink(tmp_path):
                 "--assets-dir", str(tmp_path / "assets"),
             ]
         )
+
+
+def test_release_quality_gate_runs_before_private_key_read(tmp_path):
+    checkpoint, tokenizer, validation = _checkpoint_and_tokenizer(tmp_path)
+    assets = tmp_path / "assets"
+
+    with pytest.raises(VN97ReleaseQualityError, match="loss"):
+        main(
+            [
+                "--checkpoint", str(checkpoint),
+                "--tokenizer", str(tokenizer),
+                "--private-key", str(tmp_path / "missing-private-key"),
+                "--key-id", "publisher.main",
+                "--capability-version", "1",
+                "--source-origin", "vn97-training",
+                "--source-license", "proprietary",
+                "--assets-dir", str(assets),
+                "--validation-input", str(validation),
+                "--validation-format", "text",
+                "--validation-sequence-length", "32",
+                "--validation-batch-size", "1",
+                "--min-validation-target-tokens", "1",
+                "--max-validation-loss", "0.000001",
+            ]
+        )
+    assert not assets.exists()

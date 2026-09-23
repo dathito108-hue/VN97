@@ -161,6 +161,13 @@ from .deployment_checkpoint import (
     save_deployment_checkpoint,
 )
 from .embedding import FactorizedEmbedding, FactorizedLMHead
+from .evaluation import (
+    VN97EvaluationResult,
+    VN97ReleaseCriteria,
+    VN97ReleaseQualityError,
+    evaluate_vn97_language,
+    require_release_quality,
+)
 from .external_intent import (
     ApprovalPrompt,
     ApprovalSessionError,
@@ -424,6 +431,11 @@ __all__ = [
     "VN97States",
     "VN97ModelImage",
     "build_model_image",
+    "VN97EvaluationResult",
+    "VN97ReleaseCriteria",
+    "VN97ReleaseQualityError",
+    "evaluate_vn97_language",
+    "require_release_quality",
     "FactorizedEmbedding",
     "FactorizedLMHead",
     "JournalScan",
