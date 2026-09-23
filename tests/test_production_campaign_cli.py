@@ -184,7 +184,7 @@ def test_production_campaign_rejects_overlapping_speech_split(
         tmp_path, "release.jsonl", "release.wav", "release"
     )
 
-    with pytest.raises(ValueError, match="speech records overlap"):
+    with pytest.raises(ValueError, match="speech audio overlaps"):
         production_campaign_cli.main(
             [
                 "--language-campaign-dir", str(language),
