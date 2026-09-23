@@ -450,16 +450,16 @@ class VN97AutonomousWorkManager(
                     }
 
                     ai.vn97.platform.VN97AssistantTurnState.FAILED -> {
-                        store.save(
-                            running.copy(
-                                state =
-                                    VN97AutonomousGoalState.FAILED,
-                                updatedNs = now,
-                                terminalReason =
-                                    plan.terminalReason.ifBlank {
-                                        "planner failed"
-                                    },
-                            )
+                        maybeStartReplanGeneration(
+                            current = running,
+                            terminalPlan = plan,
+                            model = model,
+                            terminalState =
+                                VN97AutonomousGoalState.FAILED,
+                            reason =
+                                plan.terminalReason.ifBlank {
+                                    "planner failed"
+                                },
                         )
                         ContinuationOutcome.COMPLETE
                     }
@@ -480,16 +480,16 @@ class VN97AutonomousWorkManager(
                     }
 
                     ai.vn97.platform.VN97AssistantTurnState.BUDGET_EXHAUSTED -> {
-                        store.save(
-                            running.copy(
-                                state =
-                                    VN97AutonomousGoalState.BUDGET_EXHAUSTED,
-                                updatedNs = now,
-                                terminalReason =
-                                    plan.terminalReason.ifBlank {
-                                        "planner budget exhausted"
-                                    },
-                            )
+                        maybeStartReplanGeneration(
+                            current = running,
+                            terminalPlan = plan,
+                            model = model,
+                            terminalState =
+                                VN97AutonomousGoalState.BUDGET_EXHAUSTED,
+                            reason =
+                                plan.terminalReason.ifBlank {
+                                    "planner budget exhausted"
+                                },
                         )
                         ContinuationOutcome.COMPLETE
                     }
@@ -509,9 +509,7 @@ class VN97AutonomousWorkManager(
                         ContinuationOutcome.COMPLETE
                     }
 
-                    ai.vn97.platform.VN97AssistantTurnState.YIELDED,
-                    ai.vn97.platform.VN97AssistantTurnState.STALLED,
-                    -> {
+                    ai.vn97.platform.VN97AssistantTurnState.YIELDED -> {
                         store.save(
                             running.copy(
                                 state =
@@ -521,6 +519,24 @@ class VN97AutonomousWorkManager(
                             )
                         )
                         ContinuationOutcome.RESCHEDULE
+                    }
+
+                    ai.vn97.platform.VN97AssistantTurnState.STALLED -> {
+                        if (!plan.isTerminal()) {
+                            context.controller.cancel(
+                                "stalled plan superseded by autonomous replan"
+                            )
+                        }
+                        maybeStartReplanGeneration(
+                            current = running,
+                            terminalPlan = context.controller.plan,
+                            model = model,
+                            terminalState =
+                                VN97AutonomousGoalState.FAILED,
+                            reason =
+                                "planner stalled without a runnable directive",
+                        )
+                        ContinuationOutcome.COMPLETE
                     }
                 }
             }
@@ -596,6 +612,136 @@ class VN97AutonomousWorkManager(
             }
         }
     }
+
+    private fun maybeStartReplanGeneration(
+        current: VN97AutonomousGoalRecord,
+        terminalPlan: NativePlan,
+        model: ai.vn97.runtime.NativeActivatedModel,
+        terminalState: VN97AutonomousGoalState,
+        reason: String,
+    ): VN97AutonomousGoalRecord? {
+        require(terminalPlan.isTerminal()) {
+            "autonomous replan requires terminal planner"
+        }
+        require(
+            terminalState == VN97AutonomousGoalState.FAILED ||
+                terminalState ==
+                    VN97AutonomousGoalState.BUDGET_EXHAUSTED
+        ) {
+            "only failed/exhausted autonomous generations replan"
+        }
+        val now = wallNowNs()
+        val terminalRecord = current.copy(
+            state = terminalState,
+            updatedNs = now,
+            terminalReason = reason,
+        )
+        store.save(terminalRecord)
+
+        if (current.generation >= MAX_REPLAN_GENERATIONS) {
+            return null
+        }
+
+        val seed = createVN97AutonomousReplanSeed(
+            model = model,
+            previousPlan = terminalPlan,
+            feedback = buildReplanFeedback(
+                terminalPlan,
+                reason,
+            ),
+            createdNs = now,
+        )
+        val jobId = allocateJobId(seed.plan.planId)
+        val binding = scheduler.persistAssistant(
+            jobId = jobId,
+            snapshot = seed.snapshot,
+            plan = seed.plan,
+            principal = current.principal,
+        )
+        var successor = VN97AutonomousGoalRecord(
+            jobId = jobId,
+            planId = binding.planId,
+            modelIdHex = binding.modelIdHex,
+            principal = binding.principal,
+            goal = seed.plan.goal,
+            state = VN97AutonomousGoalState.SCHEDULED,
+            rootJobId = current.rootJobId,
+            generation = current.generation + 1,
+            previousJobId = current.jobId,
+            createdNs = seed.plan.createdNs,
+            updatedNs = seed.plan.createdNs,
+        )
+        try {
+            store.save(successor)
+        } catch (exc: Throwable) {
+            scheduler.cancelAssistantAndDelete(jobId)
+            throw exc
+        }
+
+        val schedulingFailure = runCatching {
+            scheduler.scheduleAssistant(
+                VN97AssistantContinuationSpec(
+                    jobId = jobId,
+                    runtimeConfig = seed.runtimeConfig,
+                    binding = binding,
+                    minimumLatencyMillis = 0L,
+                )
+            )
+        }.fold(
+            onSuccess = { result ->
+                if (result > 0) null
+                else "Android JobScheduler rejected replan generation"
+            },
+            onFailure = { exc ->
+                "replan scheduling failed: " +
+                    exc::class.java.simpleName
+            },
+        )
+        if (schedulingFailure != null) {
+            successor = successor.copy(
+                state = VN97AutonomousGoalState.PAUSED,
+                updatedNs = wallNowNs(),
+                terminalReason = schedulingFailure,
+            )
+            store.save(successor)
+        }
+        return successor
+    }
+
+    private fun buildReplanFeedback(
+        plan: NativePlan,
+        reason: String,
+    ): String = buildString {
+        append("Previous autonomous generation ended without satisfying ")
+        append("the same user goal. Create a materially revised plan. ")
+        append("Do not repeat failed steps unchanged.\n")
+        append("terminal_status=")
+        append(plan.status.name)
+        append("\nterminal_reason=")
+        append(reason.take(1024))
+        plan.steps.take(24).forEach { step ->
+            append("\nstep=")
+            append(step.stepId)
+            append(" kind=")
+            append(step.spec.kind.name)
+            append(" status=")
+            append(step.status.name)
+            append(" objective=")
+            append(step.spec.objective.replace('\n', ' ').take(384))
+            if (step.result.isNotBlank()) {
+                append(" result=")
+                append(step.result.replace('\n', ' ').take(512))
+            }
+            if (step.failureReason.isNotBlank()) {
+                append(" failure=")
+                append(
+                    step.failureReason
+                        .replace('\n', ' ')
+                        .take(512)
+                )
+            }
+        }
+    }.take(MAX_REPLAN_FEEDBACK_CHARS)
 
     private fun approvalRequest(
         record: VN97AutonomousGoalRecord,
@@ -889,6 +1035,8 @@ class VN97AutonomousWorkManager(
     companion object {
         private const val MAX_ACTIVE_GOALS = 32
         private const val MAX_WAKE_COUNT = 256
+        private const val MAX_REPLAN_GENERATIONS = 3
+        private const val MAX_REPLAN_FEEDBACK_CHARS = 8 * 1024
         private const val MAX_JOB_PROBES = 128
         private const val JOB_PREFIX = 0x40000000
         private const val JOB_MASK = 0x3fffffff
