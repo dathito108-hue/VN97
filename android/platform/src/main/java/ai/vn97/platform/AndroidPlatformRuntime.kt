@@ -198,6 +198,42 @@ class AndroidPlatformRuntime(
         }
     }
 
+    /**
+     * Resume one M7Z-restored non-terminal planner through the exact production
+     * M7T/M7V/M7Y assistant path. The context controller is mutated in place and
+     * the JobService commits that same controller in the next VN97CNT1 epoch.
+     */
+    fun resumeProductionAssistantContinuation(
+        context: VN97AssistantContinuationContext,
+        model: NativeActivatedModel,
+        grants: List<M6PolicyGrant>,
+        cognitionRuntimeConfig: NativeCognitionRuntimeConfig =
+            NativeCognitionRuntimeConfig(),
+        cognitionLimits: NativeCognitionLimits = NativeCognitionLimits(),
+        sessionLimits: VN97AssistantSessionLimits = VN97AssistantSessionLimits(),
+        auditFileName: String = "m6-actions.jsonl",
+        nowNs: Long,
+    ): VN97AssistantTurnUpdate {
+        require(nowNs >= 0L) { "nowNs must be non-negative" }
+        check(!context.isStopped()) { "assistant continuation was stopped" }
+        context.requireActivatedModel(model)
+
+        return createProductionMemoryBackedAssistant(
+            model = model,
+            grants = grants,
+            cognitionRuntimeConfig = cognitionRuntimeConfig,
+            cognitionLimits = cognitionLimits,
+            sessionLimits = sessionLimits,
+            auditFileName = auditFileName,
+        ).use { resources ->
+            resources.session.resumeRestoredTurn(
+                controller = context.controller,
+                principal = context.principal,
+                nowNs = nowNs,
+            )
+        }
+    }
+
     private fun assembleProductionAssistantSession(
         model: NativeActivatedModel,
         grants: List<M6PolicyGrant>,
