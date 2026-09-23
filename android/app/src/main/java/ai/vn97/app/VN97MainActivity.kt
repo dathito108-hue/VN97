@@ -47,6 +47,7 @@ class VN97MainActivity : Activity() {
     private lateinit var gameAgentStopButton: Button
     private lateinit var mobileEvidenceButton: Button
     private lateinit var paperTradingButton: Button
+    private lateinit var capabilityAcquisitionButton: Button
     private lateinit var transcriptView: TextView
     private lateinit var inputView: EditText
     private lateinit var sendButton: Button
@@ -320,6 +321,25 @@ class VN97MainActivity : Activity() {
         }
         root.addView(
             paperTradingButton,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ),
+        )
+
+        capabilityAcquisitionButton = Button(this).apply {
+            text = "Capability acquisition"
+            setOnClickListener {
+                startActivity(
+                    Intent(
+                        this@VN97MainActivity,
+                        VN97CapabilityAcquisitionActivity::class.java,
+                    )
+                )
+            }
+        }
+        root.addView(
+            capabilityAcquisitionButton,
             LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT,
