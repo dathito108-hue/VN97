@@ -166,12 +166,34 @@ def load_speech_manifest(
     for line_number, line in enumerate(text.splitlines(), start=1):
         if not line.strip():
             continue
+        duplicates: list[str] = []
+
+        def object_hook(
+            pairs: list[tuple[str, object]],
+        ) -> dict[str, object]:
+            output: dict[str, object] = {}
+            for key, item in pairs:
+                if key in output:
+                    duplicates.append(key)
+                output[key] = item
+            return output
+
         try:
-            value = json.loads(line)
-        except json.JSONDecodeError as exc:
+            value = json.loads(
+                line,
+                object_pairs_hook=object_hook,
+                parse_constant=lambda value: (_ for _ in ()).throw(
+                    ValueError(value)
+                ),
+            )
+        except (json.JSONDecodeError, ValueError) as exc:
             raise ValueError(
                 f"invalid speech JSONL at line {line_number}"
             ) from exc
+        if duplicates:
+            raise ValueError(
+                f"duplicate speech JSON key at line {line_number}"
+            )
         if (
             not isinstance(value, dict)
             or set(value) != {"audio", "text"}
