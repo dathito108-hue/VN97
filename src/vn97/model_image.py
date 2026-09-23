@@ -12,6 +12,7 @@ import torch
 
 if TYPE_CHECKING:
     from .model import VN97LanguageCore
+    from .modality import AudioFrameAdapter
     from .tokenizer import VN97TokenizerPackage
 
 MAGIC = b"VN97MI1\0"
@@ -23,12 +24,15 @@ GLOBAL_LAYER = 0xFFFFFFFF
 
 FLAG_FACTORIZED = 1 << 0
 FLAG_TOKENIZER = 1 << 1
+FLAG_AUDIO_PROJECTION = 1 << 2
 
 SECTION_EMBEDDING = 1
 SECTION_TOKEN_FACTORS = 2
 SECTION_EMBEDDING_PROJECTION = 3
 SECTION_FINAL_NORM = 4
 SECTION_TOKENIZER = 5
+SECTION_AUDIO_PROJECTION = 6
+SECTION_AUDIO_NORM = 7
 SECTION_LAYER_NORM = 16
 SECTION_IN_PROJ = 17
 SECTION_DT_PROJ = 18
@@ -97,6 +101,7 @@ def build_model_image(
     model: "VN97LanguageCore",
     *,
     tokenizer: "VN97TokenizerPackage | bytes | None" = None,
+    audio_adapter: "AudioFrameAdapter | None" = None,
     tile_rows: int = 16,
     tile_cols: int = 16,
 ) -> VN97ModelImage:
@@ -118,8 +123,10 @@ def build_model_image(
         raise ValueError("VN97TK1 vocabulary does not match model vocab_size")
 
     factorized = config.embedding_rank is not None
-    flags = (FLAG_FACTORIZED if factorized else 0) | (
-        FLAG_TOKENIZER if tokenizer_blob is not None else 0
+    flags = (
+        (FLAG_FACTORIZED if factorized else 0)
+        | (FLAG_TOKENIZER if tokenizer_blob is not None else 0)
+        | (FLAG_AUDIO_PROJECTION if audio_adapter is not None else 0)
     )
     rank = 0 if config.embedding_rank is None else int(config.embedding_rank)
 
@@ -140,6 +147,41 @@ def build_model_image(
             SECTION_EMBEDDING,
             GLOBAL_LAYER,
             _f32_bytes(model.embedding.weight, "embedding"),
+        ))
+
+    if audio_adapter is not None:
+        adapter_config = getattr(audio_adapter, "config", None)
+        projection = getattr(audio_adapter, "projection", None)
+        norm = getattr(audio_adapter, "norm", None)
+        if adapter_config is None or projection is None or norm is None:
+            raise TypeError("audio_adapter must be canonical AudioFrameAdapter")
+        if (
+            int(adapter_config.frame_size) != 320
+            or int(adapter_config.hop_size) != 320
+            or float(adapter_config.eps) != 1e-5
+        ):
+            raise ValueError(
+                "production audio adapter must use canonical 320/320 frames and eps=1e-5"
+            )
+        if int(projection.in_features) != 320 or int(projection.out_features) != int(config.d_model):
+            raise ValueError("audio projection geometry must be 320 -> d_model")
+        norm_eps = float(getattr(norm, "eps", config.rms_eps))
+        if norm_eps != float(config.rms_eps):
+            raise ValueError("audio projection RMSNorm eps must match VN97 core rms_eps")
+        sections.append((
+            SECTION_AUDIO_PROJECTION,
+            GLOBAL_LAYER,
+            _packed_bytes(
+                projection,
+                tile_rows=tile_rows,
+                tile_cols=tile_cols,
+                label="audio.projection",
+            ),
+        ))
+        sections.append((
+            SECTION_AUDIO_NORM,
+            GLOBAL_LAYER,
+            _f32_bytes(norm.weight, "audio.norm"),
         ))
 
     for layer_index, layer in enumerate(model.layers):

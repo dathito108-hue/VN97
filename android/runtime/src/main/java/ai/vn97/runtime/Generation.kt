@@ -332,6 +332,85 @@ fun NativeRuntimeSession.generateStreaming(
     }
 }
 
+fun NativeRuntimeSession.generateFromCurrentLogits(
+    model: NativeActivatedModel,
+    initialLogits: FloatArray,
+    config: NativeGenerationConfig = NativeGenerationConfig(),
+    onChunk: (NativeGenerationChunk) -> Boolean = { true },
+): NativeGenerationResult {
+    require(model.info.hasTokenizer) {
+        "state continuation generation requires VN97TK1"
+    }
+    val before = info()
+    require(before.lifecycle == RuntimeLifecycle.ACTIVE) {
+        "runtime must be ACTIVE for state continuation generation"
+    }
+    require(before.config.batch == 1) {
+        "state continuation generation currently requires batch=1"
+    }
+    require(initialLogits.size == model.info.vocabSize) {
+        "initial logits must match activated model vocabulary"
+    }
+    require(initialLogits.all { it.isFinite() }) {
+        "initial logits must be finite"
+    }
+
+    val generated = IntArray(config.maxNewTokens)
+    var generatedCount = 0
+    val text = StringBuilder()
+    val utf8 = Utf8StreamAccumulator()
+    var stopReason = NativeGenerationStopReason.TOKEN_LIMIT
+    var logits = initialLogits.copyOf()
+
+    for (index in 0 until config.maxNewTokens) {
+        val token = NativeSampler.sample(
+            logits,
+            config.sampler,
+            index.toLong(),
+        )
+        generated[generatedCount++] = token
+        val piece = utf8.append(model.decodeTokenBytes(token))
+        text.append(piece)
+        val keepGoing = onChunk(
+            NativeGenerationChunk(
+                tokenIndex = index,
+                tokenId = token,
+                text = piece,
+                final = false,
+            )
+        )
+        if (token == config.eosToken) {
+            stopReason = NativeGenerationStopReason.EOS
+            break
+        }
+        if (!keepGoing) {
+            stopReason = NativeGenerationStopReason.CANCELLED
+            break
+        }
+        logits = inferStep(model, intArrayOf(token))
+    }
+
+    val tail = utf8.finish()
+    if (tail.isNotEmpty()) {
+        text.append(tail)
+        onChunk(
+            NativeGenerationChunk(
+                tokenIndex = generatedCount,
+                tokenId = null,
+                text = tail,
+                final = true,
+            )
+        )
+    }
+
+    return NativeGenerationResult(
+        tokenIds = generated.copyOf(generatedCount),
+        text = text.toString(),
+        stopReason = stopReason,
+        sequencePosition = info().sequencePosition,
+    )
+}
+
 private fun checkGenerationStatus(code: Int, operation: String) {
     val status = NativeGenerationStatus.fromCode(code)
     if (status != NativeGenerationStatus.OK) {

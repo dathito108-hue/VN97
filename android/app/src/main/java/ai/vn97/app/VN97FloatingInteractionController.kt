@@ -52,6 +52,7 @@ internal class VN97FloatingInteractionController(
     private var state = VN97AppState(
         status = "Opening trusted VN97 model…",
     )
+    private var voiceAvailable = false
     private var lastVoiceLevelMillis = 0L
 
     private val voiceCapture = VN97VoiceCapture(
@@ -67,6 +68,7 @@ internal class VN97FloatingInteractionController(
             try {
                 val active = assistant.openIfActivated()
                 val hasApproval = active && assistant.pendingApproval() != null
+                val hasVoice = active && assistant.hasProductionVoice()
                 mainHandler.post {
                     if (closed) return@post
                     if (!active) {
@@ -78,10 +80,18 @@ internal class VN97FloatingInteractionController(
                         return@post
                     }
 
+                    voiceAvailable = hasVoice
                     var next = VN97AppReducer.reduce(
                         VN97AppState(),
                         VN97AppEvent.TrustedModelActivated,
                     )
+                    if (!hasVoice) {
+                        next = next.copy(
+                            status =
+                                "VN97 native model ready. " +
+                                    "Voice requires an M11 speech-enabled VN97MI1 package."
+                        )
+                    }
                     if (hasApproval) {
                         next = VN97AppReducer.reduce(
                             next,
@@ -319,7 +329,11 @@ internal class VN97FloatingInteractionController(
     }
 
     private fun toggleVoiceCapture() {
-        if (closed || state.phase != VN97AppPhase.READY) return
+        if (
+            closed ||
+            state.phase != VN97AppPhase.READY ||
+            !voiceAvailable
+        ) return
 
         if (voiceCapture.isRecording) {
             voiceCapture.stop()
@@ -385,37 +399,34 @@ internal class VN97FloatingInteractionController(
     private fun handleVoiceUtterance(utterance: VN97VoiceUtterance) {
         if (closed) return
         setMicrophoneForegroundActive(false)
-        render(
-            state.copy(
-                status = "Preparing voice through native VN97 M3B ingress…",
-                inputEnabled = false,
-            )
+        val running = VN97AppReducer.reduce(
+            state,
+            VN97AppEvent.TurnStarted,
+        ).copy(
+            status =
+                "VN97 is understanding " +
+                    utterance.durationMillis +
+                    " ms of local voice…"
         )
+        render(running)
+
         worker.execute {
             try {
-                val prepared = NativeAudioModality.preparePcm16(utterance.pcm16)
+                val prepared =
+                    NativeAudioModality.preparePcm16(utterance.pcm16)
+                val result = assistant.runVoiceTurn(prepared)
                 mainHandler.post {
-                    if (closed) return@post
-                    render(
-                        state.copy(
-                            status =
-                                "Local voice captured: " +
-                                    utterance.durationMillis +
-                                    " ms / " +
-                                    prepared.frameCount +
-                                    " native audio frames. " +
-                                    "Semantic speech weights remain part of M11 production intelligence.",
-                            inputEnabled = true,
-                        )
-                    )
+                    if (!closed) applyTurnResult(result)
                 }
             } catch (exc: Throwable) {
                 mainHandler.post {
                     if (!closed) {
                         render(
                             state.copy(
-                                status = "Native voice ingress failed: " +
-                                    exc::class.java.simpleName,
+                                phase = VN97AppPhase.READY,
+                                status =
+                                    "VN97 voice turn failed: " +
+                                        exc::class.java.simpleName,
                                 inputEnabled = true,
                             )
                         )
@@ -581,7 +592,8 @@ internal class VN97FloatingInteractionController(
                 if (voiceCapture.isRecording) {
                     true
                 } else {
-                    next.phase == VN97AppPhase.READY
+                    next.phase == VN97AppPhase.READY &&
+                        voiceAvailable
                 }
         }
 

@@ -19,6 +19,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <unordered_map>
+#include <vector>
 
 namespace vn97 {
 namespace {
@@ -29,7 +30,9 @@ constexpr std::uint32_t kHeaderSize = 96;
 constexpr std::uint32_t kSectionEntrySize = 32;
 constexpr std::uint32_t kFlagFactorized = 1u << 0;
 constexpr std::uint32_t kFlagTokenizer = 1u << 1;
-constexpr std::uint32_t kKnownFlags = kFlagFactorized | kFlagTokenizer;
+constexpr std::uint32_t kFlagAudioProjection = 1u << 2;
+constexpr std::uint32_t kKnownFlags =
+    kFlagFactorized | kFlagTokenizer | kFlagAudioProjection;
 constexpr std::uint32_t kGlobalLayer = 0xffffffffu;
 constexpr std::uint32_t kMaxLayers = 4096;
 constexpr std::uint32_t kMaxSections = kMaxLayers * 8u + 4u;
@@ -39,6 +42,8 @@ constexpr std::uint32_t kTokenFactors = 2;
 constexpr std::uint32_t kEmbeddingProjection = 3;
 constexpr std::uint32_t kFinalNorm = 4;
 constexpr std::uint32_t kTokenizer = 5;
+constexpr std::uint32_t kAudioProjection = 6;
+constexpr std::uint32_t kAudioNorm = 7;
 constexpr std::uint32_t kLayerNorm = 16;
 constexpr std::uint32_t kInProj = 17;
 constexpr std::uint32_t kDtProj = 18;
@@ -377,6 +382,8 @@ ModelImageStatus ActivatedModelImage::Parse(
 
     const bool factorized = (flags & kFlagFactorized) != 0;
     const bool tokenizer_flag = (flags & kFlagTokenizer) != 0;
+    const bool audio_projection_flag =
+        (flags & kFlagAudioProjection) != 0;
     if ((!factorized && embedding_rank != 0) ||
         (factorized && (embedding_rank == 0 || embedding_rank >= d_model))) {
         return ModelImageStatus::kInvalidConfig;
@@ -391,7 +398,11 @@ ModelImageStatus ActivatedModelImage::Parse(
     }
 
     const std::uint32_t expected_sections =
-        (factorized ? 2u : 1u) + n_layers * 8u + 1u + (tokenizer_flag ? 1u : 0u);
+        (factorized ? 2u : 1u) +
+        (audio_projection_flag ? 2u : 0u) +
+        n_layers * 8u +
+        1u +
+        (tokenizer_flag ? 1u : 0u);
     if (section_count != expected_sections) return ModelImageStatus::kInvalidSection;
 
     std::size_t cursor = static_cast<std::size_t>(payload_offset);
@@ -462,6 +473,47 @@ ModelImageStatus ActivatedModelImage::Parse(
         if (MulOverflow(embedding_rank, d_model, &count)) return ModelImageStatus::kInvalidConfig;
         status = F32Section(image_, image_bytes_, section, count, &language_model_.projection);
         if (status != ModelImageStatus::kOk) return status;
+    }
+
+    if (audio_projection_flag) {
+        audio_projection_ = {};
+        audio_projection_.d_model = d_model;
+        audio_projection_.rms_eps = rms_eps;
+
+        status = next(kAudioProjection, kGlobalLayer, &section);
+        if (status != ModelImageStatus::kOk) return status;
+        status = PackedSection(
+            image_,
+            image_bytes_,
+            section,
+            &audio_projection_.projection);
+        if (status != ModelImageStatus::kOk) return status;
+        if (
+            audio_projection_.projection.rows != d_model ||
+            audio_projection_.projection.cols != 320u
+        ) {
+            return ModelImageStatus::kInvalidModel;
+        }
+        audio_projection_.frame_size =
+            audio_projection_.projection.cols;
+
+        status = next(kAudioNorm, kGlobalLayer, &section);
+        if (status != ModelImageStatus::kOk) return status;
+        status = F32Section(
+            image_,
+            image_bytes_,
+            section,
+            d_model,
+            &audio_projection_.norm_weight);
+        if (status != ModelImageStatus::kOk) return status;
+
+        if (
+            ValidateAudioProjection(audio_projection_) !=
+            ModalityStatus::kOk
+        ) {
+            return ModelImageStatus::kInvalidModel;
+        }
+        has_audio_projection_ = true;
     }
 
     for (std::uint32_t layer = 0; layer < n_layers; ++layer) {
@@ -558,6 +610,9 @@ ActivatedModelInfo ActivatedModelImage::Info() const {
     info.embedding_kind = language_model_.embedding_kind;
     info.embedding_rank = language_model_.embedding_rank;
     info.has_tokenizer = has_tokenizer_;
+    info.has_audio_projection = has_audio_projection_;
+    info.audio_frame_size =
+        has_audio_projection_ ? audio_projection_.frame_size : 0u;
     info.image_bytes = image_bytes_;
     return info;
 }
@@ -625,6 +680,9 @@ int vn97_model_info_get(std::uint64_t handle, vn97_model_info* out) {
     out->embedding_kind = static_cast<std::uint32_t>(info.embedding_kind);
     out->embedding_rank = info.embedding_rank;
     out->has_tokenizer = info.has_tokenizer ? 1 : 0;
+    out->has_audio_projection =
+        info.has_audio_projection ? 1 : 0;
+    out->audio_frame_size = info.audio_frame_size;
     out->image_bytes = info.image_bytes;
     return static_cast<int>(vn97::ModelImageStatus::kOk);
 }
@@ -663,6 +721,125 @@ int vn97_model_runtime_infer_step_hidden(
         input_count,
         hidden,
         hidden_count);
+}
+
+int vn97_model_runtime_prefill_audio(
+    std::uint64_t model_handle,
+    std::uint64_t runtime_handle,
+    std::uint32_t audio_prefix_token,
+    const float* prepared_frames,
+    std::size_t frame_value_count,
+    std::size_t frame_count,
+    float* final_logits,
+    std::size_t logits_count) {
+    if (
+        prepared_frames == nullptr ||
+        final_logits == nullptr ||
+        frame_count == 0
+    ) {
+        return static_cast<int>(vn97::RuntimeStatus::kNullArgument);
+    }
+
+    const auto model = LookupModel(model_handle);
+    if (!model) {
+        return static_cast<int>(vn97::RuntimeStatus::kModelMismatch);
+    }
+    const auto* audio = model->audio_projection();
+    if (audio == nullptr) {
+        return static_cast<int>(vn97::RuntimeStatus::kModelMismatch);
+    }
+
+    vn97_runtime_info runtime_info{};
+    const int info_status =
+        vn97_runtime_info_get(runtime_handle, &runtime_info);
+    if (info_status != 0) return info_status;
+    if (
+        runtime_info.batch != 1 ||
+        runtime_info.d_model != model->language_model().d_model
+    ) {
+        return static_cast<int>(vn97::RuntimeStatus::kInvalidConfig);
+    }
+    if (audio_prefix_token >= model->language_model().vocab_size) {
+        return static_cast<int>(vn97::RuntimeStatus::kInvalidConfig);
+    }
+    if (
+        frame_count >
+        std::numeric_limits<std::size_t>::max() /
+            model->language_model().d_model
+    ) {
+        return static_cast<int>(vn97::RuntimeStatus::kSizeOverflow);
+    }
+
+    std::vector<float> embeddings;
+    std::vector<float> projection_workspace;
+    try {
+        embeddings.resize(
+            frame_count * model->language_model().d_model);
+        projection_workspace.resize(
+            model->language_model().d_model);
+    } catch (...) {
+        return static_cast<int>(vn97::RuntimeStatus::kSizeOverflow);
+    }
+
+    const auto modality_status = vn97::ProjectAudioFramesF32(
+        *audio,
+        prepared_frames,
+        frame_value_count,
+        frame_count,
+        embeddings.data(),
+        embeddings.size(),
+        projection_workspace.data(),
+        projection_workspace.size(),
+        static_cast<vn97::PackedTernaryBackend>(
+            runtime_info.resolved_packed_backend));
+    if (modality_status != vn97::ModalityStatus::kOk) {
+        if (
+            modality_status ==
+            vn97::ModalityStatus::kBackendUnavailable
+        ) {
+            return static_cast<int>(
+                vn97::RuntimeStatus::kBackendUnavailable);
+        }
+        if (
+            modality_status ==
+            vn97::ModalityStatus::kSizeOverflow
+        ) {
+            return static_cast<int>(
+                vn97::RuntimeStatus::kSizeOverflow);
+        }
+        if (
+            modality_status ==
+            vn97::ModalityStatus::kOutputTooSmall
+        ) {
+            return static_cast<int>(
+                vn97::RuntimeStatus::kOutputTooSmall);
+        }
+        return static_cast<int>(
+            vn97::RuntimeStatus::kInferenceError);
+    }
+
+    const int prefix_status = vn97_runtime_infer_step(
+        runtime_handle,
+        &model->language_model(),
+        &audio_prefix_token,
+        1,
+        final_logits,
+        logits_count);
+    if (prefix_status != 0) return prefix_status;
+
+    const std::size_t d_model =
+        model->language_model().d_model;
+    for (std::size_t frame = 0; frame < frame_count; ++frame) {
+        const int status = vn97_runtime_infer_embedding_step(
+            runtime_handle,
+            &model->language_model(),
+            embeddings.data() + frame * d_model,
+            d_model,
+            final_logits,
+            logits_count);
+        if (status != 0) return status;
+    }
+    return static_cast<int>(vn97::RuntimeStatus::kOk);
 }
 
 int vn97_model_runtime_prefill(

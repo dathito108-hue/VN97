@@ -6,7 +6,10 @@ enum class NativeModalityStatus(val code: Int) {
     INVALID_SHAPE(2),
     INVALID_PARAMETER(3),
     SIZE_OVERFLOW(4),
-    OUTPUT_TOO_SMALL(5);
+    OUTPUT_TOO_SMALL(5),
+    INVALID_MODEL(6),
+    BACKEND_UNAVAILABLE(7),
+    NON_FINITE(8);
 
     companion object {
         fun fromCode(code: Int): NativeModalityStatus =

@@ -84,6 +84,7 @@ target_link_libraries(vn97_language PUBLIC vn97_selective vn97_packed_ternary)
 add_library(vn97_modality STATIC ${VN97_MODALITY_SOURCES})
 target_include_directories(vn97_modality PUBLIC include)
 target_compile_features(vn97_modality PUBLIC cxx_std_17)
+target_link_libraries(vn97_modality PUBLIC vn97_packed_ternary)
 
 add_library(vn97_memory STATIC ${VN97_MEMORY_SOURCES})
 target_include_directories(vn97_memory PUBLIC include)
@@ -97,7 +98,13 @@ target_link_libraries(vn97_runtime PUBLIC vn97_language vn97_recurrent vn97_pack
 add_library(vn97_model_image STATIC ${VN97_MODEL_IMAGE_SOURCES})
 target_include_directories(vn97_model_image PUBLIC include)
 target_compile_features(vn97_model_image PUBLIC cxx_std_17)
-target_link_libraries(vn97_model_image PUBLIC vn97_runtime vn97_tokenizer)
+target_link_libraries(
+    vn97_model_image
+    PUBLIC
+    vn97_runtime
+    vn97_tokenizer
+    vn97_modality
+)
 
 add_library(vn97_sampler STATIC ${VN97_SAMPLER_SOURCES})
 target_include_directories(vn97_sampler PUBLIC include)

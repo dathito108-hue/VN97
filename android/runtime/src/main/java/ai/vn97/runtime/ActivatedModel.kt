@@ -55,6 +55,8 @@ data class NativeActivatedModelInfo(
     val embeddingKind: NativeEmbeddingKind,
     val embeddingRank: Int,
     val hasTokenizer: Boolean,
+    val hasAudioProjection: Boolean,
+    val audioFrameSize: Int,
     val imageBytes: Long,
 )
 
@@ -124,7 +126,7 @@ class NativeActivatedModel private constructor(
         }
 
         private fun readInfo(handle: Long): NativeActivatedModelInfo {
-            val ints = IntArray(7)
+            val ints = IntArray(9)
             val longs = LongArray(1)
             val modelId = ByteArray(32)
             checkModelStatus(
@@ -135,6 +137,12 @@ class NativeActivatedModel private constructor(
                 "native model info contains invalid geometry"
             }
             require(longs[0] > 0L) { "native model image length must be positive" }
+            require(
+                (ints[7] == 0 && ints[8] == 0) ||
+                    (ints[7] != 0 && ints[8] > 0)
+            ) {
+                "native model audio projection metadata is invalid"
+            }
             return NativeActivatedModelInfo(
                 modelId = modelId,
                 vocabSize = ints[0],
@@ -144,6 +152,8 @@ class NativeActivatedModel private constructor(
                 embeddingKind = NativeEmbeddingKind.fromCode(ints[4]),
                 embeddingRank = ints[5],
                 hasTokenizer = ints[6] != 0,
+                hasAudioProjection = ints[7] != 0,
+                audioFrameSize = ints[8],
                 imageBytes = longs[0],
             )
         }

@@ -182,6 +182,55 @@ class NativeCognitionInferenceEngine(
         return decodeStrictUtf8(bytes)
     }
 
+    fun transcribeAudio(
+        prepared: NativePreparedAudio,
+        maxNewTokens: Int = 512,
+    ): String {
+        require(model.info.hasAudioProjection) {
+            "activated VN97 model has no signed audio projection"
+        }
+        require(maxNewTokens > 0) {
+            "maxNewTokens must be positive"
+        }
+
+        val result = withFreshSession { session ->
+            val logits = session.prefillAudio(
+                model = model,
+                prepared = prepared,
+                audioPrefixToken = 4,
+            )
+            session.generateFromCurrentLogits(
+                model = model,
+                initialLogits = logits,
+                config = NativeGenerationConfig(
+                    maxNewTokens = maxNewTokens,
+                    eosToken = 2,
+                    addBosOnFreshSession = false,
+                    addTextControl = false,
+                    sampler = NativeSamplerConfig(
+                        temperature = 0.0f,
+                        topK = 1,
+                        topP = 1.0f,
+                        seed = 97L,
+                    ),
+                ),
+            )
+        }
+        val bytes = result.text.toByteArray(StandardCharsets.UTF_8)
+        if (bytes.size > config.inferenceLimits.maxOutputUtf8Bytes) {
+            throw NativeCognitionContractException(
+                "VN97 audio transcription exceeds UTF-8 byte budget"
+            )
+        }
+        val transcript = result.text.trim()
+        if (transcript.isEmpty()) {
+            throw NativeCognitionInferenceException(
+                "VN97 audio transcription is empty"
+            )
+        }
+        return transcript
+    }
+
     override fun embedText(text: String, vectorDim: Int): FloatArray {
         require(vectorDim > 0) { "vectorDim must be positive" }
         if (vectorDim != model.info.dModel) {

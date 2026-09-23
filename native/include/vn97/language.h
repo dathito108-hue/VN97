@@ -105,4 +105,52 @@ LanguageStatus LanguageStepHiddenF32(
     float* workspace,
     std::size_t workspace_count);
 
+LanguageStatus LanguageStepEmbeddingsF32WithBackends(
+    const LanguageModelView& model,
+    const float* input_embeddings,
+    std::size_t embedding_count,
+    std::size_t batch,
+    float* state_io,
+    float* logits,
+    std::size_t logits_count,
+    float* workspace,
+    std::size_t workspace_count,
+    RecurrentBackend recurrent_backend,
+    PackedTernaryBackend packed_backend);
+
+LanguageStatus LanguageStepEmbeddingsHiddenF32WithBackends(
+    const LanguageModelView& model,
+    const float* input_embeddings,
+    std::size_t embedding_count,
+    std::size_t batch,
+    float* state_io,
+    float* hidden,
+    std::size_t hidden_count,
+    float* workspace,
+    std::size_t workspace_count,
+    RecurrentBackend recurrent_backend,
+    PackedTernaryBackend packed_backend);
+
+LanguageStatus LanguageStepEmbeddingsF32(
+    const LanguageModelView& model,
+    const float* input_embeddings,
+    std::size_t embedding_count,
+    std::size_t batch,
+    float* state_io,
+    float* logits,
+    std::size_t logits_count,
+    float* workspace,
+    std::size_t workspace_count);
+
+LanguageStatus LanguageStepEmbeddingsHiddenF32(
+    const LanguageModelView& model,
+    const float* input_embeddings,
+    std::size_t embedding_count,
+    std::size_t batch,
+    float* state_io,
+    float* hidden,
+    std::size_t hidden_count,
+    float* workspace,
+    std::size_t workspace_count);
+
 }  // namespace vn97

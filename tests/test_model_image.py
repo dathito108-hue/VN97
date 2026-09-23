@@ -10,14 +10,18 @@ from vn97 import (
     VN97TokenizerPackage,
     build_model_image,
 )
+from vn97.modality import AudioFrameAdapter
 from vn97.model_image import (
     ENTRY_SIZE,
+    FLAG_AUDIO_PROJECTION,
     FLAG_FACTORIZED,
     FLAG_TOKENIZER,
     GLOBAL_LAYER,
     HEADER_SIZE,
     MAGIC,
     SECTION_A_LOG,
+    SECTION_AUDIO_NORM,
+    SECTION_AUDIO_PROJECTION,
     SECTION_B_PROJ,
     SECTION_C_PROJ,
     SECTION_DT_BIAS,
@@ -112,6 +116,38 @@ def test_factorized_and_tokenizer_sections_preserve_single_vn97_identity():
     assert (entries[-1][0], entries[-1][1]) == (SECTION_TOKENIZER, GLOBAL_LAYER)
     tokenizer_offset = entries[-1][2]
     assert image.data[tokenizer_offset : tokenizer_offset + 8] == b"VN97TK1\0"
+
+
+def test_audio_projection_is_signed_inside_the_same_vn97_image():
+    model = _model()
+    audio = AudioFrameAdapter(
+        model.config.d_model,
+        rms_eps=model.config.rms_eps,
+    ).eval()
+    image = build_model_image(
+        model,
+        audio_adapter=audio,
+        tile_rows=8,
+        tile_cols=8,
+    )
+    flags = struct.unpack_from("<I", image.data, 16)[0]
+    assert flags == FLAG_AUDIO_PROJECTION
+
+    entries = _entries(image.data)
+    assert (entries[0][0], entries[0][1]) == (
+        SECTION_EMBEDDING,
+        GLOBAL_LAYER,
+    )
+    assert (entries[1][0], entries[1][1]) == (
+        SECTION_AUDIO_PROJECTION,
+        GLOBAL_LAYER,
+    )
+    assert (entries[2][0], entries[2][1]) == (
+        SECTION_AUDIO_NORM,
+        GLOBAL_LAYER,
+    )
+    audio_offset = entries[1][2]
+    assert image.data[audio_offset : audio_offset + 8] == b"VN97T2\0\0"
 
 
 def test_export_rejects_tokenizer_identity_and_nonfinite_parameters():
