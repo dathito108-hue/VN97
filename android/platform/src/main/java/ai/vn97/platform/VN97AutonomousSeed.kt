@@ -6,6 +6,7 @@ import ai.vn97.runtime.NativeCognitionLimits
 import ai.vn97.runtime.NativeCognitionLoop
 import ai.vn97.runtime.NativeCognitionRuntimeConfig
 import ai.vn97.runtime.NativePlan
+import ai.vn97.runtime.NativePlanController
 import ai.vn97.runtime.NativeReasoningBudget
 import ai.vn97.runtime.NativeRuntimeCheckpointSnapshot
 import ai.vn97.runtime.NativeRuntimeConfig
