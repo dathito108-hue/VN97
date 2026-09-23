@@ -209,6 +209,12 @@ from .memory import (
 )
 from .model import VN97LanguageCore, VN97States
 from .model_image import VN97ModelImage, build_model_image
+from .mobile_budget import (
+    VN97MobileBudget,
+    VN97MobileFootprint,
+    VN97_MAX_RECURRENT_STATE_BYTES,
+    estimate_vn97_mobile_footprint,
+)
 from .modality import (
     AudioAdapterConfig,
     AudioFrameAdapter,
@@ -449,6 +455,10 @@ __all__ = [
     "VN97States",
     "VN97ModelImage",
     "build_model_image",
+    "VN97MobileBudget",
+    "VN97MobileFootprint",
+    "VN97_MAX_RECURRENT_STATE_BYTES",
+    "estimate_vn97_mobile_footprint",
     "VN97EvaluationResult",
     "VN97ReleaseCriteria",
     "VN97ReleaseQualityError",
