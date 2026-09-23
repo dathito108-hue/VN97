@@ -357,6 +357,33 @@ class VN97AutonomousWorkManager(
                     )
                 )
                 ContinuationOutcome.COMPLETE
+            } else if (
+                plan.status == NativePlanStatus.WAITING_EXTERNAL
+            ) {
+                store.save(
+                    running.copy(
+                        state = VN97AutonomousGoalState.PAUSED,
+                        updatedNs = now,
+                        terminalReason =
+                            "external boundary blocked: " +
+                                exc::class.java.simpleName,
+                    )
+                )
+                ContinuationOutcome.COMPLETE
+            } else if (
+                plan.status == NativePlanStatus.PAUSED
+            ) {
+                store.save(
+                    running.copy(
+                        state = VN97AutonomousGoalState.PAUSED,
+                        updatedNs = now,
+                        terminalReason =
+                            plan.pausedReason.ifBlank {
+                                "planner paused after wake failure"
+                            },
+                    )
+                )
+                ContinuationOutcome.COMPLETE
             } else if (running.wakeCount >= MAX_WAKE_COUNT) {
                 store.save(
                     running.copy(
