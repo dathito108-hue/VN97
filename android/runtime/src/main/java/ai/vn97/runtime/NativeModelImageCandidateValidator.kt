@@ -57,7 +57,7 @@ object NativeModelImageCandidateValidator {
         handle: Long,
         expectedModelId: ByteArray,
     ): NativeActivatedModelInfo {
-        val ints = IntArray(7)
+        val ints = IntArray(9)
         val longs = LongArray(1)
         val modelId = ByteArray(32)
         checkModelStatus(
@@ -92,6 +92,8 @@ object NativeModelImageCandidateValidator {
             embeddingKind = NativeEmbeddingKind.fromCode(ints[4]),
             embeddingRank = ints[5],
             hasTokenizer = ints[6] != 0,
+            hasAudioProjection = ints[7] != 0,
+            audioFrameSize = ints[8],
             imageBytes = longs[0],
         )
     }
