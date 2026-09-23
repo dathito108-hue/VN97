@@ -16,6 +16,11 @@ from .bootstrap_bundle import (
 )
 from .capability_package import CapabilitySource
 from .deployment_checkpoint import load_deployment_checkpoint_file
+from .device_evidence import (
+    VN97DeviceEvidenceCriteria,
+    load_device_evidence,
+    require_device_evidence,
+)
 from .evaluation import (
     VN97ReleaseCriteria,
     evaluate_vn97_language,
@@ -29,6 +34,7 @@ from .speech_training import (
 )
 from .speech_training_cli import load_speech_manifest
 from .mobile_budget import VN97MobileBudget, estimate_vn97_mobile_footprint
+from .model_image import build_model_image
 from .tokenizer import VN97Tokenizer, VN97TokenizerPackage
 from .training import (
     VN97TrainingConfig,
@@ -183,6 +189,73 @@ def _load_speech_training_report(
     return report, hashlib.sha256(data).hexdigest()
 
 
+def _load_production_campaign_report(
+    path: Path,
+    *,
+    checkpoint_sha256: str,
+    tokenizer_sha256: str,
+    model_image_sha256: str,
+) -> str:
+    data = _read_regular_file(
+        path,
+        max_bytes=4 * 1024 * 1024,
+        label="production campaign report",
+    )
+    duplicates: list[str] = []
+
+    def hook(pairs):
+        output = {}
+        for key, value in pairs:
+            if key in output:
+                duplicates.append(key)
+            output[key] = value
+        return output
+
+    try:
+        text = data.decode("utf-8", errors="strict")
+        report = json.loads(
+            text,
+            object_pairs_hook=hook,
+            parse_constant=lambda raw: (_ for _ in ()).throw(
+                ValueError(raw)
+            ),
+        )
+    except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+        raise ValueError(
+            "production campaign report must be strict UTF-8 JSON"
+        ) from exc
+    if duplicates or not isinstance(report, dict):
+        raise ValueError(
+            "production campaign report must be one object without duplicate keys"
+        )
+    canonical = json.dumps(
+        report,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    )
+    if canonical != text:
+        raise ValueError(
+            "production campaign report must use canonical JSON"
+        )
+    if report.get("schema") != "VN97PRODCAMP1":
+        raise ValueError(
+            "production campaign report schema mismatch"
+        )
+    expected = {
+        "unified_checkpoint_sha256": checkpoint_sha256,
+        "tokenizer_sha256": tokenizer_sha256,
+        "model_image_sha256": model_image_sha256,
+    }
+    for key, value in expected.items():
+        if report.get(key) != value:
+            raise ValueError(
+                f"production campaign report {key} does not match release input"
+            )
+    return hashlib.sha256(data).hexdigest()
+
+
 def _canonical_json(value: object) -> str:
     return json.dumps(
         value,
@@ -320,6 +393,55 @@ def _parser() -> argparse.ArgumentParser:
         "--max-recurrent-state-bytes",
         type=int,
         default=512 * 1024 * 1024,
+    )
+    parser.add_argument("--production-campaign-report")
+    parser.add_argument(
+        "--require-production-campaign-report",
+        action="store_true",
+    )
+    parser.add_argument("--device-evidence")
+    parser.add_argument(
+        "--require-device-evidence",
+        action="store_true",
+    )
+    parser.add_argument(
+        "--device-evidence-min-runs",
+        type=int,
+        default=5,
+    )
+    parser.add_argument(
+        "--max-text-prefill-p95-ms",
+        type=float,
+        default=10_000.0,
+    )
+    parser.add_argument(
+        "--max-text-decode-p95-ms-per-token",
+        type=float,
+        default=2_000.0,
+    )
+    parser.add_argument(
+        "--max-device-peak-pss-kib",
+        type=int,
+        default=2 * 1024 * 1024,
+    )
+    parser.add_argument(
+        "--max-device-thermal-status",
+        type=int,
+        default=5,
+    )
+    parser.add_argument(
+        "--max-speech-prefill-p95-ms",
+        type=float,
+        default=15_000.0,
+    )
+    parser.add_argument(
+        "--require-device-energy-counter",
+        action="store_true",
+    )
+    parser.add_argument(
+        "--max-abs-battery-energy-counter-delta-nwh",
+        type=int,
+        default=None,
     )
     return parser
 
@@ -502,7 +624,73 @@ def main(argv: list[str] | None = None) -> int:
             + rejection
         )
 
-    # Private signing material is not opened until quality and mobile-budget gates pass.
+    preview_image = build_model_image(
+        loaded.model,
+        tokenizer=tokenizer,
+        audio_adapter=loaded.audio_adapter,
+        tile_rows=args.tile_rows,
+        tile_cols=args.tile_cols,
+    )
+    preview_model_image_sha256 = hashlib.sha256(
+        preview_image.data
+    ).hexdigest()
+
+    production_campaign_report_sha256 = None
+    if (
+        args.require_production_campaign_report
+        and args.production_campaign_report is None
+    ):
+        raise ValueError(
+            "--require-production-campaign-report needs "
+            "--production-campaign-report"
+        )
+    if args.production_campaign_report is not None:
+        production_campaign_report_sha256 = (
+            _load_production_campaign_report(
+                Path(args.production_campaign_report),
+                checkpoint_sha256=loaded.checkpoint_sha256,
+                tokenizer_sha256=tokenizer_sha256,
+                model_image_sha256=preview_model_image_sha256,
+            )
+        )
+
+    device_evidence = None
+    device_evidence_criteria = None
+    if args.require_device_evidence and args.device_evidence is None:
+        raise ValueError(
+            "--require-device-evidence needs --device-evidence"
+        )
+    if args.device_evidence is not None:
+        device_evidence = load_device_evidence(
+            Path(args.device_evidence)
+        )
+        device_evidence_criteria = VN97DeviceEvidenceCriteria(
+            min_runs=args.device_evidence_min_runs,
+            max_text_prefill_p95_ms=args.max_text_prefill_p95_ms,
+            max_text_decode_p95_ms_per_token=(
+                args.max_text_decode_p95_ms_per_token
+            ),
+            max_peak_pss_kib=args.max_device_peak_pss_kib,
+            max_thermal_status=args.max_device_thermal_status,
+            max_speech_prefill_p95_ms=(
+                args.max_speech_prefill_p95_ms
+                if loaded.audio_adapter is not None
+                else None
+            ),
+            require_energy_counter=args.require_device_energy_counter,
+            max_abs_battery_energy_counter_delta_nwh=(
+                args.max_abs_battery_energy_counter_delta_nwh
+            ),
+        )
+        require_device_evidence(
+            device_evidence,
+            device_evidence_criteria,
+            expected_model_image_sha256=preview_model_image_sha256,
+            speech_enabled=loaded.audio_adapter is not None,
+        )
+
+    # Private signing material is not opened until quality, mobile-budget and
+    # optional on-device evidence gates pass.
     private_key = _parse_private_key(
         _read_regular_file(
             private_key_path,
@@ -530,12 +718,49 @@ def main(argv: list[str] | None = None) -> int:
         tile_rows=args.tile_rows,
         tile_cols=args.tile_cols,
     )
+    if bundle.model_image_sha256 != preview_model_image_sha256:
+        raise RuntimeError(
+            "VN97MI1 identity changed between evidence gate and signing"
+        )
     output = write_bootstrap_assets(bundle, assets_dir)
 
     report = {
         "assets_dir": str(output),
         "capability_version": bundle.capability_version,
         "checkpoint_sha256": loaded.checkpoint_sha256,
+        "device_evidence": (
+            None
+            if device_evidence is None
+            else {
+                "abi": device_evidence.abi,
+                "battery_energy_counter_delta_nwh": (
+                    device_evidence.battery_energy_counter_delta_nwh
+                ),
+                "evidence_sha256": device_evidence.evidence_sha256,
+                "manufacturer": device_evidence.manufacturer,
+                "max_thermal_status": (
+                    device_evidence_criteria.max_thermal_status
+                ),
+                "model": device_evidence.model,
+                "peak_pss_kib": device_evidence.peak_pss_kib,
+                "runs": device_evidence.runs,
+                "sdk_int": device_evidence.sdk_int,
+                "speech_prefill_p95_ms": (
+                    None
+                    if device_evidence.speech_prefill is None
+                    else device_evidence.speech_prefill.p95_ms
+                ),
+                "text_decode_p95_ms_per_token": (
+                    device_evidence.text_decode_per_token.p95_ms
+                ),
+                "text_prefill_p95_ms": (
+                    device_evidence.text_prefill.p95_ms
+                ),
+                "thermal_status_max": (
+                    device_evidence.thermal_status_max
+                ),
+            }
+        ),
         "model_image_sha256": bundle.model_image_sha256,
         "mobile_budget": {
             "max_model_image_bytes": mobile_budget.max_model_image_bytes,
@@ -547,7 +772,10 @@ def main(argv: list[str] | None = None) -> int:
         "publisher_public_key_sha256": hashlib.sha256(
             bundle.publisher_public_key
         ).hexdigest(),
-        "schema": "VN97BOOTREL3",
+        "production_campaign_report_sha256": (
+            production_campaign_report_sha256
+        ),
+        "schema": "VN97BOOTREL4",
         "speech_enabled": loaded.audio_adapter is not None,
         "speech_runtime_budget": (
             None

@@ -177,6 +177,15 @@ from .deployment_checkpoint import (
     save_deployment_checkpoint,
 )
 from .embedding import FactorizedEmbedding, FactorizedLMHead
+from .device_evidence import (
+    VN97DeviceEvidence,
+    VN97DeviceEvidenceCriteria,
+    VN97DeviceEvidenceError,
+    VN97LatencyPercentiles,
+    load_device_evidence,
+    parse_device_evidence,
+    require_device_evidence,
+)
 from .evaluation import (
     VN97EvaluationResult,
     VN97ReleaseCriteria,
@@ -277,7 +286,10 @@ from .speech_training import (
     VN97SpeechTrainingConfig,
     VN97SpeechTrainingResult,
     evaluate_vn97_speech,
+    require_disjoint_speech_splits,
     require_speech_release_quality,
+    speech_audio_fingerprint,
+    speech_example_fingerprint,
     train_vn97_speech_adapter,
 )
 from .training import (
@@ -478,6 +490,13 @@ __all__ = [
     "VN97MobileFootprint",
     "VN97_MAX_RECURRENT_STATE_BYTES",
     "estimate_vn97_mobile_footprint",
+    "VN97DeviceEvidence",
+    "VN97DeviceEvidenceCriteria",
+    "VN97DeviceEvidenceError",
+    "VN97LatencyPercentiles",
+    "load_device_evidence",
+    "parse_device_evidence",
+    "require_device_evidence",
     "VN97EvaluationResult",
     "VN97ReleaseCriteria",
     "VN97ReleaseQualityError",
@@ -545,7 +564,10 @@ __all__ = [
     "VN97SpeechTrainingConfig",
     "VN97SpeechTrainingResult",
     "evaluate_vn97_speech",
+    "require_disjoint_speech_splits",
     "require_speech_release_quality",
+    "speech_audio_fingerprint",
+    "speech_example_fingerprint",
     "train_vn97_speech_adapter",
     "IGNORE_INDEX",
     "VN97ChatMessage",
