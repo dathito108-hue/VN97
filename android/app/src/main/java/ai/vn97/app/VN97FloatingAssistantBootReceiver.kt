@@ -23,11 +23,13 @@ class VN97FloatingAssistantBootReceiver : BroadcastReceiver() {
                         try {
                             app.autonomousWork
                                 .reconcileAfterSystemRestart()
+                            app.paperTrading
+                                .reconcileAfterSystemRestart()
                         } finally {
                             pending.finish()
                         }
                     },
-                    "vn97-m13c-reconcile",
+                    "vn97-continuity-reconcile",
                 ).start()
             }
         }
