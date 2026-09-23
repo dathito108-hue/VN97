@@ -132,7 +132,7 @@ fun main() {
     val actionId = episode.recordAction(
         actionIndex = 0,
         capabilityId =
-            M6AndroidProductionCapabilities.GAME_TAP_CAPABILITY,
+            "device.game.tap",
         actionResult = "game:tap:com.example.game",
         beforeObservation = "button visible",
         afterObservation = "checkpoint visible",
@@ -150,7 +150,7 @@ fun main() {
         episode.recordAction(
             actionIndex = 2,
             capabilityId =
-                M6AndroidProductionCapabilities.GAME_BACK_CAPABILITY,
+                "device.game.back",
             actionResult = "game:back:com.example.game",
             beforeObservation = "before",
             afterObservation = "after",
