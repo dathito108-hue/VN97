@@ -205,7 +205,8 @@ RuntimeStatus RuntimeSession::InferStep(
     const std::uint32_t* input_ids,
     float* logits,
     std::size_t logits_count) {
-    return InferStepOutput(model, input_ids, logits, logits_count, false);
+    return InferStepOutput(
+        model, input_ids, nullptr, 0, logits, logits_count, false);
 }
 
 RuntimeStatus RuntimeSession::InferStepHidden(
@@ -213,16 +214,57 @@ RuntimeStatus RuntimeSession::InferStepHidden(
     const std::uint32_t* input_ids,
     float* hidden,
     std::size_t hidden_count) {
-    return InferStepOutput(model, input_ids, hidden, hidden_count, true);
+    return InferStepOutput(
+        model, input_ids, nullptr, 0, hidden, hidden_count, true);
+}
+
+RuntimeStatus RuntimeSession::InferEmbeddingStep(
+    const LanguageModelView& model,
+    const float* input_embeddings,
+    std::size_t embedding_count,
+    float* logits,
+    std::size_t logits_count) {
+    return InferStepOutput(
+        model,
+        nullptr,
+        input_embeddings,
+        embedding_count,
+        logits,
+        logits_count,
+        false);
+}
+
+RuntimeStatus RuntimeSession::InferEmbeddingStepHidden(
+    const LanguageModelView& model,
+    const float* input_embeddings,
+    std::size_t embedding_count,
+    float* hidden,
+    std::size_t hidden_count) {
+    return InferStepOutput(
+        model,
+        nullptr,
+        input_embeddings,
+        embedding_count,
+        hidden,
+        hidden_count,
+        true);
 }
 
 RuntimeStatus RuntimeSession::InferStepOutput(
     const LanguageModelView& model,
     const std::uint32_t* input_ids,
+    const float* input_embeddings,
+    std::size_t embedding_count,
     float* logits,
     std::size_t logits_count,
     bool hidden_only) {
-    if (input_ids == nullptr || logits == nullptr) return RuntimeStatus::kNullArgument;
+    if (
+        logits == nullptr ||
+        (input_ids == nullptr && input_embeddings == nullptr) ||
+        (input_ids != nullptr && input_embeddings != nullptr)
+    ) {
+        return RuntimeStatus::kNullArgument;
+    }
     std::lock_guard<std::mutex> lock(mutex_);
     if (lifecycle_ != RuntimeLifecycle::kActive) return RuntimeStatus::kInvalidLifecycle;
     if (model.n_layers != config_.layers ||
@@ -261,29 +303,58 @@ RuntimeStatus RuntimeSession::InferStepOutput(
         return RuntimeStatus::kSizeOverflow;
     }
 
-    const auto status = hidden_only
-        ? LanguageStepHiddenF32WithBackends(
-            model,
-            input_ids,
-            config_.batch,
-            state_.data(),
-            logits,
-            logits_count,
-            language_workspace_.data(),
-            language_workspace_.size(),
-            resolved_recurrent_backend_,
-            resolved_packed_backend_)
-        : LanguageStepF32WithBackends(
-            model,
-            input_ids,
-            config_.batch,
-            state_.data(),
-            logits,
-            logits_count,
-            language_workspace_.data(),
-            language_workspace_.size(),
-            resolved_recurrent_backend_,
-            resolved_packed_backend_);
+    LanguageStatus status = LanguageStatus::kInvalidConfig;
+    if (input_ids != nullptr) {
+        status = hidden_only
+            ? LanguageStepHiddenF32WithBackends(
+                model,
+                input_ids,
+                config_.batch,
+                state_.data(),
+                logits,
+                logits_count,
+                language_workspace_.data(),
+                language_workspace_.size(),
+                resolved_recurrent_backend_,
+                resolved_packed_backend_)
+            : LanguageStepF32WithBackends(
+                model,
+                input_ids,
+                config_.batch,
+                state_.data(),
+                logits,
+                logits_count,
+                language_workspace_.data(),
+                language_workspace_.size(),
+                resolved_recurrent_backend_,
+                resolved_packed_backend_);
+    } else {
+        status = hidden_only
+            ? LanguageStepEmbeddingsHiddenF32WithBackends(
+                model,
+                input_embeddings,
+                embedding_count,
+                config_.batch,
+                state_.data(),
+                logits,
+                logits_count,
+                language_workspace_.data(),
+                language_workspace_.size(),
+                resolved_recurrent_backend_,
+                resolved_packed_backend_)
+            : LanguageStepEmbeddingsF32WithBackends(
+                model,
+                input_embeddings,
+                embedding_count,
+                config_.batch,
+                state_.data(),
+                logits,
+                logits_count,
+                language_workspace_.data(),
+                language_workspace_.size(),
+                resolved_recurrent_backend_,
+                resolved_packed_backend_);
+    }
     if (status != LanguageStatus::kOk) {
         return MapLanguageStatus(status);
     }
@@ -607,6 +678,60 @@ int vn97_runtime_infer_step_hidden(
     }
     return static_cast<int>(
         session->InferStepHidden(*language_model_view, input_ids, hidden, hidden_count));
+}
+
+int vn97_runtime_infer_embedding_step(
+    std::uint64_t handle,
+    const vn97::LanguageModelView* language_model_view,
+    const float* input_embeddings,
+    std::size_t embedding_count,
+    float* logits,
+    std::size_t logits_count) {
+    if (
+        language_model_view == nullptr ||
+        input_embeddings == nullptr ||
+        logits == nullptr
+    ) {
+        return static_cast<int>(vn97::RuntimeStatus::kNullArgument);
+    }
+    const auto session = Lookup(handle);
+    if (!session) {
+        return static_cast<int>(vn97::RuntimeStatus::kInvalidHandle);
+    }
+    return static_cast<int>(
+        session->InferEmbeddingStep(
+            *language_model_view,
+            input_embeddings,
+            embedding_count,
+            logits,
+            logits_count));
+}
+
+int vn97_runtime_infer_embedding_step_hidden(
+    std::uint64_t handle,
+    const vn97::LanguageModelView* language_model_view,
+    const float* input_embeddings,
+    std::size_t embedding_count,
+    float* hidden,
+    std::size_t hidden_count) {
+    if (
+        language_model_view == nullptr ||
+        input_embeddings == nullptr ||
+        hidden == nullptr
+    ) {
+        return static_cast<int>(vn97::RuntimeStatus::kNullArgument);
+    }
+    const auto session = Lookup(handle);
+    if (!session) {
+        return static_cast<int>(vn97::RuntimeStatus::kInvalidHandle);
+    }
+    return static_cast<int>(
+        session->InferEmbeddingStepHidden(
+            *language_model_view,
+            input_embeddings,
+            embedding_count,
+            hidden,
+            hidden_count));
 }
 
 int vn97_runtime_prefill(
