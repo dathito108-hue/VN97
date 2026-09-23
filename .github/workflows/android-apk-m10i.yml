@@ -33,10 +33,16 @@ jobs:
         env:
           ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
         run: |
-          SDKMANAGER="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          TOOLS_ZIP="$RUNNER_TEMP/android-cmdline-tools.zip"
+          TOOLS_DIR="$RUNNER_TEMP/android-cmdline-tools"
+          curl -fsSL             "https://dl.google.com/android/repository/commandlinetools-linux-12266719_latest.zip"             -o "$TOOLS_ZIP"
+          rm -rf "$TOOLS_DIR"
+          mkdir -p "$TOOLS_DIR"
+          unzip -q "$TOOLS_ZIP" -d "$TOOLS_DIR"
+          SDKMANAGER="$TOOLS_DIR/cmdline-tools/bin/sdkmanager"
           test -x "$SDKMANAGER"
-          yes | "$SDKMANAGER" --licenses >/dev/null || true
-          "$SDKMANAGER" "platforms;android-37" "build-tools;36.0.0" "ndk;28.2.13676358" "cmake;3.22.1"
+          yes | "$SDKMANAGER" --sdk_root="$ANDROID_SDK_ROOT" --licenses >/dev/null || true
+          "$SDKMANAGER"             --sdk_root="$ANDROID_SDK_ROOT"             "platforms;android-37"             "build-tools;36.0.0"             "ndk;28.2.13676358"             "cmake;3.22.1"
 
       - name: Build VN97 debug APK
         shell: bash
