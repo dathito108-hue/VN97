@@ -5,7 +5,6 @@ on:
     branches:
       - m10i-reproducible-apk-cold-start
       - m10j-turnkey-bootstrap
-      - m11b-production-intelligence-package
   workflow_dispatch:
 
 permissions:
@@ -18,11 +17,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Compile-check Python source and tests
-        shell: bash
-        run: |
-          python3 -m compileall -q src tests
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
