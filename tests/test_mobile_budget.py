@@ -116,3 +116,16 @@ def test_mobile_footprint_rejects_invalid_tiles():
             tile_rows=0,
             tile_cols=16,
         )
+
+
+def test_mobile_budget_cannot_exceed_native_runtime_ceiling():
+    with pytest.raises(ValueError, match="VN97MI1 runtime bound"):
+        VN97MobileBudget(
+            max_model_image_bytes=512 * 1024 * 1024 + 1,
+            max_recurrent_state_bytes=1,
+        )
+    with pytest.raises(ValueError, match="VN97 runtime bound"):
+        VN97MobileBudget(
+            max_model_image_bytes=1,
+            max_recurrent_state_bytes=512 * 1024 * 1024 + 1,
+        )
