@@ -314,6 +314,71 @@ class VN97ImprovementCandidateLedger(
     }
 
     @Synchronized
+    fun reviewedForPackageOrNull(
+        packageSha256: String,
+    ): VN97ImprovementCandidateRecord? {
+        requireImprovementSha(
+            packageSha256,
+            "candidatePackageSha256",
+        )
+        var inspected = 0
+        var found:
+            VN97ImprovementCandidateRecord? = null
+        Files.newDirectoryStream(
+            rootPath,
+            "*.vn97imp1",
+        ).use { entries ->
+            for (path in entries) {
+                inspected += 1
+                require(
+                    inspected <= MAX_LEDGER_FILES
+                ) {
+                    "self-improvement ledger file count exceeds bound"
+                }
+                require(
+                    Files.isRegularFile(
+                        path,
+                        LinkOption.NOFOLLOW_LINKS,
+                    ) &&
+                        !Files.isSymbolicLink(path)
+                ) {
+                    "self-improvement ledger contains unsafe file"
+                }
+                val name =
+                    path.fileName.toString()
+                val suffix = ".vn97imp1"
+                val id =
+                    name.removeSuffix(suffix)
+                require(
+                    name.endsWith(suffix) &&
+                        id.length == 64
+                ) {
+                    "self-improvement ledger filename is invalid"
+                }
+                val record =
+                    loadOrNull(id)
+                        ?: throw IllegalStateException(
+                            "self-improvement ledger entry disappeared"
+                        )
+                if (
+                    record.spec
+                        .candidatePackageSha256 ==
+                        packageSha256 &&
+                        record.state ==
+                            VN97ImprovementCandidateState
+                                .REVIEWED
+                ) {
+                    check(found == null) {
+                        "multiple reviewed self-improvement records bind one package"
+                    }
+                    found = record
+                }
+            }
+        }
+        return found
+    }
+
+    @Synchronized
     fun loadOrNull(
         candidateId: String,
     ): VN97ImprovementCandidateRecord? {
@@ -490,6 +555,7 @@ class VN97ImprovementCandidateLedger(
     companion object {
         private const val MAX_FILE_BYTES =
             64 * 1024
+        private const val MAX_LEDGER_FILES = 256
     }
 }
 
