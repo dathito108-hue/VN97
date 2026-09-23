@@ -83,6 +83,12 @@ object NativeModelImageCandidateValidator {
         require(longs[0] > 0L) {
             "native VN97MI1 candidate image length must be positive"
         }
+        require(
+            (ints[9] == 0 && ints[10] == 0 && ints[11] == 0) ||
+                (ints[9] != 0 && ints[10] == 3 && ints[11] == 16)
+        ) {
+            "native VN97MI1 candidate vision metadata is invalid"
+        }
         return NativeActivatedModelInfo(
             modelId = modelId,
             vocabSize = ints[0],
