@@ -280,22 +280,6 @@ class VN97KnowledgeAcquisitionSession private constructor(
             "no knowledge acquisition review is pending"
         }
 
-        val completed =
-            ledger.loadOrNull(
-                current.review.packageSha256
-            )
-        if (
-            completed?.state ==
-                VN97KnowledgeAcquisitionState.COMPLETED
-        ) {
-            requireLedgerMatches(current, completed)
-            pending = null
-            return resultFromLedger(
-                completed,
-                alreadyAcquired = true,
-            )
-        }
-
         val durableTrust =
             trustRegistry.enrollKnowledgePublisher(
                 keyId = current.verified.publisherKeyId,
@@ -314,6 +298,22 @@ class VN97KnowledgeAcquisitionSession private constructor(
             requireKnowledgePayload(fresh)
         check(freshPayload == current.payload) {
             "knowledge payload changed after review"
+        }
+
+        val completed =
+            ledger.loadOrNull(
+                current.review.packageSha256
+            )
+        if (
+            completed?.state ==
+                VN97KnowledgeAcquisitionState.COMPLETED
+        ) {
+            requireLedgerMatches(current, completed)
+            pending = null
+            return resultFromLedger(
+                completed,
+                alreadyAcquired = true,
+            )
         }
 
         var state =
