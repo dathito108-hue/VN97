@@ -46,6 +46,7 @@ class VN97MainActivity : Activity() {
     private lateinit var gameAgentStartButton: Button
     private lateinit var gameAgentStopButton: Button
     private lateinit var mobileEvidenceButton: Button
+    private lateinit var paperTradingButton: Button
     private lateinit var transcriptView: TextView
     private lateinit var inputView: EditText
     private lateinit var sendButton: Button
@@ -300,6 +301,25 @@ class VN97MainActivity : Activity() {
         }
         root.addView(
             mobileEvidenceButton,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ),
+        )
+
+        paperTradingButton = Button(this).apply {
+            text = "Paper trading"
+            setOnClickListener {
+                startActivity(
+                    Intent(
+                        this@VN97MainActivity,
+                        VN97PaperTradingActivity::class.java,
+                    )
+                )
+            }
+        }
+        root.addView(
+            paperTradingButton,
             LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT,
