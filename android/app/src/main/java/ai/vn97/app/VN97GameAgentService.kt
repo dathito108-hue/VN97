@@ -5,6 +5,8 @@ import ai.vn97.platform.M6ExternalCoordinatorEvent
 import ai.vn97.platform.M6ExternalCoordinatorResult
 import ai.vn97.platform.M6ReceiptStatus
 import ai.vn97.platform.VN97GameAccessibilityController
+import ai.vn97.platform.VN97GameEpisodeMemory
+import ai.vn97.platform.VN97GameEpisodeTerminal
 import ai.vn97.runtime.NativeActivatedInventoryModelLoader
 import ai.vn97.runtime.NativeCognitionBoundary
 import ai.vn97.runtime.NativeCognitionInferenceEngine
@@ -204,14 +206,80 @@ class VN97GameAgentService : Service() {
                     app.platformRuntime
                         .openOrCreateProductionMemory(model)
                         .use { memory ->
-                            runClosedLoop(
-                                app = app,
-                                goal = goal,
-                                packageName = session.packageName,
-                                engine = engine,
-                                coordinator = coordinator,
-                                memory = memory,
-                            )
+                            val episodeMemory =
+                                VN97GameEpisodeMemory.production(
+                                    engine = engine,
+                                    memory = memory,
+                                    packageName = session.packageName,
+                                    userGoal = goal,
+                                    startedNs = wallNowNs(),
+                                )
+                            val memoryContext = episodeMemory.begin()
+                            try {
+                                val result = runClosedLoop(
+                                    app = app,
+                                    goal = goal,
+                                    packageName = session.packageName,
+                                    engine = engine,
+                                    coordinator = coordinator,
+                                    memory = memory,
+                                    episodeMemory = episodeMemory,
+                                    priorStrategyContext =
+                                        memoryContext.priorStrategyContext,
+                                )
+                                val learned = episodeMemory.finish(
+                                    terminal = when (result.state) {
+                                        VN97GameAgentState.COMPLETED ->
+                                            VN97GameEpisodeTerminal.COMPLETED
+                                        VN97GameAgentState.CANCELLED ->
+                                            VN97GameEpisodeTerminal.CANCELLED
+                                        else ->
+                                            VN97GameEpisodeTerminal.FAILED
+                                    },
+                                    detail =
+                                        result.detail.ifBlank {
+                                            result.state.name.lowercase()
+                                        },
+                                    timestampNs = wallNowNs(),
+                                )
+                                result.copy(
+                                    detail = buildString {
+                                        append(result.detail)
+                                        if (
+                                            learned.learnedStrategy.isNotBlank()
+                                        ) {
+                                            if (isNotEmpty()) append("\n")
+                                            append("Learned: ")
+                                            append(
+                                                learned.learnedStrategy.take(
+                                                    MAX_DETAIL_CHARS / 2
+                                                )
+                                            )
+                                        }
+                                    }.take(MAX_DETAIL_CHARS)
+                                )
+                            } catch (exc: Throwable) {
+                                val terminal =
+                                    if (cancelled.get()) {
+                                        VN97GameEpisodeTerminal.CANCELLED
+                                    } else {
+                                        VN97GameEpisodeTerminal.FAILED
+                                    }
+                                runCatching {
+                                    episodeMemory.finish(
+                                        terminal = terminal,
+                                        detail =
+                                            if (cancelled.get()) {
+                                                "game episode cancelled"
+                                            } else {
+                                                "game episode failed: " +
+                                                    exc::class.java.simpleName
+                                            },
+                                        timestampNs = wallNowNs(),
+                                    )
+                                }.exceptionOrNull()?.let(exc::addSuppressed)
+                                throw exc
+                            }
                         }
                 }
             } finally {
@@ -231,6 +299,8 @@ class VN97GameAgentService : Service() {
         engine: NativeCognitionInferenceEngine,
         coordinator: ai.vn97.platform.M6EndToEndExternalCoordinator,
         memory: ai.vn97.runtime.NativeMemoryStore,
+        episodeMemory: VN97GameEpisodeMemory,
+        priorStrategyContext: String,
     ): VN97GameAgentSnapshot {
         val started = SystemClock.elapsedRealtime()
         var actionCount = 0
@@ -268,6 +338,7 @@ class VN97GameAgentService : Service() {
                     actionCount = actionCount,
                     observation = observation,
                     previousVerification = previousVerification,
+                    priorStrategyContext = priorStrategyContext,
                 ),
                 createdNs = wallNowNs(),
             )
@@ -304,7 +375,7 @@ class VN97GameAgentService : Service() {
             check(receipt.capabilityId in GAME_CAPABILITIES) {
                 "non-game capability escaped game-only coordinator"
             }
-            actionCount += 1
+            val actionIndex = actionCount
 
             afterElapsedNs = SystemClock.elapsedRealtimeNanos()
             frame = app.screenCaptureBroker.awaitFreshFrame(
@@ -320,6 +391,16 @@ class VN97GameAgentService : Service() {
                 capabilityId = receipt.capabilityId,
                 actionResult = receipt.result,
             )
+            episodeMemory.recordAction(
+                actionIndex = actionIndex,
+                capabilityId = receipt.capabilityId,
+                actionResult = receipt.result,
+                beforeObservation = observation,
+                afterObservation = afterObservation,
+                verification = previousVerification,
+                timestampNs = wallNowNs(),
+            )
+            actionCount += 1
             observation = afterObservation
         }
     }
@@ -383,6 +464,7 @@ class VN97GameAgentService : Service() {
         actionCount: Int,
         observation: String,
         previousVerification: String,
+        priorStrategyContext: String,
     ): String = buildString {
         append("VN97GAME2\n")
         append("Operate only the currently authorized Android game package. ")
@@ -404,6 +486,14 @@ class VN97GameAgentService : Service() {
                 .replace('\n', ' ')
                 .take(MAX_PROMPT_FIELD_CHARS)
         )
+        if (priorStrategyContext.isNotBlank()) {
+            append("\nrecalled_strategy=")
+            append(
+                priorStrategyContext
+                    .replace('\n', ' ')
+                    .take(MAX_PRIOR_STRATEGY_CHARS)
+            )
+        }
         if (previousVerification.isNotBlank()) {
             append("\nprevious_outcome=")
             append(
@@ -655,6 +745,7 @@ class VN97GameAgentService : Service() {
         private const val MAX_DETAIL_CHARS = 4096
         private const val MAX_PROMPT_FIELD_CHARS = 4096
         private const val MAX_VERIFICATION_CHARS = 2048
+        private const val MAX_PRIOR_STRATEGY_CHARS = 4096
         private const val MAX_VERIFY_TOKENS = 256
         private const val MAX_ACTIONS = 64
         private const val MAX_DECISION_ADVANCES = 4
