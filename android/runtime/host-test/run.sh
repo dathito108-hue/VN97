@@ -200,3 +200,25 @@ java -jar "$WORK/m10g-native-candidate-validator-test.jar"
     -d "$WORK/m10g-production-interface-integration-test.jar"
 
 java -jar "$WORK/m10g-production-interface-integration-test.jar"
+
+
+"$KOTLINC" \
+    "$ROOT/android/runtime/src/main/java/ai/vn97/runtime/StrictJson.kt" \
+    "$ROOT/android/runtime/src/main/java/ai/vn97/runtime/CapabilityPackage.kt" \
+    "$ROOT/android/runtime/src/main/java/ai/vn97/runtime/CapabilitySignature.kt" \
+    "$ROOT/android/runtime/src/main/java/ai/vn97/runtime/CapabilityStage.kt" \
+    "$ROOT/android/runtime/src/main/java/ai/vn97/runtime/CapabilityTrust.kt" \
+    "$ROOT/android/runtime/src/main/java/ai/vn97/runtime/CapabilityCompatibility.kt" \
+    "$ROOT/android/runtime/src/main/java/ai/vn97/runtime/CapabilityInventory.kt" \
+    "$ROOT/android/runtime/src/main/java/ai/vn97/runtime/CapabilityActivation.kt" \
+    "$ROOT/android/runtime/src/main/java/ai/vn97/runtime/ModelImageActivationBackend.kt" \
+    "$ROOT/android/runtime/src/main/java/ai/vn97/runtime/ActivatedInventoryEvidence.kt" \
+    "$ROOT/android/runtime/src/main/java/ai/vn97/runtime/PublisherTrustRegistry.kt" \
+    "$ROOT/android/runtime/src/main/java/ai/vn97/runtime/CapabilityProvisioning.kt" \
+    "$HERE/M10DStrictJsonStub.kt" \
+    "$HERE/M10HTrustedImportActivationTest.kt" \
+    -Werror \
+    -include-runtime \
+    -d "$WORK/m10h-trusted-import-activation-test.jar"
+
+java -jar "$WORK/m10h-trusted-import-activation-test.jar"

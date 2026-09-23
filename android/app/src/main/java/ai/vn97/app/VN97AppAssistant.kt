@@ -157,31 +157,47 @@ class VN97AppAssistant(
         return result
     }
 
+    fun reloadActivatedModel(): Boolean = synchronized(lock) {
+        check(pendingResult == null) {
+            "cannot replace model while approval is pending"
+        }
+        val activeResources = resources
+        check(activeResources == null || !activeResources.session.hasActiveTurn) {
+            "cannot replace model while a turn is active"
+        }
+        closeLocked()
+        openIfActivated()
+    }
+
     override fun close() {
         synchronized(lock) {
             pendingResult = null
-            var failure: Throwable? = null
-            try {
-                resources?.close()
-            } catch (exc: Throwable) {
-                failure = exc
-            } finally {
-                resources = null
-                try {
-                    model?.close()
-                } catch (exc: Throwable) {
-                    val firstFailure = failure
-                    if (firstFailure == null) {
-                        failure = exc
-                    } else {
-                        firstFailure.addSuppressed(exc)
-                    }
-                } finally {
-                    model = null
-                }
-            }
-            failure?.let { throw it }
+            closeLocked()
         }
+    }
+
+    private fun closeLocked() {
+        var failure: Throwable? = null
+        try {
+            resources?.close()
+        } catch (exc: Throwable) {
+            failure = exc
+        } finally {
+            resources = null
+            try {
+                model?.close()
+            } catch (exc: Throwable) {
+                val firstFailure = failure
+                if (firstFailure == null) {
+                    failure = exc
+                } else {
+                    firstFailure.addSuppressed(exc)
+                }
+            } finally {
+                model = null
+            }
+        }
+        failure?.let { throw it }
     }
 
     companion object {
