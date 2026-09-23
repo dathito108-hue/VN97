@@ -37,7 +37,7 @@ class VN97AppAssistant(
     private var resources: VN97ProductionAssistantResources? = null
     private var pendingResult: VN97AppTurnResult? = null
 
-    fun openIfActivated(): Boolean = synchronized(lock) {
+    fun openIfActivated(): Boolean = exclusive {
         if (model != null && resources != null) return true
 
         val opened = NativeActivatedInventoryModelLoader.openOrNull(
@@ -61,7 +61,7 @@ class VN97AppAssistant(
     fun runTurn(
         userMessage: String,
         maxAdvances: Int = 8,
-    ): VN97AppTurnResult = synchronized(lock) {
+    ): VN97AppTurnResult = exclusive {
         require(userMessage.isNotBlank()) { "userMessage must not be blank" }
         require(maxAdvances > 0) { "maxAdvances must be positive" }
         check(pendingResult == null) {
@@ -86,7 +86,7 @@ class VN97AppAssistant(
 
     fun createAutonomousSeed(
         goal: String,
-    ): VN97AutonomousContinuationSeed = synchronized(lock) {
+    ): VN97AutonomousContinuationSeed = exclusive {
         require(goal.isNotBlank()) {
             "autonomous goal must not be blank"
         }
@@ -118,7 +118,7 @@ class VN97AppAssistant(
 
     fun perceiveVision(
         preparedVision: NativePreparedVision,
-    ): String = synchronized(lock) {
+    ): String = exclusive {
         check(pendingResult == null) {
             "cannot run perception while approval is pending"
         }
@@ -143,7 +143,7 @@ class VN97AppAssistant(
         beforeObservation: String,
         afterObservation: String,
         maxNewTokens: Int = 384,
-    ): String = synchronized(lock) {
+    ): String = exclusive {
         require(goal.isNotBlank()) { "visual verification goal must not be blank" }
         require(beforeObservation.isNotBlank()) {
             "beforeObservation must not be blank"
@@ -199,7 +199,7 @@ class VN97AppAssistant(
     fun runVoiceTurn(
         preparedAudio: NativePreparedAudio,
         maxAdvances: Int = 8,
-    ): VN97AppTurnResult = synchronized(lock) {
+    ): VN97AppTurnResult = exclusive {
         require(maxAdvances > 0) {
             "maxAdvances must be positive"
         }
@@ -227,7 +227,7 @@ class VN97AppAssistant(
 
     fun collectMobileEvidence(
         config: VN97MobileEvidenceConfig = VN97MobileEvidenceConfig(),
-    ): VN97MobileEvidenceRecord = synchronized(lock) {
+    ): VN97MobileEvidenceRecord = exclusive {
         check(pendingResult == null) {
             "cannot benchmark while approval is pending"
         }
@@ -263,7 +263,7 @@ class VN97AppAssistant(
     fun resolvePendingApproval(
         approved: Boolean,
         maxAdvances: Int = 8,
-    ): VN97AppTurnResult = synchronized(lock) {
+    ): VN97AppTurnResult = exclusive {
         require(maxAdvances > 0) { "maxAdvances must be positive" }
         val current = checkNotNull(pendingResult) {
             "no assistant approval is pending"
@@ -322,7 +322,7 @@ class VN97AppAssistant(
         return result
     }
 
-    fun reloadActivatedModel(): Boolean = synchronized(lock) {
+    fun reloadActivatedModel(): Boolean = exclusive {
         check(pendingResult == null) {
             "cannot replace model while approval is pending"
         }
@@ -335,11 +335,18 @@ class VN97AppAssistant(
     }
 
     override fun close() {
-        synchronized(lock) {
+        exclusive {
             pendingResult = null
             closeLocked()
         }
     }
+
+    private fun <T> exclusive(block: () -> T): T =
+        application.withSovereignExecution {
+            synchronized(lock) {
+                block()
+            }
+        }
 
     private fun productionGrants() =
         VN97ProductionAuthority.grants(
