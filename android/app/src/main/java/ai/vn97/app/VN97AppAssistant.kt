@@ -335,13 +335,13 @@ class VN97AppAssistant(
                 .sorted()
                 .take(MAX_LAUNCHABLE_APP_GRANTS)
                 .forEach { packageName ->
-                    add(
+                    runCatching {
                         M6AndroidProductionCapabilities
                             .userApprovedAppLaunchGrant(
                                 APP_PRINCIPAL,
                                 packageName,
                             )
-                    )
+                    }.getOrNull()?.let(::add)
                 }
         }
 
