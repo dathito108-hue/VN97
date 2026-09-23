@@ -26,6 +26,25 @@ data class VN97CapabilitySignatureEnvelope(
         }
     }
 
+    override fun equals(other: Any?): Boolean =
+        other is VN97CapabilitySignatureEnvelope &&
+            keyId == other.keyId &&
+            packageSha256 == other.packageSha256 &&
+            capabilityId == other.capabilityId &&
+            capabilityVersion == other.capabilityVersion &&
+            signature.contentEquals(other.signature) &&
+            envelopeSha256 == other.envelopeSha256
+
+    override fun hashCode(): Int {
+        var result = keyId.hashCode()
+        result = 31 * result + packageSha256.hashCode()
+        result = 31 * result + capabilityId.hashCode()
+        result = 31 * result + capabilityVersion.hashCode()
+        result = 31 * result + signature.contentHashCode()
+        result = 31 * result + envelopeSha256.hashCode()
+        return result
+    }
+
     fun signingMessage(): ByteArray {
         val claims = VnStrictJson.objectOf(
             "algorithm" to VnStrictJson.string("ed25519"),
