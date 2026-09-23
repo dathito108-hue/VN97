@@ -29,6 +29,23 @@ data class VN97KnowledgeProposalEvidence(
     companion object {
         const val MAX_SOURCE_BYTES = 128
         const val MAX_CONTENT_BYTES = 1_024
+
+        fun bounded(
+            recordId: Long,
+            source: String,
+            content: String,
+        ): VN97KnowledgeProposalEvidence =
+            VN97KnowledgeProposalEvidence(
+                recordId = recordId,
+                source = truncateProposalUtf8(
+                    source,
+                    MAX_SOURCE_BYTES,
+                ).ifBlank { "unknown" },
+                content = truncateProposalUtf8(
+                    content,
+                    MAX_CONTENT_BYTES,
+                ).ifBlank { "(empty evidence)" },
+            )
     }
 }
 
@@ -312,6 +329,40 @@ class VN97KnowledgeAcquisitionProposalEngine(
         const val MAX_PROMPT_BYTES = 16 * 1_024
         const val MAX_OUTPUT_BYTES = 8 * 1_024
     }
+}
+
+private fun truncateProposalUtf8(
+    value: String,
+    maxBytes: Int,
+): String {
+    require(maxBytes > 0)
+    if (
+        value.toByteArray(
+            StandardCharsets.UTF_8
+        ).size <= maxBytes
+    ) {
+        return value
+    }
+    val out = StringBuilder()
+    var index = 0
+    var used = 0
+    while (index < value.length) {
+        val codePoint =
+            Character.codePointAt(value, index)
+        val text =
+            String(
+                Character.toChars(codePoint)
+            )
+        val size =
+            text.toByteArray(
+                StandardCharsets.UTF_8
+            ).size
+        if (used + size > maxBytes) break
+        out.append(text)
+        used += size
+        index += Character.charCount(codePoint)
+    }
+    return out.toString()
 }
 
 private fun VnJsonObject.proposalString(
