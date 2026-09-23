@@ -308,17 +308,20 @@ class VN97PaperTradingActivity : Activity() {
         refreshButton.isEnabled = false
         worker.execute {
             val result = runCatching {
-                app.paperTrading.listReports()
+                Pair(
+                    app.paperTrading.listReports(),
+                    app.paperTrading.performanceEvidence(),
+                )
             }
             runOnUiThread {
-                val reports = result.getOrElse { exc ->
+                val (reports, performance) = result.getOrElse { exc ->
                     statusView.text =
                         "Status unavailable: " +
                             (exc.message ?: exc::class.java.simpleName)
                     refreshButton.isEnabled = true
                     return@runOnUiThread
                 }
-                statusView.text =
+                val sessionText =
                     VN97PaperTradingControlSurface.formatReports(
                         reports.map { report ->
                             VN97PaperTradingUiReport(
@@ -336,6 +339,9 @@ class VN97PaperTradingActivity : Activity() {
                             )
                         }
                     )
+                statusView.text =
+                    sessionText +
+                        formatPerformanceEvidence(performance)
                 if (
                     jobIdView.text.isNullOrBlank() &&
                     reports.isNotEmpty()
@@ -354,6 +360,42 @@ class VN97PaperTradingActivity : Activity() {
                     }
                 }
                 setControlsEnabled(true)
+            }
+        }
+    }
+
+    private fun formatPerformanceEvidence(
+        aggregate: VN97PaperPerformanceAggregate,
+    ): String {
+        if (aggregate.evidenceCount == 0) {
+            return "\n\nHistorical paper-performance evidence: none yet."
+        }
+        return buildString {
+            append("\n\nHistorical paper-performance evidence ")
+            append("(simulation only; not a forecast):")
+            append("\nrecords=")
+            append(aggregate.evidenceCount)
+            append(" sessions=")
+            append(aggregate.sessionCount)
+            aggregate.sessions.take(8).forEach { summary ->
+                append("\n#")
+                append(summary.jobId)
+                append(" evidence=")
+                append(summary.evidenceCount)
+                append(" episodes=")
+                append(summary.firstEpisode)
+                append("..")
+                append(summary.latestEpisode)
+                append(" pnl_micros=")
+                append(summary.latestTotalPnlMicros)
+                append(" return_bps=")
+                append(summary.latestReturnBasisPoints)
+                append(" max_drawdown_bps=")
+                append(summary.maxDrawdownBasisPoints)
+                append(" holds=")
+                append(summary.holdCount)
+                append(" orders=")
+                append(summary.orderCount)
             }
         }
     }
