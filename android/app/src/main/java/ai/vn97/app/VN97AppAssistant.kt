@@ -66,27 +66,29 @@ class VN97AppAssistant(
         return update
     }
 
-    override fun close() = synchronized(lock) {
-        var failure: Throwable? = null
-        try {
-            resources?.close()
-        } catch (exc: Throwable) {
-            failure = exc
-        } finally {
-            resources = null
+    override fun close() {
+        synchronized(lock) {
+            var failure: Throwable? = null
             try {
-                model?.close()
+                resources?.close()
             } catch (exc: Throwable) {
-                val firstFailure = failure
-                if (firstFailure == null) {
-                    failure = exc
-                } else {
-                    firstFailure.addSuppressed(exc)
-                }
+                failure = exc
             } finally {
-                model = null
+                resources = null
+                try {
+                    model?.close()
+                } catch (exc: Throwable) {
+                    val firstFailure = failure
+                    if (firstFailure == null) {
+                        failure = exc
+                    } else {
+                        firstFailure.addSuppressed(exc)
+                    }
+                } finally {
+                    model = null
+                }
             }
+            failure?.let { throw it }
         }
-        failure?.let { throw it }
     }
 }
