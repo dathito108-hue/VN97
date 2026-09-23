@@ -615,7 +615,7 @@ private fun ByteArray.toLowerHex(): String =
 private fun sha256Hex(bytes: ByteArray): String =
     MessageDigest.getInstance("SHA-256").digest(bytes).toLowerHex()
 
-private fun canonicalReceiptPayload(receipt: M6ActionReceipt): String =
+internal fun canonicalReceiptPayload(receipt: M6ActionReceipt): String =
     buildString {
         append("{\"approval_id\":")
         appendJson(receipt.approvalId)
@@ -638,6 +638,51 @@ private fun canonicalReceiptPayload(receipt: M6ActionReceipt): String =
         appendJson(receipt.previousReceiptId)
         append(",\"principal\":")
         appendJson(receipt.principal)
+        append(",\"request_digest\":")
+        appendJson(receipt.requestDigest)
+        append(",\"result\":")
+        appendJson(receipt.result)
+        append(",\"retryable\":")
+        append(if (receipt.retryable) "true" else "false")
+        append(",\"scope_digest\":")
+        appendJson(receipt.scopeDigest)
+        append(",\"sequence\":")
+        append(receipt.sequence)
+        append(",\"status\":")
+        append(receipt.status.code)
+        append(",\"step_id\":")
+        append(receipt.stepId)
+        append(",\"timestamp_ns\":")
+        append(receipt.timestampNs)
+        append('}')
+    }
+
+
+internal fun canonicalReceiptRecord(receipt: M6ActionReceipt): String =
+    buildString {
+        append("{\"approval_id\":")
+        appendJson(receipt.approvalId)
+        append(",\"capability_id\":")
+        appendJson(receipt.capabilityId)
+        append(",\"confidence\":")
+        append(canonicalPythonDouble(receipt.confidence))
+        append(",\"error_type\":")
+        appendJson(receipt.errorType)
+        append(",\"evidence_record_ids\":[")
+        receipt.evidenceRecordIds.forEachIndexed { index, id ->
+            if (index != 0) append(',')
+            append(id)
+        }
+        append("],\"lease_id\":")
+        appendJson(receipt.leaseId)
+        append(",\"plan_id\":")
+        appendJson(receipt.planId)
+        append(",\"previous_receipt_id\":")
+        appendJson(receipt.previousReceiptId)
+        append(",\"principal\":")
+        appendJson(receipt.principal)
+        append(",\"receipt_id\":")
+        appendJson(receipt.receiptId)
         append(",\"request_digest\":")
         appendJson(receipt.requestDigest)
         append(",\"result\":")

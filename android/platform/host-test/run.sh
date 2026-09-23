@@ -41,3 +41,16 @@ java -jar "$WORK/m7o-external-handoff-test.jar"
     -d "$WORK/m7p-execution-fabric-test.jar"
 
 java -jar "$WORK/m7p-execution-fabric-test.jar"
+
+"$KOTLINC" \
+    "$ROOT/android/platform/src/main/java/ai/vn97/platform/M6Approval.kt" \
+    "$ROOT/android/platform/src/main/java/ai/vn97/platform/M6ExternalHandoff.kt" \
+    "$ROOT/android/platform/src/main/java/ai/vn97/platform/M6ExecutionFabric.kt" \
+    "$ROOT/android/platform/src/main/java/ai/vn97/platform/M6DurableActionAudit.kt" \
+    "$HERE/M7PRuntimeStubs.kt" \
+    "$HERE/M7QDurableAuditTest.kt" \
+    -Werror \
+    -include-runtime \
+    -d "$WORK/m7q-durable-audit-test.jar"
+
+java -jar "$WORK/m7q-durable-audit-test.jar"
