@@ -24,6 +24,7 @@ internal interface M6AndroidActionPort {
         strokes: List<VN97GameTouchStroke>,
     ): String
     fun gameBack(packageName: String): String
+    fun fetchCapabilityArtifact(url: String): String
 }
 
 class M6AndroidProductionCapabilities internal constructor(
@@ -88,10 +89,24 @@ class M6AndroidProductionCapabilities internal constructor(
             maxLeaseNs = GAME_ACTION_LEASE_NS,
             maxLeaseUses = 1,
         ),
+        M6CapabilityDescriptor(
+            capabilityId = CAPABILITY_ARTIFACT_FETCH,
+            requiredScopeKeys = setOf(CAPABILITY_URL_SCOPE),
+            approvalRequired = true,
+            maxPayloadUtf8Bytes = 2,
+            payloadSchemaJson = "{}",
+            maxLeaseNs = CAPABILITY_ARTIFACT_LEASE_NS,
+            maxLeaseUses = 1,
+        ),
     )
 
+    private val assistantDescriptors: List<M6CapabilityDescriptor> =
+        descriptors.filter {
+            it.capabilityId != CAPABILITY_ARTIFACT_FETCH
+        }
+
     val intentBinder: M6ExternalIntentBinder =
-        M6ExternalIntentBinder(descriptors)
+        M6ExternalIntentBinder(assistantDescriptors)
 
     val gameDescriptors: List<M6CapabilityDescriptor> =
         descriptors.filter {
@@ -100,6 +115,14 @@ class M6AndroidProductionCapabilities internal constructor(
 
     val gameIntentBinder: M6ExternalIntentBinder =
         M6ExternalIntentBinder(gameDescriptors)
+
+    val artifactDescriptors: List<M6CapabilityDescriptor> =
+        descriptors.filter {
+            it.capabilityId == CAPABILITY_ARTIFACT_FETCH
+        }
+
+    val artifactIntentBinder: M6ExternalIntentBinder =
+        M6ExternalIntentBinder(artifactDescriptors)
 
     fun createSealedRegistry(): M6TypedCapabilityRegistry =
         M6TypedCapabilityRegistry().also { registry ->
@@ -185,6 +208,49 @@ class M6AndroidProductionCapabilities internal constructor(
                     )
                 },
                 M6PayloadValidator(::validateGameBackRequest),
+            )
+            registry.register(
+                descriptors[6],
+                M6CapabilityHandler { action ->
+                    val url =
+                        validateCapabilityArtifactFetch(
+                            action.request
+                        )
+                    M6ActionOutcome(
+                        success = true,
+                        result =
+                            actions.fetchCapabilityArtifact(
+                                url
+                            ),
+                    )
+                },
+                M6PayloadValidator(
+                    ::validateCapabilityArtifactFetch
+                ),
+            )
+            registry.seal()
+        }
+
+    fun createSealedArtifactRegistry(): M6TypedCapabilityRegistry =
+        M6TypedCapabilityRegistry().also { registry ->
+            registry.register(
+                artifactDescriptors.single(),
+                M6CapabilityHandler { action ->
+                    val url =
+                        validateCapabilityArtifactFetch(
+                            action.request
+                        )
+                    M6ActionOutcome(
+                        success = true,
+                        result =
+                            actions.fetchCapabilityArtifact(
+                                url
+                            ),
+                    )
+                },
+                M6PayloadValidator(
+                    ::validateCapabilityArtifactFetch
+                ),
             )
             registry.seal()
         }
@@ -403,6 +469,29 @@ class M6AndroidProductionCapabilities internal constructor(
         return packageName
     }
 
+    private fun validateCapabilityArtifactFetch(
+        request: M6ExternalActionRequest,
+    ): String {
+        require(
+            request.capabilityId ==
+                CAPABILITY_ARTIFACT_FETCH
+        ) {
+            "capability artifact fetch handler received wrong capability"
+        }
+        val scope = request.scope.asMap()
+        require(
+            scope.keys == setOf(CAPABILITY_URL_SCOPE)
+        ) {
+            "capability artifact fetch scope must contain only url"
+        }
+        require(request.payloadJson == "{}") {
+            "capability artifact fetch payload must be empty"
+        }
+        return canonicalCapabilityHttpsUrl(
+            checkNotNull(scope[CAPABILITY_URL_SCOPE])
+        )
+    }
+
     private fun validateClipboardWriteRequest(request: M6ExternalActionRequest): String {
         require(request.capabilityId == CLIPBOARD_WRITE_CAPABILITY) {
             "clipboard handler received wrong capability"
@@ -466,6 +555,29 @@ class M6AndroidProductionCapabilities internal constructor(
             }
         }
 
+        fun userApprovedCapabilityArtifactGrant(
+            principal: String,
+            url: String,
+        ): M6PolicyGrant {
+            val canonical =
+                canonicalCapabilityHttpsUrl(url)
+            val scope = M6CapabilityScope.fromMap(
+                mapOf(
+                    CAPABILITY_URL_SCOPE to canonical
+                )
+            )
+            return M6PolicyGrant(
+                principal = principal,
+                capabilityId =
+                    CAPABILITY_ARTIFACT_FETCH,
+                scopeDigest = scope.digest,
+                approvalRequired = true,
+                maxLeaseNs =
+                    CAPABILITY_ARTIFACT_LEASE_NS,
+                maxLeaseUses = 1,
+            )
+        }
+
         fun userApprovedClipboardGrant(
             principal: String,
         ): M6PolicyGrant {
@@ -488,7 +600,10 @@ class M6AndroidProductionCapabilities internal constructor(
         const val GAME_SWIPE_CAPABILITY = "device.game.swipe"
         const val GAME_MULTITOUCH_CAPABILITY = "device.game.multitouch"
         const val GAME_BACK_CAPABILITY = "device.game.back"
+        const val CAPABILITY_ARTIFACT_FETCH =
+            "capability.artifact.fetch"
         const val APP_PACKAGE_SCOPE = "package"
+        const val CAPABILITY_URL_SCOPE = "url"
         const val CLIPBOARD_CHANNEL_SCOPE = "channel"
         const val CLIPBOARD_CHANNEL_VALUE = "system-clipboard"
 
@@ -500,6 +615,8 @@ class M6AndroidProductionCapabilities internal constructor(
         private const val MIN_SWIPE_MILLIS = 50L
         private const val MAX_SWIPE_MILLIS = 3_000L
         private const val GAME_ACTION_LEASE_NS = 10_000_000_000L
+        private const val CAPABILITY_ARTIFACT_LEASE_NS =
+            60_000_000_000L
         private val GAME_CAPABILITY_IDS = setOf(
             GAME_TAP_CAPABILITY,
             GAME_SWIPE_CAPABILITY,

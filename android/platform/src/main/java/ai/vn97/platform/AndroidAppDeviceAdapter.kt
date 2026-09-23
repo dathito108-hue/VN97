@@ -7,6 +7,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.PersistableBundle
+import java.io.File
 
 internal object PlatformCapabilityIds {
     const val APP_LAUNCH = M6AndroidProductionCapabilities.APP_LAUNCH_CAPABILITY
@@ -23,6 +24,13 @@ internal class AndroidAppDeviceAdapter(
     private val gameControlPolicy: VN97GameControlPolicy,
 ) : M6AndroidActionPort {
     private val appContext = context.applicationContext
+    private val capabilityArtifacts =
+        VN97RemoteCapabilityArtifactStore(
+            File(
+                appContext.noBackupFilesDir,
+                "vn97-remote-capability-artifacts",
+            )
+        )
 
     override fun launchPackage(packageName: String): String {
         validatePackageName(packageName)
@@ -105,6 +113,18 @@ internal class AndroidAppDeviceAdapter(
         }
         return "game:multitouch:$packageName:${strokes.size}"
     }
+
+    override fun fetchCapabilityArtifact(
+        url: String,
+    ): String =
+        capabilityArtifacts.fetch(url).wireResult()
+
+    internal fun requireFetchedCapabilityArtifact(
+        packageSha256: String,
+    ): File =
+        capabilityArtifacts.requireArtifact(
+            packageSha256
+        )
 
     override fun gameBack(packageName: String): String {
         validatePackageName(packageName)
