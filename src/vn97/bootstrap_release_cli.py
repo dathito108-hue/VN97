@@ -20,6 +20,13 @@ from .evaluation import (
     evaluate_vn97_language,
     require_release_quality,
 )
+from .speech_training import (
+    VN97SpeechReleaseCriteria,
+    VN97SpeechTrainingConfig,
+    evaluate_vn97_speech,
+    require_speech_release_quality,
+)
+from .speech_training_cli import load_speech_manifest
 from .tokenizer import VN97Tokenizer, VN97TokenizerPackage
 from .training import (
     VN97TrainingConfig,
@@ -153,6 +160,47 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--validation-device", default="auto")
     parser.add_argument(
+        "--speech-validation-input",
+        help=(
+            "held-out speech JSONL with 16 kHz mono PCM16 WAV paths; "
+            "required for speech-enabled VN97CK1"
+        ),
+    )
+    parser.add_argument(
+        "--speech-validation-max-examples",
+        type=int,
+        default=100_000,
+    )
+    parser.add_argument(
+        "--speech-max-frames",
+        type=int,
+        default=1500,
+    )
+    parser.add_argument(
+        "--speech-max-target-tokens",
+        type=int,
+        default=512,
+    )
+    parser.add_argument(
+        "--max-speech-validation-loss",
+        type=float,
+    )
+    parser.add_argument(
+        "--min-speech-validation-accuracy",
+        type=float,
+        default=0.0,
+    )
+    parser.add_argument(
+        "--min-speech-validation-target-tokens",
+        type=int,
+        default=32,
+    )
+    parser.add_argument(
+        "--min-speech-validation-examples",
+        type=int,
+        default=1,
+    )
+    parser.add_argument(
         "--max-validation-loss",
         type=float,
         required=True,
@@ -251,7 +299,60 @@ def main(argv: list[str] | None = None) -> int:
     )
     require_release_quality(evaluation, criteria)
 
-    # Private signing material is not opened until the held-out quality gate passes.
+    speech_evaluation = None
+    speech_dataset_sha256 = None
+    if loaded.audio_adapter is not None:
+        if args.speech_validation_input is None:
+            raise ValueError(
+                "speech-enabled VN97CK1 requires --speech-validation-input"
+            )
+        if args.max_speech_validation_loss is None:
+            raise ValueError(
+                "speech-enabled VN97CK1 requires --max-speech-validation-loss"
+            )
+        if (
+            args.speech_validation_max_examples <= 0
+            or args.speech_max_frames <= 0
+            or args.speech_max_target_tokens <= 1
+            or args.min_speech_validation_target_tokens <= 0
+            or args.min_speech_validation_examples <= 0
+        ):
+            raise ValueError("speech validation bounds must be positive")
+
+        speech_examples, speech_dataset_sha256 = load_speech_manifest(
+            Path(args.speech_validation_input),
+            max_examples=args.speech_validation_max_examples,
+        )
+        speech_config = VN97SpeechTrainingConfig(
+            epochs=1,
+            seed=0,
+            shuffle=False,
+            max_frames=args.speech_max_frames,
+            max_target_tokens=args.speech_max_target_tokens,
+        )
+        speech_evaluation = evaluate_vn97_speech(
+            loaded.model,
+            loaded.audio_adapter,
+            runtime_tokenizer,
+            speech_examples,
+            config=speech_config,
+            device=args.validation_device,
+        )
+        require_speech_release_quality(
+            speech_evaluation,
+            VN97SpeechReleaseCriteria(
+                max_validation_loss=args.max_speech_validation_loss,
+                min_top1_accuracy=args.min_speech_validation_accuracy,
+                min_target_tokens=args.min_speech_validation_target_tokens,
+                min_examples=args.min_speech_validation_examples,
+            ),
+        )
+    elif args.speech_validation_input is not None:
+        raise ValueError(
+            "speech validation input was provided but VN97CK1 has no audio adapter"
+        )
+
+    # Private signing material is not opened until all held-out quality gates pass.
     private_key = _parse_private_key(
         _read_regular_file(
             private_key_path,
@@ -272,6 +373,7 @@ def main(argv: list[str] | None = None) -> int:
     bundle = build_bootstrap_bundle(
         loaded.model,
         tokenizer=tokenizer,
+        audio_adapter=loaded.audio_adapter,
         source=source,
         capability_version=args.capability_version,
         signer=signer,
@@ -290,7 +392,8 @@ def main(argv: list[str] | None = None) -> int:
         "publisher_public_key_sha256": hashlib.sha256(
             bundle.publisher_public_key
         ).hexdigest(),
-        "schema": "VN97BOOTREL2",
+        "schema": "VN97BOOTREL3",
+        "speech_enabled": loaded.audio_adapter is not None,
         "tokenizer_sha256": hashlib.sha256(tokenizer_bytes).hexdigest(),
         "validation": {
             "dataset_sha256": validation_sha256,
@@ -303,6 +406,20 @@ def main(argv: list[str] | None = None) -> int:
             "top1_accuracy": evaluation.top1_accuracy,
             "windows": evaluation.windows,
         },
+        "speech_validation": (
+            None
+            if speech_evaluation is None
+            else {
+                "dataset_sha256": speech_dataset_sha256,
+                "examples": speech_evaluation.examples,
+                "max_loss": args.max_speech_validation_loss,
+                "mean_loss": speech_evaluation.mean_loss,
+                "min_target_tokens": args.min_speech_validation_target_tokens,
+                "min_top1_accuracy": args.min_speech_validation_accuracy,
+                "target_tokens": speech_evaluation.target_tokens,
+                "top1_accuracy": speech_evaluation.top1_accuracy,
+            }
+        ),
     }
     print(_canonical_json(report))
     return 0
