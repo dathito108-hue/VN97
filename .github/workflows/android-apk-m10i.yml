@@ -5,7 +5,6 @@ on:
     branches:
       - m10i-reproducible-apk-cold-start
       - m10j-turnkey-bootstrap
-      - m10u-floating-assistant-interaction
   workflow_dispatch:
 
 permissions:
