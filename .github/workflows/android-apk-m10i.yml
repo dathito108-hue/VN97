@@ -5,7 +5,6 @@ on:
     branches:
       - m10i-reproducible-apk-cold-start
       - m10j-turnkey-bootstrap
-      - m12b-screen-camera-perceive-act-verify
   workflow_dispatch:
 
 permissions:
