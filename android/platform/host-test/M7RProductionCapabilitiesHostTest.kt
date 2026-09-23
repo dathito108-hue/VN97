@@ -191,6 +191,27 @@ fun main() {
     )
     expectRejected { registry.validate(invalidApp) }
 
+    val productionAppGrant =
+        M6AndroidProductionCapabilities.userApprovedAppLaunchGrant(
+            "runtime.user",
+            "com.example.vn97",
+        )
+    check(
+        productionAppGrant.capabilityId ==
+            M6AndroidProductionCapabilities.APP_LAUNCH_CAPABILITY
+    )
+    check(
+        productionAppGrant.scopeDigest ==
+            M6CapabilityScope.fromMap(
+                mapOf(
+                    M6AndroidProductionCapabilities.APP_PACKAGE_SCOPE to
+                        "com.example.vn97"
+                )
+            ).digest
+    )
+    check(productionAppGrant.approvalRequired == true)
+    check(productionAppGrant.maxLeaseUses == 1)
+
     val productionClipboardGrant =
         M6AndroidProductionCapabilities.userApprovedClipboardGrant(
             "runtime.user"
