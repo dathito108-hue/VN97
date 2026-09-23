@@ -28,6 +28,7 @@ from .speech_training import (
     require_speech_release_quality,
 )
 from .speech_training_cli import load_speech_manifest
+from .mobile_budget import VN97MobileBudget, estimate_vn97_mobile_footprint
 from .tokenizer import VN97Tokenizer, VN97TokenizerPackage
 from .training import (
     VN97TrainingConfig,
@@ -310,6 +311,16 @@ def _parser() -> argparse.ArgumentParser:
 
     parser.add_argument("--tile-rows", type=int, default=16)
     parser.add_argument("--tile-cols", type=int, default=16)
+    parser.add_argument(
+        "--max-model-image-bytes",
+        type=int,
+        default=512 * 1024 * 1024,
+    )
+    parser.add_argument(
+        "--max-recurrent-state-bytes",
+        type=int,
+        default=512 * 1024 * 1024,
+    )
     return parser
 
 
@@ -468,7 +479,30 @@ def main(argv: list[str] | None = None) -> int:
             "speech release inputs were provided but VN97CK1 has no audio adapter"
         )
 
-    # Private signing material is not opened until all held-out quality gates pass.
+    footprint = estimate_vn97_mobile_footprint(
+        loaded.config,
+        tokenizer_nbytes=len(tokenizer_bytes),
+        audio_frame_size=(
+            None
+            if loaded.audio_adapter is None
+            else loaded.audio_adapter.config.frame_size
+        ),
+        tile_rows=args.tile_rows,
+        tile_cols=args.tile_cols,
+        batch_size=1,
+    )
+    mobile_budget = VN97MobileBudget(
+        max_model_image_bytes=args.max_model_image_bytes,
+        max_recurrent_state_bytes=args.max_recurrent_state_bytes,
+    )
+    rejection = mobile_budget.rejection_status(footprint)
+    if rejection is not None:
+        raise ValueError(
+            "VN97 production intelligence exceeds mobile release budget: "
+            + rejection
+        )
+
+    # Private signing material is not opened until quality and mobile-budget gates pass.
     private_key = _parse_private_key(
         _read_regular_file(
             private_key_path,
@@ -503,6 +537,11 @@ def main(argv: list[str] | None = None) -> int:
         "capability_version": bundle.capability_version,
         "checkpoint_sha256": loaded.checkpoint_sha256,
         "model_image_sha256": bundle.model_image_sha256,
+        "mobile_budget": {
+            "max_model_image_bytes": mobile_budget.max_model_image_bytes,
+            "max_recurrent_state_bytes": mobile_budget.max_recurrent_state_bytes,
+        },
+        "mobile_footprint": footprint.canonical_object(),
         "package_sha256": bundle.package_sha256,
         "publisher_key_id": bundle.publisher_key_id,
         "publisher_public_key_sha256": hashlib.sha256(
@@ -510,6 +549,19 @@ def main(argv: list[str] | None = None) -> int:
         ).hexdigest(),
         "schema": "VN97BOOTREL3",
         "speech_enabled": loaded.audio_adapter is not None,
+        "speech_runtime_budget": (
+            None
+            if loaded.audio_adapter is None
+            else {
+                "max_audio_frames": args.speech_max_frames,
+                "max_generated_tokens": args.speech_max_target_tokens,
+                "max_recurrent_steps": (
+                    1
+                    + args.speech_max_frames
+                    + args.speech_max_target_tokens
+                ),
+            }
+        ),
         "tokenizer_sha256": tokenizer_sha256,
         "validation": {
             "dataset_sha256": validation_sha256,
