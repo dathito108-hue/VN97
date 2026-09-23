@@ -12,7 +12,7 @@ import torch
 
 if TYPE_CHECKING:
     from .model import VN97LanguageCore
-    from .modality import AudioFrameAdapter
+    from .modality import AudioFrameAdapter, VisionPatchAdapter
     from .tokenizer import VN97TokenizerPackage
 
 MAGIC = b"VN97MI1\0"
@@ -25,6 +25,7 @@ GLOBAL_LAYER = 0xFFFFFFFF
 FLAG_FACTORIZED = 1 << 0
 FLAG_TOKENIZER = 1 << 1
 FLAG_AUDIO_PROJECTION = 1 << 2
+FLAG_VISION_PROJECTION = 1 << 3
 
 SECTION_EMBEDDING = 1
 SECTION_TOKEN_FACTORS = 2
@@ -33,6 +34,8 @@ SECTION_FINAL_NORM = 4
 SECTION_TOKENIZER = 5
 SECTION_AUDIO_PROJECTION = 6
 SECTION_AUDIO_NORM = 7
+SECTION_VISION_PROJECTION = 8
+SECTION_VISION_NORM = 9
 SECTION_LAYER_NORM = 16
 SECTION_IN_PROJ = 17
 SECTION_DT_PROJ = 18
@@ -102,6 +105,7 @@ def build_model_image(
     *,
     tokenizer: "VN97TokenizerPackage | bytes | None" = None,
     audio_adapter: "AudioFrameAdapter | None" = None,
+    vision_adapter: "VisionPatchAdapter | None" = None,
     tile_rows: int = 16,
     tile_cols: int = 16,
 ) -> VN97ModelImage:
@@ -127,6 +131,7 @@ def build_model_image(
         (FLAG_FACTORIZED if factorized else 0)
         | (FLAG_TOKENIZER if tokenizer_blob is not None else 0)
         | (FLAG_AUDIO_PROJECTION if audio_adapter is not None else 0)
+        | (FLAG_VISION_PROJECTION if vision_adapter is not None else 0)
     )
     rank = 0 if config.embedding_rank is None else int(config.embedding_rank)
 
@@ -187,6 +192,58 @@ def build_model_image(
             SECTION_AUDIO_NORM,
             GLOBAL_LAYER,
             _f32_bytes(norm.weight, "audio.norm"),
+        ))
+
+    if vision_adapter is not None:
+        adapter_config = getattr(vision_adapter, "config", None)
+        projection = getattr(vision_adapter, "projection", None)
+        norm = getattr(vision_adapter, "norm", None)
+        if adapter_config is None or projection is None or norm is None:
+            raise TypeError(
+                "vision_adapter must be canonical VisionPatchAdapter"
+            )
+        if (
+            int(adapter_config.channels) != 3
+            or int(adapter_config.patch_size) != 16
+            or float(adapter_config.eps) != 1e-5
+        ):
+            raise ValueError(
+                "production vision adapter must use canonical RGB/16x16 patches and eps=1e-5"
+            )
+        expected_features = 3 * 16 * 16 + 2
+        if (
+            int(projection.in_features) != expected_features
+            or int(projection.out_features) != int(config.d_model)
+        ):
+            raise ValueError(
+                "vision projection geometry must be 770 -> d_model"
+            )
+        norm_eps = float(getattr(norm, "eps", config.rms_eps))
+        if norm_eps != float(config.rms_eps):
+            raise ValueError(
+                "vision projection RMSNorm eps must match VN97 core rms_eps"
+            )
+        threshold = float(
+            getattr(projection, "threshold", config.ternary_threshold)
+        )
+        if threshold != float(config.ternary_threshold):
+            raise ValueError(
+                "vision projection ternary threshold must match VN97 core"
+            )
+        sections.append((
+            SECTION_VISION_PROJECTION,
+            GLOBAL_LAYER,
+            _packed_bytes(
+                projection,
+                tile_rows=tile_rows,
+                tile_cols=tile_cols,
+                label="vision.projection",
+            ),
+        ))
+        sections.append((
+            SECTION_VISION_NORM,
+            GLOBAL_LAYER,
+            _f32_bytes(norm.weight, "vision.norm"),
         ))
 
     for layer_index, layer in enumerate(model.layers):
