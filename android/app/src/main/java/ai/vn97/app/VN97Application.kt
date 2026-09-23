@@ -43,6 +43,12 @@ class VN97Application :
         )
     }
 
+    val gameAgent: VN97GameAgentController by lazy(
+        LazyThreadSafetyMode.SYNCHRONIZED
+    ) {
+        VN97GameAgentController(this)
+    }
+
     val provisioner: VN97AppProvisioner by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         VN97AppProvisioner(this)
     }
