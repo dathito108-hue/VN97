@@ -7,6 +7,10 @@ import ai.vn97.platform.VN97AssistantContinuationContext
 import ai.vn97.platform.VN97AssistantContinuationSpec
 import ai.vn97.platform.VN97AssistantContinuationWork
 import ai.vn97.platform.VN97AssistantSessionLimits
+import ai.vn97.platform.VN97AssistantTurnState
+import ai.vn97.platform.VN97ForegroundAssistantContinuationSession
+import ai.vn97.platform.createVN97AutonomousReplanSeed
+import ai.vn97.platform.openVN97ForegroundAssistantContinuation
 import ai.vn97.runtime.NativeActivatedInventoryModelLoader
 import ai.vn97.runtime.NativeBackend
 import ai.vn97.runtime.NativePlan
@@ -16,6 +20,16 @@ import ai.vn97.runtime.NativeStepStatus
 import ai.vn97.runtime.NativeRuntimeConfig
 import android.os.SystemClock
 import java.io.File
+
+data class VN97AutonomousApprovalRequest(
+    val jobId: Int,
+    val generation: Int,
+    val capabilityId: String,
+    val requestDigest: String,
+    val scopeDigest: String,
+    val presentationJson: String,
+    val expiresNs: Long,
+)
 
 class VN97AutonomousWorkManager(
     private val application: VN97Application,
@@ -28,6 +42,10 @@ class VN97AutonomousWorkManager(
     )
     private val scheduler =
         AndroidContinuationScheduler(application)
+    private var foregroundApproval:
+        VN97ForegroundAssistantContinuationSession? = null
+    private var foregroundApprovalJobId: Int? = null
+    private var reopenForegroundAssistantAfterApproval = false
 
     @Synchronized
     fun startGoal(goal: String): VN97AutonomousGoalRecord {
