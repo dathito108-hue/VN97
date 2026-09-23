@@ -6,6 +6,8 @@ import ai.vn97.platform.VN97AssistantTurnUpdate
 import ai.vn97.platform.VN97ProductionAssistantResources
 import ai.vn97.runtime.NativeActivatedInventoryModelLoader
 import ai.vn97.runtime.NativeActivatedModel
+import ai.vn97.runtime.NativeCognitionInferenceEngine
+import ai.vn97.runtime.NativePreparedAudio
 import android.os.SystemClock
 import java.io.File
 
@@ -78,6 +80,35 @@ class VN97AppAssistant(
                 userMessage = userMessage,
                 update = advanceYielded(session, first, maxAdvances),
             )
+        )
+    }
+
+    fun runVoiceTurn(
+        preparedAudio: NativePreparedAudio,
+        maxAdvances: Int = 8,
+    ): VN97AppTurnResult = synchronized(lock) {
+        require(maxAdvances > 0) {
+            "maxAdvances must be positive"
+        }
+        check(pendingResult == null) {
+            "an assistant turn is already waiting for approval"
+        }
+        check(resources != null) {
+            "trusted VN97 model is not active"
+        }
+        val activeModel = checkNotNull(model) {
+            "trusted VN97 model is not active"
+        }
+        check(activeModel.info.hasAudioProjection) {
+            "activated VN97 model has no production speech weights"
+        }
+
+        val transcript =
+            NativeCognitionInferenceEngine(activeModel)
+                .transcribeAudio(preparedAudio)
+        runTurn(
+            userMessage = transcript,
+            maxAdvances = maxAdvances,
         )
     }
 
