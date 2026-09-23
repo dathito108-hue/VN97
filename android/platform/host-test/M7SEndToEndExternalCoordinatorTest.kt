@@ -218,5 +218,89 @@ fun main() {
             externalIntentCallsBeforeReject
     )
 
+    // M14B invariant: one coordinator advance can execute at most one external action.
+    val frameInference = ScriptedInference(
+        listOf(
+            """{"steps":[{"kind":"EXTERNAL","objective":"first frame action","dependencies":[],"requires_verification":false,"min_confidence":0.0},{"kind":"EXTERNAL","objective":"second action requires next frame","dependencies":[1],"requires_verification":false,"min_confidence":0.0},{"kind":"RESPOND","objective":"finish","dependencies":[2],"requires_verification":false,"min_confidence":0.0}]}""",
+            """{"capability_id":"test.frame","scope":{"target":"alpha"},"payload":{}}""",
+        )
+    )
+    val frameCognition = NativeTypedCognitionAdapter(frameInference)
+    val frameDescriptor = M6CapabilityDescriptor(
+        capabilityId = "test.frame",
+        requiredScopeKeys = setOf("target"),
+        approvalRequired = false,
+        maxPayloadUtf8Bytes = 16,
+        maxLeaseNs = 10_000_000_000L,
+        maxLeaseUses = 1,
+        payloadSchemaJson = "{}",
+    )
+    var frameEffects = 0
+    val frameRegistry = M6TypedCapabilityRegistry().also { registry ->
+        registry.register(
+            frameDescriptor,
+            M6CapabilityHandler {
+                frameEffects += 1
+                M6ActionOutcome(true, "frame-action")
+            },
+        )
+        registry.seal()
+    }
+    val frameScope =
+        M6CapabilityScope.fromMap(mapOf("target" to "alpha"))
+    val frameCoordinator = M6EndToEndExternalCoordinator(
+        cognition = frameCognition,
+        binder = M6ExternalIntentBinder(
+            listOf(frameDescriptor)
+        ),
+        approvals = M6ExternalApprovalHandoff(
+            RecordingApprovalController()
+        ),
+        executionFabric = M6ExternalExecutionFabric(
+            frameRegistry,
+            M6DenyByDefaultAuthorityGate(
+                listOf(
+                    M6PolicyGrant(
+                        principal = "runtime.user",
+                        capabilityId = "test.frame",
+                        scopeDigest = frameScope.digest,
+                        approvalRequired = false,
+                        maxLeaseNs = 10_000_000_000L,
+                        maxLeaseUses = 1,
+                    )
+                ),
+                RecordingApprovalController(),
+            ),
+            M6InMemoryActionAudit(),
+        ),
+    )
+    val frameController =
+        frameCoordinator.buildPlan(
+            "strict one-action frame",
+            createdNs = 50L,
+        )
+    val firstFrame = frameCoordinator.advance(
+        controller = frameController,
+        principal = "runtime.user",
+        maxCycles = 8,
+        nowNs = 51L,
+    )
+    check(firstFrame.event == M6ExternalCoordinatorEvent.EXECUTED)
+    check(firstFrame.execution != null)
+    check(frameEffects == 1)
+    check(
+        firstFrame.cognition.boundary ==
+            NativeCognitionBoundary.WAITING_EXTERNAL
+    )
+    check(
+        frameController.plan.step(2).status ==
+            NativeStepStatus.WAITING_EXTERNAL
+    )
+    check(
+        frameInference.calls.count {
+            it == NativeCognitionOperation.EXTERNAL_INTENT
+        } == 1
+    )
+
     println("M7S_END_TO_END_EXTERNAL_COORDINATOR_PASS")
 }
