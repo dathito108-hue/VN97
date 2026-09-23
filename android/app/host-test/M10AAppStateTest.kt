@@ -42,7 +42,7 @@ fun main() {
     )
     check(completed.phase == VN97AppPhase.READY)
     check(completed.inputEnabled)
-    check(completed.transcript == listOf("You: helloVN97: world"))
+    check(completed.transcript == listOf("You: hello", "VN97: world"))
 
     expectFailure {
         VN97AppReducer.reduce(initial, VN97AppEvent.TurnStarted)
