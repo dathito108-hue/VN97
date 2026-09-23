@@ -39,6 +39,12 @@ class VN97MainActivity : Activity() {
     private lateinit var screenAnalyzeButton: Button
     private lateinit var cameraAnalyzeButton: Button
     private lateinit var mobileEvidenceButton: Button
+    private lateinit var gameAccessibilityButton: Button
+    private lateinit var gamePackageView: EditText
+    private lateinit var gameGoalView: EditText
+    private lateinit var gameStartButton: Button
+    private lateinit var gameStopButton: Button
+    private lateinit var gameStatusView: TextView
     private lateinit var transcriptView: TextView
     private lateinit var inputView: EditText
     private lateinit var sendButton: Button
@@ -200,6 +206,92 @@ class VN97MainActivity : Activity() {
         }
         root.addView(
             mobileEvidenceButton,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ),
+        )
+
+        gameAccessibilityButton = Button(this).apply {
+            setOnClickListener {
+                startActivity(
+                    Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                )
+            }
+        }
+        root.addView(
+            gameAccessibilityButton,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ),
+        )
+
+        gamePackageView = EditText(this).apply {
+            hint = "Game package (for example com.example.game)"
+            maxLines = 1
+        }
+        root.addView(
+            gamePackageView,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ),
+        )
+
+        gameGoalView = EditText(this).apply {
+            hint = "Game objective for VN97"
+            maxLines = 3
+        }
+        root.addView(
+            gameGoalView,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ),
+        )
+
+        val gameActionRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+        }
+        gameStartButton = Button(this).apply {
+            text = "Start Game Agent"
+            setOnClickListener { startGameAgent() }
+        }
+        gameStopButton = Button(this).apply {
+            text = "Stop Game Agent"
+            setOnClickListener { stopGameAgent() }
+        }
+        gameActionRow.addView(
+            gameStartButton,
+            LinearLayout.LayoutParams(
+                0,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                1f,
+            ),
+        )
+        gameActionRow.addView(
+            gameStopButton,
+            LinearLayout.LayoutParams(
+                0,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                1f,
+            ),
+        )
+        root.addView(
+            gameActionRow,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ),
+        )
+
+        gameStatusView = TextView(this).apply {
+            text = "Game Agent: idle"
+            setTextIsSelectable(true)
+        }
+        root.addView(
+            gameStatusView,
             LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT,
@@ -490,6 +582,7 @@ class VN97MainActivity : Activity() {
         refreshFloatingAssistantButton()
         refreshVoicePermissionButton()
         refreshVisualButtons()
+        refreshGameAgentStatus()
         render(state)
         refreshAutonomousStatus()
         attachTrustedModel()
@@ -514,6 +607,7 @@ class VN97MainActivity : Activity() {
         refreshVoicePermissionButton()
         requestAutonomousNotificationPermissionIfNeeded()
         refreshVisualButtons()
+        refreshGameAgentStatus()
         refreshAutonomousStatus()
     }
 
@@ -612,6 +706,115 @@ class VN97MainActivity : Activity() {
             arrayOf(Manifest.permission.POST_NOTIFICATIONS),
             REQUEST_AUTONOMOUS_NOTIFICATION_PERMISSION,
         )
+    }
+
+    private fun startGameAgent() {
+        val packageName = gamePackageView.text.toString().trim()
+        val objective = gameGoalView.text.toString().trim()
+        if (packageName.isBlank() || objective.isBlank()) {
+            statusView.text =
+                "Game Agent requires a target package and objective."
+            return
+        }
+        if (!app.screenCaptureBroker.isActive()) {
+            statusView.text =
+                "Enable shared-screen perception before starting Game Agent."
+            return
+        }
+        if (!app.platformRuntime.gameSession.isAccessibilityReady()) {
+            statusView.text =
+                "Enable VN97 Game Control in Android Accessibility settings."
+            return
+        }
+        val launch =
+            packageManager.getLaunchIntentForPackage(packageName)
+        if (launch == null) {
+            statusView.text =
+                "No launchable app found for package: $packageName"
+            return
+        }
+
+        try {
+            VN97GameAgentService.start(
+                context = this,
+                packageName = packageName,
+                objective = objective,
+            )
+            startActivity(launch)
+            statusView.text =
+                "VN97 Game Agent starting for $packageName."
+        } catch (exc: Throwable) {
+            statusView.text =
+                "Game Agent start failed: " +
+                    exc::class.java.simpleName
+        }
+        refreshGameAgentStatus()
+    }
+
+    private fun stopGameAgent() {
+        app.gameAgent.requestStop()
+        runCatching {
+            VN97GameAgentService.stop(this)
+        }
+        statusView.text = "VN97 Game Agent stop requested."
+        refreshGameAgentStatus()
+    }
+
+    private fun refreshGameAgentStatus() {
+        val accessibilityReady =
+            app.platformRuntime.gameSession
+                .isAccessibilityReady()
+        gameAccessibilityButton.text =
+            if (accessibilityReady) {
+                "VN97 Game Control accessibility: enabled"
+            } else {
+                "Enable VN97 Game Control accessibility"
+            }
+
+        val game = app.gameAgent.status()
+        gameStatusView.text = buildString {
+            append("Game Agent: ")
+            append(game.state.name)
+            if (game.packageName.isNotBlank()) {
+                append("\npackage=")
+                append(game.packageName)
+            }
+            if (game.maxRounds > 0) {
+                append("\nround=")
+                append(game.round)
+                append('/')
+                append(game.maxRounds)
+            }
+            if (game.maxActions > 0) {
+                append(" actions=")
+                append(game.actionsUsed)
+                append('/')
+                append(game.maxActions)
+            }
+            if (game.lastVerification.isNotBlank()) {
+                append("\nverify: ")
+                append(
+                    game.lastVerification
+                        .replace('\n', ' ')
+                        .take(240)
+                )
+            }
+            if (game.finalMessage.isNotBlank()) {
+                append("\nresult: ")
+                append(
+                    game.finalMessage
+                        .replace('\n', ' ')
+                        .take(240)
+                )
+            }
+        }
+        val active =
+            game.state == VN97GameAgentState.STARTING ||
+                game.state == VN97GameAgentState.RUNNING ||
+                game.state ==
+                    VN97GameAgentState.WAITING_APPROVAL
+        gameStartButton.isEnabled = !active
+        gameStopButton.isEnabled = active
     }
 
     private fun hasMicrophonePermission(): Boolean =
