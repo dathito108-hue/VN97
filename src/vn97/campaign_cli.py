@@ -5,7 +5,9 @@ import gc
 import hashlib
 import json
 import math
+import os
 from pathlib import Path
+import stat
 import sys
 
 import torch
@@ -136,6 +138,63 @@ def _load_candidates(path: Path) -> tuple[VN97CampaignCandidate, ...]:
     return tuple(result)
 
 
+def _file_identities(
+    paths: list[Path],
+    *,
+    label: str,
+) -> set[tuple[int, int]]:
+    identities: set[tuple[int, int]] = set()
+    for path in paths:
+        try:
+            info = os.stat(path, follow_symlinks=False)
+        except OSError as exc:
+            raise ValueError(
+                f"{label} path is unavailable: {path}"
+            ) from exc
+        if not stat.S_ISREG(info.st_mode):
+            raise ValueError(
+                f"{label} path must be a regular non-symlink file: {path}"
+            )
+        identity = (int(info.st_dev), int(info.st_ino))
+        if identity in identities:
+            raise ValueError(
+                f"{label} contains the same physical file more than once"
+            )
+        identities.add(identity)
+    return identities
+
+
+def _estimate_parameter_count(
+    *,
+    vocab_size: int,
+    candidate: VN97CampaignCandidate,
+) -> int:
+    config = VN97Config(
+        vocab_size=vocab_size,
+        d_model=candidate.d_model,
+        n_layers=candidate.n_layers,
+        d_state=candidate.d_state,
+        embedding_rank=candidate.embedding_rank,
+    )
+    try:
+        with torch.device("meta"):
+            probe = VN97LanguageCore(config)
+    except Exception as exc:
+        raise VN97CampaignError(
+            "candidate parameter budget probe failed"
+        ) from exc
+    count = sum(
+        int(parameter.numel())
+        for parameter in probe.parameters()
+    )
+    del probe
+    if count <= 0:
+        raise VN97CampaignError(
+            "candidate parameter count must be positive"
+        )
+    return count
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
@@ -222,9 +281,17 @@ def main(argv: list[str] | None = None) -> int:
 
     train_paths = [Path(value) for value in args.input]
     validation_paths = [Path(value) for value in args.validation_input]
-    if set(map(str, train_paths)).intersection(map(str, validation_paths)):
+    train_ids = _file_identities(
+        train_paths,
+        label="campaign training input",
+    )
+    validation_ids = _file_identities(
+        validation_paths,
+        label="campaign validation input",
+    )
+    if train_ids.intersection(validation_ids):
         raise ValueError(
-            "campaign training and validation path strings must be distinct"
+            "campaign training and validation inputs must be physically distinct files"
         )
 
     train_records, train_sha256 = _load_records(
@@ -272,25 +339,48 @@ def main(argv: list[str] | None = None) -> int:
         min_target_tokens=args.min_validation_target_tokens,
     )
 
+    # Materialize the exact same supervised windows once for every candidate.
+    window_config = VN97TrainingConfig(
+        sequence_length=args.sequence_length,
+        stride=args.stride,
+        batch_size=args.batch_size,
+        epochs=args.epochs,
+        learning_rate=1e-4,
+        weight_decay=args.weight_decay,
+        max_grad_norm=args.max_grad_norm,
+        seed=0,
+        shuffle=False,
+        max_windows=args.max_windows,
+    )
+    train_windows = build_training_windows(
+        train_examples,
+        window_config,
+        pad_token_id=tokenizer.pad_id,
+    )
+    validation_window_config = VN97TrainingConfig(
+        sequence_length=args.sequence_length,
+        stride=args.stride,
+        batch_size=args.validation_batch_size,
+        epochs=1,
+        seed=0,
+        shuffle=False,
+        max_windows=args.validation_max_windows,
+    )
+    validation_windows = build_training_windows(
+        validation_examples,
+        validation_window_config,
+        pad_token_id=tokenizer.pad_id,
+    )
+
     observations: list[VN97CampaignObservation] = []
     rows: list[dict[str, object]] = []
     best_checkpoint: bytes | None = None
     best_observation: VN97CampaignObservation | None = None
 
     for candidate in candidates:
-        torch.manual_seed(candidate.seed)
-        model = VN97LanguageCore(
-            VN97Config(
-                vocab_size=tokenizer.vocab_size,
-                d_model=candidate.d_model,
-                n_layers=candidate.n_layers,
-                d_state=candidate.d_state,
-                embedding_rank=candidate.embedding_rank,
-            )
-        )
-        parameter_count = sum(
-            int(parameter.numel())
-            for parameter in model.parameters()
+        parameter_count = _estimate_parameter_count(
+            vocab_size=tokenizer.vocab_size,
+            candidate=candidate,
         )
         if parameter_count > args.max_parameters:
             rows.append(
@@ -301,8 +391,26 @@ def main(argv: list[str] | None = None) -> int:
                     "status": "REJECTED_PARAMETER_BUDGET",
                 }
             )
-            del model
             continue
+
+        torch.manual_seed(candidate.seed)
+        model = VN97LanguageCore(
+            VN97Config(
+                vocab_size=tokenizer.vocab_size,
+                d_model=candidate.d_model,
+                n_layers=candidate.n_layers,
+                d_state=candidate.d_state,
+                embedding_rank=candidate.embedding_rank,
+            )
+        )
+        actual_parameter_count = sum(
+            int(parameter.numel())
+            for parameter in model.parameters()
+        )
+        if actual_parameter_count != parameter_count:
+            raise VN97CampaignError(
+                "candidate parameter count changed between meta probe and materialization"
+            )
 
         training_config = VN97TrainingConfig(
             sequence_length=args.sequence_length,
@@ -316,26 +424,6 @@ def main(argv: list[str] | None = None) -> int:
             shuffle=True,
             max_windows=args.max_windows,
         )
-        train_windows = build_training_windows(
-            train_examples,
-            training_config,
-            pad_token_id=tokenizer.pad_id,
-        )
-        validation_config = VN97TrainingConfig(
-            sequence_length=args.sequence_length,
-            stride=args.stride,
-            batch_size=args.validation_batch_size,
-            epochs=1,
-            seed=0,
-            shuffle=False,
-            max_windows=args.validation_max_windows,
-        )
-        validation_windows = build_training_windows(
-            validation_examples,
-            validation_config,
-            pad_token_id=tokenizer.pad_id,
-        )
-
         training = train_vn97_language(
             model,
             train_windows,
