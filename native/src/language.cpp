@@ -284,6 +284,8 @@ LanguageStatus LanguageWorkspaceFloats(
 static LanguageStatus LanguageStepF32Internal(
     const LanguageModelView& model,
     const std::uint32_t* input_ids,
+    const float* input_embeddings,
+    std::size_t embedding_count,
     std::size_t batch,
     float* state_io,
     float* logits,
@@ -294,8 +296,10 @@ static LanguageStatus LanguageStepF32Internal(
     std::size_t workspace_count,
     RecurrentBackend recurrent_backend,
     PackedTernaryBackend packed_backend) {
-    if (input_ids == nullptr || state_io == nullptr || workspace == nullptr ||
-        (logits == nullptr && hidden == nullptr)) {
+    if (state_io == nullptr || workspace == nullptr ||
+        (logits == nullptr && hidden == nullptr) ||
+        (input_ids == nullptr && input_embeddings == nullptr) ||
+        (input_ids != nullptr && input_embeddings != nullptr)) {
         return LanguageStatus::kNullArgument;
     }
     if (!ValidStructure(model) || batch == 0) {
@@ -336,9 +340,22 @@ static LanguageStatus LanguageStepF32Internal(
         return LanguageStatus::kOutputTooSmall;
     }
 
-    for (std::size_t b = 0; b < batch; ++b) {
-        if (input_ids[b] >= model.vocab_size) {
-            return LanguageStatus::kInvalidToken;
+    if (input_ids != nullptr) {
+        for (std::size_t b = 0; b < batch; ++b) {
+            if (input_ids[b] >= model.vocab_size) {
+                return LanguageStatus::kInvalidToken;
+            }
+        }
+    } else {
+        std::size_t required_embeddings = 0;
+        if (MulOverflow(batch, model.d_model, &required_embeddings)) {
+            return LanguageStatus::kSizeOverflow;
+        }
+        if (embedding_count != required_embeddings) {
+            return LanguageStatus::kInvalidConfig;
+        }
+        if (!FiniteArray(input_embeddings, required_embeddings)) {
+            return LanguageStatus::kNonFinite;
         }
     }
 
@@ -354,10 +371,17 @@ static LanguageStatus LanguageStepF32Internal(
     float* out_proj = selective + model.d_model;
     float* reduced = out_proj + model.d_model;
 
-    for (std::size_t b = 0; b < batch; ++b) {
-        status = EmbedToken(
-            model, input_ids[b], x + b * model.d_model);
-        if (status != LanguageStatus::kOk) return status;
+    if (input_ids != nullptr) {
+        for (std::size_t b = 0; b < batch; ++b) {
+            status = EmbedToken(
+                model, input_ids[b], x + b * model.d_model);
+            if (status != LanguageStatus::kOk) return status;
+        }
+    } else {
+        std::copy(
+            input_embeddings,
+            input_embeddings + embedding_count,
+            x);
     }
 
     const std::size_t layer_state_stride =
@@ -511,6 +535,8 @@ LanguageStatus LanguageStepF32WithBackends(
     return LanguageStepF32Internal(
         model,
         input_ids,
+        nullptr,
+        0,
         batch,
         state_io,
         logits,
@@ -537,6 +563,8 @@ LanguageStatus LanguageStepHiddenF32WithBackends(
     return LanguageStepF32Internal(
         model,
         input_ids,
+        nullptr,
+        0,
         batch,
         state_io,
         nullptr,
@@ -583,6 +611,112 @@ LanguageStatus LanguageStepHiddenF32(
     return LanguageStepHiddenF32WithBackends(
         model,
         input_ids,
+        batch,
+        state_io,
+        hidden,
+        hidden_count,
+        workspace,
+        workspace_count,
+        RecurrentBackend::kAuto,
+        PackedTernaryBackend::kAuto);
+}
+
+LanguageStatus LanguageStepEmbeddingsF32WithBackends(
+    const LanguageModelView& model,
+    const float* input_embeddings,
+    std::size_t embedding_count,
+    std::size_t batch,
+    float* state_io,
+    float* logits,
+    std::size_t logits_count,
+    float* workspace,
+    std::size_t workspace_count,
+    RecurrentBackend recurrent_backend,
+    PackedTernaryBackend packed_backend) {
+    return LanguageStepF32Internal(
+        model,
+        nullptr,
+        input_embeddings,
+        embedding_count,
+        batch,
+        state_io,
+        logits,
+        logits_count,
+        nullptr,
+        0,
+        workspace,
+        workspace_count,
+        recurrent_backend,
+        packed_backend);
+}
+
+LanguageStatus LanguageStepEmbeddingsHiddenF32WithBackends(
+    const LanguageModelView& model,
+    const float* input_embeddings,
+    std::size_t embedding_count,
+    std::size_t batch,
+    float* state_io,
+    float* hidden,
+    std::size_t hidden_count,
+    float* workspace,
+    std::size_t workspace_count,
+    RecurrentBackend recurrent_backend,
+    PackedTernaryBackend packed_backend) {
+    return LanguageStepF32Internal(
+        model,
+        nullptr,
+        input_embeddings,
+        embedding_count,
+        batch,
+        state_io,
+        nullptr,
+        0,
+        hidden,
+        hidden_count,
+        workspace,
+        workspace_count,
+        recurrent_backend,
+        packed_backend);
+}
+
+LanguageStatus LanguageStepEmbeddingsF32(
+    const LanguageModelView& model,
+    const float* input_embeddings,
+    std::size_t embedding_count,
+    std::size_t batch,
+    float* state_io,
+    float* logits,
+    std::size_t logits_count,
+    float* workspace,
+    std::size_t workspace_count) {
+    return LanguageStepEmbeddingsF32WithBackends(
+        model,
+        input_embeddings,
+        embedding_count,
+        batch,
+        state_io,
+        logits,
+        logits_count,
+        workspace,
+        workspace_count,
+        RecurrentBackend::kAuto,
+        PackedTernaryBackend::kAuto);
+}
+
+LanguageStatus LanguageStepEmbeddingsHiddenF32(
+    const LanguageModelView& model,
+    const float* input_embeddings,
+    std::size_t embedding_count,
+    std::size_t batch,
+    float* state_io,
+    float* hidden,
+    std::size_t hidden_count,
+    float* workspace,
+    std::size_t workspace_count) {
+    return LanguageStepEmbeddingsHiddenF32WithBackends(
+        model,
+        input_embeddings,
+        embedding_count,
         batch,
         state_io,
         hidden,
