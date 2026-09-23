@@ -82,7 +82,7 @@ class VN97PaperTradingSessionManager(
     private val scheduler = checkNotNull(
         application.getSystemService(JobScheduler::class.java)
     )
-    private val performanceEvidence =
+    private val performanceStore =
         VN97PaperPerformanceEvidenceStore(
             File(
                 application.noBackupFilesDir,
@@ -207,7 +207,7 @@ class VN97PaperTradingSessionManager(
         store.list().map(::reportOf)
 
     fun performanceEvidence(): VN97PaperPerformanceAggregate =
-        performanceEvidence.aggregate()
+        performanceStore.aggregate()
 
     fun reconcileAfterSystemRestart(): List<VN97PaperTradingSessionRecord> =
         application.withSovereignExecution {
@@ -460,7 +460,7 @@ class VN97PaperTradingSessionManager(
                                 decision = result.finalResponse,
                                 outcome = outcome,
                             )
-                        performanceEvidence.append(evidence)
+                        performanceStore.append(evidence)
                         appendPerformanceMemory(
                             model = model,
                             memory = memory,
