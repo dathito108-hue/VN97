@@ -188,22 +188,20 @@ def load_speech_manifest(
         if audio_rel.is_absolute() or ".." in audio_rel.parts:
             raise ValueError("speech audio path must stay inside manifest directory")
         audio_path = root.joinpath(audio_rel)
+        if audio_path.is_symlink():
+            raise ValueError("speech audio path must not be a symlink")
         resolved = audio_path.resolve(strict=True)
         try:
             resolved.relative_to(root)
         except ValueError as exc:
             raise ValueError("speech audio path escapes manifest directory") from exc
-        if resolved.is_symlink():
-            raise ValueError("speech audio path must not be a symlink")
-
         waveform = _load_pcm16_mono_16k(resolved)
         wav_hash = hashlib.sha256(
-            waveform.mul(32768.0)
-            .round()
-            .clamp(-32768, 32767)
-            .to(torch.int16)
-            .numpy()
-            .tobytes()
+            _read_regular_file(
+                resolved,
+                max_bytes=_MAX_WAV_BYTES,
+                label="speech WAV",
+            )
         ).digest()
         digest.update(len(value["audio"].encode("utf-8")).to_bytes(8, "little"))
         digest.update(value["audio"].encode("utf-8"))
