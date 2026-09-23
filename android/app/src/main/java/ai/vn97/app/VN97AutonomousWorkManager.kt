@@ -59,22 +59,37 @@ class VN97AutonomousWorkManager(
             createdNs = createdNs,
             updatedNs = createdNs,
         )
-        store.save(record)
+        try {
+            store.save(record)
+        } catch (exc: Throwable) {
+            scheduler.cancelAssistantAndDelete(jobId)
+            throw exc
+        }
 
-        val scheduled = scheduler.scheduleAssistant(
-            VN97AssistantContinuationSpec(
-                jobId = jobId,
-                runtimeConfig = seed.runtimeConfig,
-                binding = binding,
-                minimumLatencyMillis = 0L,
+        val schedulingFailure = runCatching {
+            scheduler.scheduleAssistant(
+                VN97AssistantContinuationSpec(
+                    jobId = jobId,
+                    runtimeConfig = seed.runtimeConfig,
+                    binding = binding,
+                    minimumLatencyMillis = 0L,
+                )
             )
+        }.fold(
+            onSuccess = { result ->
+                if (result > 0) null
+                else "Android JobScheduler rejected initial scheduling"
+            },
+            onFailure = { exc ->
+                "Android JobScheduler scheduling failed: " +
+                    exc::class.java.simpleName
+            },
         )
-        if (scheduled <= 0) {
+        if (schedulingFailure != null) {
             record = record.copy(
                 state = VN97AutonomousGoalState.PAUSED,
                 updatedNs = wallNowNs(),
-                terminalReason =
-                    "Android JobScheduler rejected initial scheduling",
+                terminalReason = schedulingFailure,
             )
             store.save(record)
         }
