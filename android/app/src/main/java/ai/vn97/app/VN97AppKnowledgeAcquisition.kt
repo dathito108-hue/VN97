@@ -2,6 +2,7 @@ package ai.vn97.app
 
 import ai.vn97.runtime.VN97KnowledgeAcquisitionResult
 import ai.vn97.runtime.VN97KnowledgeAcquisitionReview
+import ai.vn97.runtime.VN97KnowledgeGapProposal
 import android.net.Uri
 import java.io.ByteArrayOutputStream
 
@@ -10,6 +11,16 @@ class VN97AppKnowledgeAcquisition(
 ) {
     fun pendingReview(): VN97KnowledgeAcquisitionReview? =
         application.assistant.pendingKnowledgeReview()
+
+    fun propose(
+        goal: String,
+    ): VN97KnowledgeGapProposal {
+        check(application.assistant.openIfActivated()) {
+            "trusted VN97 model is not active"
+        }
+        return application.assistant
+            .proposeKnowledgeAcquisition(goal)
+    }
 
     fun clearReview() {
         application.assistant.clearKnowledgeReview()
