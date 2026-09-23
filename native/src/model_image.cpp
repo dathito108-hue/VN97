@@ -39,7 +39,7 @@ constexpr std::uint32_t kKnownFlags =
     kFlagVisionProjection;
 constexpr std::uint32_t kGlobalLayer = 0xffffffffu;
 constexpr std::uint32_t kMaxLayers = 4096;
-constexpr std::uint32_t kMaxSections = kMaxLayers * 8u + 6u;
+constexpr std::uint32_t kMaxSections = kMaxLayers * 8u + 8u;
 
 constexpr std::uint32_t kEmbedding = 1;
 constexpr std::uint32_t kTokenFactors = 2;
