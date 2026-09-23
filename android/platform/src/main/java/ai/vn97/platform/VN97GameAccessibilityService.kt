@@ -10,15 +10,6 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
-internal data class VN97GameTouchStroke(
-    val startXBasisPoints: Int,
-    val startYBasisPoints: Int,
-    val endXBasisPoints: Int,
-    val endYBasisPoints: Int,
-    val startMillis: Long,
-    val durationMillis: Long,
-)
-
 object VN97GameAccessibilityController {
     @Volatile
     private var service: VN97GameAccessibilityService? = null
@@ -192,34 +183,7 @@ class VN97GameAccessibilityService : AccessibilityService() {
         strokes: List<VN97GameTouchStroke>,
     ): Boolean {
         requireForegroundPackage(targetPackage)
-        require(strokes.size in 2..MAX_MULTI_TOUCH_STROKES) {
-            "multi-touch requires between 2 and $MAX_MULTI_TOUCH_STROKES strokes"
-        }
-        val maxEndMillis = strokes.maxOf { stroke ->
-            require(stroke.startMillis in 0L..MAX_MULTI_TOUCH_DURATION_MILLIS) {
-                "multi-touch stroke start is outside bounds"
-            }
-            require(stroke.durationMillis in MIN_MULTI_TOUCH_STROKE_MILLIS..MAX_MULTI_TOUCH_DURATION_MILLIS) {
-                "multi-touch stroke duration is outside bounds"
-            }
-            listOf(
-                stroke.startXBasisPoints,
-                stroke.startYBasisPoints,
-                stroke.endXBasisPoints,
-                stroke.endYBasisPoints,
-            ).forEach { coordinate ->
-                require(coordinate in 0..BASIS_POINTS) {
-                    "multi-touch coordinate is outside basis-point bounds"
-                }
-            }
-            Math.addExact(stroke.startMillis, stroke.durationMillis)
-        }
-        require(maxEndMillis <= MAX_MULTI_TOUCH_DURATION_MILLIS) {
-            "multi-touch gesture duration exceeds bound"
-        }
-        require(hasTemporalOverlap(strokes)) {
-            "multi-touch strokes must overlap in time"
-        }
+        VN97GameMultiTouchContract.requireValid(strokes)
 
         val builder = GestureDescription.Builder()
         strokes.forEach { stroke ->
@@ -253,26 +217,6 @@ class VN97GameAccessibilityService : AccessibilityService() {
         return runBooleanOnMain {
             performGlobalAction(GLOBAL_ACTION_BACK)
         }
-    }
-
-    private fun hasTemporalOverlap(
-        strokes: List<VN97GameTouchStroke>,
-    ): Boolean {
-        for (leftIndex in strokes.indices) {
-            val left = strokes[leftIndex]
-            val leftEnd = left.startMillis + left.durationMillis
-            for (rightIndex in leftIndex + 1 until strokes.size) {
-                val right = strokes[rightIndex]
-                val rightEnd = right.startMillis + right.durationMillis
-                if (
-                    left.startMillis < rightEnd &&
-                    right.startMillis < leftEnd
-                ) {
-                    return true
-                }
-            }
-        }
-        return false
     }
 
     private fun requireForegroundPackage(targetPackage: String) {
@@ -371,9 +315,6 @@ class VN97GameAccessibilityService : AccessibilityService() {
 
     companion object {
         private const val BASIS_POINTS = 10_000
-        private const val MAX_MULTI_TOUCH_STROKES = 4
-        private const val MIN_MULTI_TOUCH_STROKE_MILLIS = 20L
-        private const val MAX_MULTI_TOUCH_DURATION_MILLIS = 3_000L
         private const val GESTURE_TIMEOUT_MILLIS = 5_000L
         private const val GLOBAL_ACTION_TIMEOUT_MILLIS = 2_000L
     }
