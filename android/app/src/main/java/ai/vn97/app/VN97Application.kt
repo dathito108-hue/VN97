@@ -12,6 +12,21 @@ class VN97Application : Application() {
         VN97AppAssistant(this)
     }
 
+    val screenCaptureBroker: VN97ScreenCaptureBroker by lazy(
+        LazyThreadSafetyMode.SYNCHRONIZED
+    ) {
+        VN97ScreenCaptureBroker()
+    }
+
+    val visualActions: VN97VisualActionCoordinator by lazy(
+        LazyThreadSafetyMode.SYNCHRONIZED
+    ) {
+        VN97VisualActionCoordinator(
+            assistant = assistant,
+            screenCaptureBroker = screenCaptureBroker,
+        )
+    }
+
     val provisioner: VN97AppProvisioner by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         VN97AppProvisioner(this)
     }
