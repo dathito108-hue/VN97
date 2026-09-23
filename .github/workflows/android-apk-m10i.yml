@@ -5,6 +5,7 @@ on:
     branches:
       - m10i-reproducible-apk-cold-start
       - m10j-turnkey-bootstrap
+      - m15c-readonly-market-data-episodes
   workflow_dispatch:
 
 permissions:
@@ -23,6 +24,15 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
+
+      - name: Run M15C market-data host contracts
+        shell: bash
+        run: |
+          if command -v kotlinc >/dev/null 2>&1; then
+            bash android/platform/host-test/run-m15c.sh
+          else
+            echo "kotlinc unavailable on runner; APK compilation remains the integration gate."
+          fi
 
       - name: Set up Gradle 9.6.0
         uses: gradle/actions/setup-gradle@v4
