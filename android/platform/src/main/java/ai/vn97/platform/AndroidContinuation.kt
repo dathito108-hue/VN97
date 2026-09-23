@@ -170,6 +170,11 @@ class AndroidContinuationScheduler(private val context: Context) {
 
     fun cancel(jobId: Int) = scheduler.cancel(jobId)
 
+    fun hasPendingJob(jobId: Int): Boolean {
+        require(jobId > 0) { "jobId must be positive" }
+        return scheduler.getPendingJob(jobId) != null
+    }
+
     fun cancelAssistantAndDelete(jobId: Int) {
         require(jobId > 0) { "jobId must be positive" }
         scheduler.cancel(jobId)
