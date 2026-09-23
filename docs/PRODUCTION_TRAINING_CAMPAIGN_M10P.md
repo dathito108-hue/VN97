@@ -14,6 +14,9 @@ Every candidate in one campaign uses the same:
 - weight decay/gradient clipping;
 - M10N validation criteria.
 
+Training and validation inputs are compared by filesystem device/inode identity, so the same
+physical file cannot be reused through a hard-link alias.
+
 A candidate may vary only the explicit manifest fields:
 
 - d_model;
@@ -29,7 +32,9 @@ Candidate identity is the first 16 hex characters of SHA-256 over canonical cand
 
 `--max-parameters` is mandatory.
 
-Any model whose actual unique parameter count exceeds the bound is rejected before training.
+The exact model parameter count is first computed by instantiating the canonical VN97LanguageCore
+on PyTorch's `meta` device, so an oversized candidate is rejected **before real weight storage is
+allocated or training starts**. The count is asserted again after real model materialization.
 
 ## Eligibility and ranking
 
