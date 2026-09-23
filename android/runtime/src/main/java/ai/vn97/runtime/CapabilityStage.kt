@@ -10,7 +10,6 @@ import java.nio.file.FileAlreadyExistsException
 import java.nio.file.Files
 import java.nio.file.LinkOption
 import java.nio.file.StandardOpenOption
-import java.security.MessageDigest
 
 data class VN97StagedCapability(
     val parsed: VN97ParsedCapabilityPackage,
