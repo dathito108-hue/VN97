@@ -5,6 +5,12 @@ fun main() {
         VN97AppState(),
         VN97AppEvent.TrustedModelActivated,
     )
+    val restoredWaiting = VN97AppReducer.reduce(
+        ready,
+        VN97AppEvent.ApprovalRequired,
+    )
+    check(restoredWaiting.phase == VN97AppPhase.WAITING_APPROVAL)
+
     val running = VN97AppReducer.reduce(
         ready,
         VN97AppEvent.TurnStarted,
