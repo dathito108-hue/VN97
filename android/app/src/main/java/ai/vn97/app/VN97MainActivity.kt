@@ -6,6 +6,8 @@ import ai.vn97.avatar.AvatarGesture
 import ai.vn97.avatar.VN97AvatarView
 import ai.vn97.platform.VN97AssistantTurnState
 import android.app.Activity
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.view.Gravity
 import android.view.View
@@ -26,6 +28,16 @@ class VN97MainActivity : Activity() {
     private lateinit var approvalView: TextView
     private lateinit var approveButton: Button
     private lateinit var rejectButton: Button
+    private lateinit var provisioningView: TextView
+    private lateinit var choosePackageButton: Button
+    private lateinit var chooseSignatureButton: Button
+    private lateinit var choosePublisherKeyButton: Button
+    private lateinit var reviewModelButton: Button
+    private lateinit var activateModelButton: Button
+
+    private var packageUri: Uri? = null
+    private var signatureUri: Uri? = null
+    private var publisherKeyUri: Uri? = null
 
     private val worker = Executors.newSingleThreadExecutor()
     private var state = VN97AppState()
@@ -130,6 +142,67 @@ class VN97MainActivity : Activity() {
             ),
         )
 
+        provisioningView = TextView(this).apply {
+            text = "Model provisioning: select VN97CAP1, VN97SIG1, and publisher Ed25519 key."
+            setTextIsSelectable(true)
+        }
+        root.addView(
+            provisioningView,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ),
+        )
+
+        val provisioningRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+        }
+        choosePackageButton = Button(this).apply {
+            text = "Package"
+            setOnClickListener { openDocument(REQUEST_PACKAGE) }
+        }
+        chooseSignatureButton = Button(this).apply {
+            text = "Signature"
+            setOnClickListener { openDocument(REQUEST_SIGNATURE) }
+        }
+        choosePublisherKeyButton = Button(this).apply {
+            text = "Publisher Key"
+            setOnClickListener { openDocument(REQUEST_PUBLISHER_KEY) }
+        }
+        provisioningRow.addView(choosePackageButton)
+        provisioningRow.addView(chooseSignatureButton)
+        provisioningRow.addView(choosePublisherKeyButton)
+        root.addView(
+            provisioningRow,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ),
+        )
+
+        val provisioningActionRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.END
+        }
+        reviewModelButton = Button(this).apply {
+            text = "Review"
+            setOnClickListener { reviewProvisioning() }
+        }
+        activateModelButton = Button(this).apply {
+            text = "Trust & Activate"
+            isEnabled = false
+            setOnClickListener { activateReviewedModel() }
+        }
+        provisioningActionRow.addView(reviewModelButton)
+        provisioningActionRow.addView(activateModelButton)
+        root.addView(
+            provisioningActionRow,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ),
+        )
+
         transcriptView = TextView(this).apply {
             textSize = 16f
         }
@@ -209,6 +282,7 @@ class VN97MainActivity : Activity() {
     private fun attachTrustedModel() {
         worker.execute {
             try {
+                app.provisioner.recoverPending()
                 val active = app.assistant.openIfActivated()
                 runOnUiThread {
                     if (active) {
@@ -236,6 +310,165 @@ class VN97MainActivity : Activity() {
                 }
             }
         }
+    }
+
+    override fun onActivityResult(
+        requestCode: Int,
+        resultCode: Int,
+        data: Intent?,
+    ) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (resultCode != RESULT_OK) return
+        val uri = data?.data ?: return
+        try {
+            contentResolver.takePersistableUriPermission(
+                uri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION,
+            )
+        } catch (_: SecurityException) {
+            // Some document providers grant only the current read; review still reopens immediately.
+        }
+        when (requestCode) {
+            REQUEST_PACKAGE -> packageUri = uri
+            REQUEST_SIGNATURE -> signatureUri = uri
+            REQUEST_PUBLISHER_KEY -> publisherKeyUri = uri
+            else -> return
+        }
+        app.provisioner.clearReview()
+        activateModelButton.isEnabled = false
+        renderProvisioningSelection()
+    }
+
+    private fun openDocument(requestCode: Int) {
+        if (!provisioningAllowed()) return
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "application/octet-stream"
+            addFlags(
+                Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                    Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
+            )
+        }
+        startActivityForResult(intent, requestCode)
+    }
+
+    private fun reviewProvisioning() {
+        if (!provisioningAllowed()) return
+        val packageValue = packageUri ?: return
+        val signatureValue = signatureUri ?: return
+        val keyValue = publisherKeyUri ?: return
+        setProvisioningControlsEnabled(false)
+        provisioningView.text = "Verifying publisher and compatibility…"
+        worker.execute {
+            try {
+                val review = app.provisioner.review(
+                    packageUri = packageValue,
+                    signatureUri = signatureValue,
+                    publisherKeyUri = keyValue,
+                )
+                runOnUiThread {
+                    provisioningView.text = buildString {
+                        append("Publisher: ")
+                        append(review.publisherKeyId)
+                        append("\nKey SHA-256: ")
+                        append(review.publisherKeySha256)
+                        append("\nPackage SHA-256: ")
+                        append(review.packageSha256)
+                        append("\nCapability: ")
+                        append(review.capabilityId)
+                        append(" v")
+                        append(review.capabilityVersion)
+                        append("\nSource: ")
+                        append(review.sourceOrigin)
+                        append("\nLicense: ")
+                        append(review.sourceLicense)
+                        append("\nPlan SHA-256: ")
+                        append(review.planSha256)
+                        append("\n\nReview verified. Trust & Activate is an explicit user action.")
+                    }
+                    setProvisioningControlsEnabled(true)
+                    activateModelButton.isEnabled = true
+                }
+            } catch (exc: Throwable) {
+                app.provisioner.clearReview()
+                runOnUiThread {
+                    provisioningView.text =
+                        "Provisioning review failed: " + exc::class.java.simpleName
+                    setProvisioningControlsEnabled(true)
+                    activateModelButton.isEnabled = false
+                }
+            }
+        }
+    }
+
+    private fun activateReviewedModel() {
+        if (!provisioningAllowed()) return
+        if (app.provisioner.pendingReview() == null) return
+        setProvisioningControlsEnabled(false)
+        activateModelButton.isEnabled = false
+        provisioningView.text = "Activating reviewed VN97 model…"
+        worker.execute {
+            try {
+                val item = app.provisioner.activateReviewed()
+                val opened = app.assistant.reloadActivatedModel()
+                check(opened) { "activated model could not be reopened" }
+                runOnUiThread {
+                    provisioningView.text =
+                        "Activated model v${item.capabilityVersion}\n" +
+                            "Artifact SHA-256: ${item.artifactSha256}"
+                    val next = when (state.phase) {
+                        VN97AppPhase.MODEL_REQUIRED,
+                        VN97AppPhase.ERROR,
+                        -> VN97AppReducer.reduce(
+                            state,
+                            VN97AppEvent.TrustedModelActivated,
+                        )
+                        VN97AppPhase.READY -> state.copy(
+                            status = "VN97 model activation updated.",
+                            inputEnabled = true,
+                        )
+                        else -> state
+                    }
+                    render(next)
+                    setProvisioningControlsEnabled(true)
+                }
+            } catch (exc: Throwable) {
+                runOnUiThread {
+                    provisioningView.text =
+                        "Activation failed: " + exc::class.java.simpleName
+                    setProvisioningControlsEnabled(true)
+                }
+            }
+        }
+    }
+
+    private fun provisioningAllowed(): Boolean =
+        state.phase == VN97AppPhase.MODEL_REQUIRED ||
+            state.phase == VN97AppPhase.READY ||
+            state.phase == VN97AppPhase.ERROR
+
+    private fun setProvisioningControlsEnabled(enabled: Boolean) {
+        val allowed = enabled && provisioningAllowed()
+        choosePackageButton.isEnabled = allowed
+        chooseSignatureButton.isEnabled = allowed
+        choosePublisherKeyButton.isEnabled = allowed
+        reviewModelButton.isEnabled = allowed &&
+            packageUri != null &&
+            signatureUri != null &&
+            publisherKeyUri != null
+        if (!allowed) activateModelButton.isEnabled = false
+    }
+
+    private fun renderProvisioningSelection() {
+        provisioningView.text = buildString {
+            append("Package: ")
+            append(if (packageUri == null) "missing" else "selected")
+            append(" | Signature: ")
+            append(if (signatureUri == null) "missing" else "selected")
+            append(" | Publisher key: ")
+            append(if (publisherKeyUri == null) "missing" else "selected")
+        }
+        setProvisioningControlsEnabled(true)
     }
 
     private fun submitTurn() {
@@ -344,6 +577,10 @@ class VN97MainActivity : Activity() {
         rejectButton.visibility = approvalVisibility
         approveButton.isEnabled = approval != null
         rejectButton.isEnabled = approval != null
+        setProvisioningControlsEnabled(true)
+        if (app.provisioner.pendingReview() != null) {
+            activateModelButton.isEnabled = provisioningAllowed()
+        }
 
         val mode = when (state.phase) {
             VN97AppPhase.MODEL_REQUIRED -> AssistantMode.SLEEPING
@@ -364,5 +601,11 @@ class VN97MainActivity : Activity() {
                 energy = if (state.phase == VN97AppPhase.MODEL_REQUIRED) 0.15f else 0.5f,
             )
         )
+    }
+
+    companion object {
+        private const val REQUEST_PACKAGE = 4101
+        private const val REQUEST_SIGNATURE = 4102
+        private const val REQUEST_PUBLISHER_KEY = 4103
     }
 }

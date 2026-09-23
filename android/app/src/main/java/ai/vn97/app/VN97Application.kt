@@ -11,4 +11,8 @@ class VN97Application : Application() {
     val assistant: VN97AppAssistant by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         VN97AppAssistant(this)
     }
+
+    val provisioner: VN97AppProvisioner by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        VN97AppProvisioner(this)
+    }
 }
