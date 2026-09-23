@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import math
 
 from .config import VN97Config
 from .model_image import ENTRY_SIZE, HEADER_SIZE, MAX_IMAGE_BYTES
@@ -178,9 +177,6 @@ def estimate_vn97_mobile_footprint(
     for size in section_sizes:
         cursor = (cursor + 3) & ~3
         cursor += size
-
-    if not math.isfinite(float(cursor)):
-        raise ValueError("VN97 mobile model image size is not finite")
 
     return VN97MobileFootprint(
         model_image_bytes=cursor,
