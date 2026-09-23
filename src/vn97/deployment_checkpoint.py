@@ -24,12 +24,15 @@ from .bootstrap_bundle import (
 from .capability_package import CapabilitySource
 from .config import VN97Config
 from .model import VN97LanguageCore
+from .modality import AudioAdapterConfig, AudioFrameAdapter
 from .tokenizer import VN97TokenizerPackage
 
 
 MAGIC = b"VN97CK1\0"
 VERSION = 1
 HEADER_SIZE = 80
+FLAG_AUDIO_ADAPTER = 1 << 0
+KNOWN_FLAGS = FLAG_AUDIO_ADAPTER
 MAX_MANIFEST_BYTES = 4 * 1024 * 1024
 MAX_TENSORS = 10_000
 MAX_CHECKPOINT_BYTES = 2 * 1024 * 1024 * 1024
@@ -69,6 +72,7 @@ class VN97LoadedDeploymentCheckpoint:
     config: VN97Config
     checkpoint_sha256: str
     tensor_count: int
+    audio_adapter: AudioFrameAdapter | None = None
 
 
 def _canonical_json(value: object) -> bytes:
@@ -136,6 +140,71 @@ def _config_object(config: VN97Config) -> dict[str, object]:
         "ternary_threshold": float(config.ternary_threshold),
         "vocab_size": config.vocab_size,
     }
+
+
+def _audio_config_object(adapter: AudioFrameAdapter) -> dict[str, object]:
+    config = adapter.config
+    return {
+        "eps": float(config.eps),
+        "frame_size": int(config.frame_size),
+        "hop_size": int(config.hop_size),
+        "rms_eps": float(adapter.norm.eps),
+        "schema": "VN97AUDIO1",
+    }
+
+
+def _parse_audio_config(raw: object, *, d_model: int) -> AudioFrameAdapter:
+    if not isinstance(raw, dict) or set(raw) != {
+        "eps",
+        "frame_size",
+        "hop_size",
+        "rms_eps",
+        "schema",
+    }:
+        raise VN97DeploymentCheckpointFormatError(
+            "VN97CK1 audio config keys are not exact"
+        )
+    if raw["schema"] != "VN97AUDIO1":
+        raise VN97DeploymentCheckpointFormatError(
+            "VN97CK1 audio config schema mismatch"
+        )
+    frame_size = raw["frame_size"]
+    hop_size = raw["hop_size"]
+    if type(frame_size) is not int or type(hop_size) is not int:
+        raise VN97DeploymentCheckpointFormatError(
+            "VN97CK1 audio frame geometry must be integer"
+        )
+    values: dict[str, float] = {}
+    for key in ("eps", "rms_eps"):
+        value = raw[key]
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise VN97DeploymentCheckpointFormatError(
+                f"VN97CK1 audio {key} must be numeric"
+            )
+        numeric = float(value)
+        if not math.isfinite(numeric) or numeric <= 0.0:
+            raise VN97DeploymentCheckpointFormatError(
+                f"VN97CK1 audio {key} must be finite and positive"
+            )
+        values[key] = numeric
+    if frame_size != 320 or hop_size != 320 or values["eps"] != 1e-5:
+        raise VN97DeploymentCheckpointFormatError(
+            "VN97CK1 production audio config must use canonical 320/320 and eps=1e-5"
+        )
+    try:
+        return AudioFrameAdapter(
+            d_model,
+            config=AudioAdapterConfig(
+                frame_size=frame_size,
+                hop_size=hop_size,
+                eps=values["eps"],
+            ),
+            rms_eps=values["rms_eps"],
+        )
+    except ValueError as exc:
+        raise VN97DeploymentCheckpointFormatError(
+            f"VN97CK1 audio config is invalid: {exc}"
+        ) from exc
 
 
 def _parse_config(raw: object) -> VN97Config:
@@ -218,11 +287,36 @@ def _tensor_bytes(tensor: torch.Tensor, name: str) -> tuple[bytes, tuple[int, ..
 
 def build_deployment_checkpoint(
     model: VN97LanguageCore,
+    *,
+    audio_adapter: AudioFrameAdapter | None = None,
 ) -> bytes:
     if not isinstance(model, VN97LanguageCore):
         raise TypeError("model must be VN97LanguageCore")
 
-    state = model.state_dict()
+    state = dict(model.state_dict())
+    flags = 0
+    audio_manifest: dict[str, object] | None = None
+    if audio_adapter is not None:
+        if not isinstance(audio_adapter, AudioFrameAdapter):
+            raise TypeError("audio_adapter must be AudioFrameAdapter")
+        if audio_adapter.projection.out_features != model.config.d_model:
+            raise VN97DeploymentCheckpointFormatError(
+                "VN97CK1 audio adapter d_model does not match language core"
+            )
+        if (
+            audio_adapter.config.frame_size != 320
+            or audio_adapter.config.hop_size != 320
+            or float(audio_adapter.config.eps) != 1e-5
+            or float(audio_adapter.norm.eps) != float(model.config.rms_eps)
+        ):
+            raise VN97DeploymentCheckpointFormatError(
+                "VN97CK1 audio adapter must use canonical production geometry"
+            )
+        for name, tensor in audio_adapter.state_dict().items():
+            state[f"audio_adapter.{name}"] = tensor
+        flags |= FLAG_AUDIO_ADAPTER
+        audio_manifest = _audio_config_object(audio_adapter)
+
     names = sorted(state)
     if not names or len(names) > MAX_TENSORS:
         raise VN97DeploymentCheckpointFormatError(
@@ -254,13 +348,14 @@ def build_deployment_checkpoint(
                 "VN97CK1 checkpoint exceeds byte limit"
             )
 
-    manifest = _canonical_json(
-        {
-            "config": _config_object(model.config),
-            "schema": "VN97CK1",
-            "tensors": tensor_meta,
-        }
-    )
+    manifest_object: dict[str, object] = {
+        "config": _config_object(model.config),
+        "schema": "VN97CK1",
+        "tensors": tensor_meta,
+    }
+    if audio_manifest is not None:
+        manifest_object["audio"] = audio_manifest
+    manifest = _canonical_json(manifest_object)
     if not 0 < len(manifest) <= MAX_MANIFEST_BYTES:
         raise VN97DeploymentCheckpointFormatError(
             "VN97CK1 manifest size is outside bounds"
@@ -278,7 +373,7 @@ def build_deployment_checkpoint(
             MAGIC,
             VERSION,
             HEADER_SIZE,
-            0,
+            flags,
             len(manifest),
             len(tensor_meta),
             len(payload),
@@ -439,9 +534,9 @@ def load_deployment_checkpoint(
         raise VN97DeploymentCheckpointFormatError(
             "VN97CK1 magic/version/header mismatch"
         )
-    if flags != 0 or reserved != 0:
+    if flags & ~KNOWN_FLAGS or reserved != 0:
         raise VN97DeploymentCheckpointFormatError(
-            "VN97CK1 reserved header fields are nonzero"
+            "VN97CK1 header flags/reserved fields are invalid"
         )
     if not 0 < manifest_size <= MAX_MANIFEST_BYTES:
         raise VN97DeploymentCheckpointFormatError(
@@ -478,9 +573,15 @@ def load_deployment_checkpoint(
     manifest_bytes = blob[HEADER_SIZE : HEADER_SIZE + manifest_size]
     payload = blob[HEADER_SIZE + manifest_size :]
     manifest = _strict_json_object(manifest_bytes)
-    if set(manifest) != {"config", "schema", "tensors"}:
+    has_audio = bool(flags & FLAG_AUDIO_ADAPTER)
+    expected_manifest_keys = (
+        {"audio", "config", "schema", "tensors"}
+        if has_audio
+        else {"config", "schema", "tensors"}
+    )
+    if set(manifest) != expected_manifest_keys:
         raise VN97DeploymentCheckpointFormatError(
-            "VN97CK1 manifest keys are not exact"
+            "VN97CK1 manifest keys are not exact for header flags"
         )
     if manifest["schema"] != "VN97CK1":
         raise VN97DeploymentCheckpointFormatError(
@@ -495,7 +596,15 @@ def load_deployment_checkpoint(
     )
 
     model = VN97LanguageCore(config)
-    expected_state = model.state_dict()
+    audio_adapter = (
+        _parse_audio_config(manifest["audio"], d_model=config.d_model)
+        if has_audio
+        else None
+    )
+    expected_state = dict(model.state_dict())
+    if audio_adapter is not None:
+        for name, tensor in audio_adapter.state_dict().items():
+            expected_state[f"audio_adapter.{name}"] = tensor
     expected_names = sorted(expected_state)
     actual_names = [entry[0] for entry in metadata]
     if actual_names != expected_names:
@@ -522,10 +631,24 @@ def load_deployment_checkpoint(
         ).clone().reshape(shape)
         tensors[name] = tensor
 
-    _require_tied_checkpoint_values(tensors, config)
+    language_tensors = {
+        name: tensor
+        for name, tensor in tensors.items()
+        if not name.startswith("audio_adapter.")
+    }
+    _require_tied_checkpoint_values(language_tensors, config)
 
     try:
-        model.load_state_dict(tensors, strict=True)
+        model.load_state_dict(language_tensors, strict=True)
+        if audio_adapter is not None:
+            audio_adapter.load_state_dict(
+                {
+                    name.removeprefix("audio_adapter."): tensor
+                    for name, tensor in tensors.items()
+                    if name.startswith("audio_adapter.")
+                },
+                strict=True,
+            )
     except RuntimeError as exc:
         raise VN97DeploymentCheckpointFormatError(
             "VN97CK1 state_dict is incompatible with canonical VN97 model"
@@ -546,19 +669,27 @@ def load_deployment_checkpoint(
             )
 
     model.eval()
+    if audio_adapter is not None:
+        audio_adapter.eval()
     return VN97LoadedDeploymentCheckpoint(
         model=model,
         config=config,
         checkpoint_sha256=hashlib.sha256(blob).hexdigest(),
         tensor_count=tensor_count,
+        audio_adapter=audio_adapter,
     )
 
 
 def save_deployment_checkpoint(
     model: VN97LanguageCore,
     path: str | os.PathLike[str],
+    *,
+    audio_adapter: AudioFrameAdapter | None = None,
 ) -> str:
-    blob = build_deployment_checkpoint(model)
+    blob = build_deployment_checkpoint(
+        model,
+        audio_adapter=audio_adapter,
+    )
     target = Path(path)
     if target.is_symlink():
         raise VN97DeploymentCheckpointError(
@@ -676,6 +807,7 @@ def build_bootstrap_bundle_from_checkpoint(
     return build_bootstrap_bundle(
         loaded.model,
         tokenizer=tokenizer,
+        audio_adapter=loaded.audio_adapter,
         source=source,
         capability_version=capability_version,
         signer=signer,
