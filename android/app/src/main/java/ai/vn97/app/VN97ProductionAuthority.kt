@@ -15,6 +15,26 @@ internal object VN97ProductionAuthority {
                 principal
             )
         )
+        val app = context.applicationContext as? VN97Application
+        val gameSession =
+            app?.platformRuntime?.gameSession?.activeOrNull()
+        if (gameSession != null) {
+            add(
+                M6AndroidProductionCapabilities
+                    .gameSessionTapGrant(
+                        principal,
+                        gameSession.packageName,
+                    )
+            )
+            add(
+                M6AndroidProductionCapabilities
+                    .gameSessionSwipeGrant(
+                        principal,
+                        gameSession.packageName,
+                    )
+            )
+        }
+
         val launcher = Intent(Intent.ACTION_MAIN).apply {
             addCategory(Intent.CATEGORY_LAUNCHER)
         }
