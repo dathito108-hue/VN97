@@ -168,6 +168,11 @@ def build_model_image(
         norm_eps = float(getattr(norm, "eps", config.rms_eps))
         if norm_eps != float(config.rms_eps):
             raise ValueError("audio projection RMSNorm eps must match VN97 core rms_eps")
+        threshold = float(getattr(projection, "threshold", config.ternary_threshold))
+        if threshold != float(config.ternary_threshold):
+            raise ValueError(
+                "audio projection ternary threshold must match VN97 core"
+            )
         sections.append((
             SECTION_AUDIO_PROJECTION,
             GLOBAL_LAYER,
