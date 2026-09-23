@@ -9,6 +9,8 @@ class AndroidPlatformRuntime(
     approvalIssuer: String = "local-user",
     permissionRequirements: Map<String, Set<String>> = emptyMap(),
 ) {
+    private val appContext = context.applicationContext
+
     val approvals: AndroidApprovalController = AndroidApprovalController(
         keyAlias = approvalKeyAlias,
         issuer = approvalIssuer,
@@ -16,6 +18,12 @@ class AndroidPlatformRuntime(
 
     val externalApprovals: M6ExternalApprovalHandoff =
         M6ExternalApprovalHandoff(AndroidApprovalControllerPort(approvals))
+
+    internal val permissionBroker = AndroidPermissionBroker(appContext, permissionRequirements)
+    internal val appDeviceAdapter = AndroidAppDeviceAdapter(appContext, permissionBroker)
+    private val productionCapabilities = M6AndroidProductionCapabilities(appDeviceAdapter)
+
+    val externalIntentBinder: M6ExternalIntentBinder = productionCapabilities.intentBinder
 
     fun createExternalExecutionFabric(
         registry: M6TypedCapabilityRegistry,
@@ -43,6 +51,13 @@ class AndroidPlatformRuntime(
         ),
     )
 
-    internal val permissionBroker = AndroidPermissionBroker(context, permissionRequirements)
-    internal val appDeviceAdapter = AndroidAppDeviceAdapter(context, permissionBroker)
+    fun createProductionExternalExecutionFabric(
+        grants: List<M6PolicyGrant>,
+        auditFileName: String = "m6-actions.jsonl",
+    ): M6ExternalExecutionFabric = createDurableExternalExecutionFabric(
+        registry = productionCapabilities.createSealedRegistry(),
+        grants = grants,
+        auditRoot = appContext.noBackupFilesDir,
+        auditFileName = auditFileName,
+    )
 }

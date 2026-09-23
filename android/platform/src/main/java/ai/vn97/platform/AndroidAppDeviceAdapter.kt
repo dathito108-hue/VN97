@@ -9,17 +9,17 @@ import android.os.Build
 import android.os.PersistableBundle
 
 internal object PlatformCapabilityIds {
-    const val APP_LAUNCH = "app.launch"
-    const val CLIPBOARD_WRITE = "device.clipboard.write"
+    const val APP_LAUNCH = M6AndroidProductionCapabilities.APP_LAUNCH_CAPABILITY
+    const val CLIPBOARD_WRITE = M6AndroidProductionCapabilities.CLIPBOARD_WRITE_CAPABILITY
 }
 
 internal class AndroidAppDeviceAdapter(
     context: Context,
     private val permissionBroker: AndroidPermissionBroker,
-) {
+) : M6AndroidActionPort {
     private val appContext = context.applicationContext
 
-    fun launchPackage(packageName: String): String {
+    override fun launchPackage(packageName: String): String {
         validatePackageName(packageName)
         permissionBroker.requireGranted(PlatformCapabilityIds.APP_LAUNCH)
 
@@ -35,7 +35,7 @@ internal class AndroidAppDeviceAdapter(
         return "launched:$packageName"
     }
 
-    fun writeClipboard(text: String): String {
+    override fun writeClipboard(text: String): String {
         val bytes = text.toByteArray(Charsets.UTF_8)
         require(bytes.size <= MAX_CLIPBOARD_UTF8_BYTES) { "clipboard text exceeds byte bound" }
         permissionBroker.requireGranted(PlatformCapabilityIds.CLIPBOARD_WRITE)
