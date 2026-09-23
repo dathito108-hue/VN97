@@ -100,8 +100,13 @@ class M6AndroidProductionCapabilities internal constructor(
         ),
     )
 
+    private val assistantDescriptors: List<M6CapabilityDescriptor> =
+        descriptors.filter {
+            it.capabilityId != CAPABILITY_ARTIFACT_FETCH
+        }
+
     val intentBinder: M6ExternalIntentBinder =
-        M6ExternalIntentBinder(descriptors)
+        M6ExternalIntentBinder(assistantDescriptors)
 
     val gameDescriptors: List<M6CapabilityDescriptor> =
         descriptors.filter {
