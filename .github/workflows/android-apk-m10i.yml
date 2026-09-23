@@ -29,7 +29,7 @@ jobs:
         shell: bash
         run: |
           if command -v kotlinc >/dev/null 2>&1; then
-            bash android/platform/host-test/run.sh
+            bash android/platform/host-test/run-m14c.sh
           else
             echo "kotlinc unavailable on runner; APK compilation remains the integration gate."
           fi
