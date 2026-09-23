@@ -51,7 +51,7 @@ data class VN97MobileEvidenceRecord(
     val textPrefill: VN97LatencyEvidence,
     val textDecodePerToken: VN97LatencyEvidence,
     val speechPrefill: VN97LatencyEvidence?,
-    val peakPssKib: Int,
+    val peakPssKib: Long,
     val thermalStatusMax: Int,
     val batteryEnergyCounterDeltaNwh: Long?,
 ) {
@@ -185,7 +185,7 @@ class VN97OnDeviceEvidenceCollector(
 
         val startEnergy = readEnergyCounterOrNull()
         var maxThermal = thermalStatus()
-        var peakPss = Debug.getPss().coerceAtLeast(1)
+        var peakPss = Debug.getPss().coerceAtLeast(1L)
         val prefillMs = ArrayList<Double>(config.measuredRuns)
         val decodeMsPerToken = ArrayList<Double>(config.measuredRuns)
         val speechMs = if (preparedSpeech != null) {
@@ -206,7 +206,7 @@ class VN97OnDeviceEvidenceCollector(
             observation.speechPrefillMs?.let { value ->
                 speechMs?.add(value)
             }
-            peakPss = maxOf(peakPss, Debug.getPss().coerceAtLeast(1))
+            peakPss = maxOf(peakPss, Debug.getPss().coerceAtLeast(1L))
             maxThermal = maxOf(maxThermal, thermalStatus())
         }
 
