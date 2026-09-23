@@ -35,7 +35,7 @@ object AndroidAccessibilityGestureBridge {
         synchronized(lock) {
             if (serviceRef.get() === service) {
                 serviceRef.clear()
-                serviceRef = WeakReference(null)
+                serviceRef = WeakReference<AccessibilityService>(null)
                 lastForegroundPackage = ""
                 lastForegroundElapsedNs = 0L
             }
