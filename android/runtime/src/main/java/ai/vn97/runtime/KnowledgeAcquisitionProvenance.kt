@@ -33,14 +33,14 @@ data class VN97AcquisitionProvenanceRecord(
     val createdWallTimeMillis: Long,
 ) {
     init {
-        requireKnowledgeSha(packageSha256, "packageSha256")
-        requireKnowledgeId(capabilityId, "capabilityId")
+        requireProvenanceSha(packageSha256, "packageSha256")
+        requireProvenanceId(capabilityId, "capabilityId")
         require(capabilityId == "knowledge" || capabilityId.startsWith("knowledge."))
         require(capabilityVersion in 1L..0xffff_ffffL)
-        requireKnowledgeId(publisherKeyId, "publisherKeyId")
-        requireKnowledgeSha(publisherKeySha256, "publisherKeySha256")
-        requireKnowledgeSha(signatureSha256, "signatureSha256")
-        requireKnowledgeSha(payloadSha256, "payloadSha256")
+        requireProvenanceId(publisherKeyId, "publisherKeyId")
+        requireProvenanceSha(publisherKeySha256, "publisherKeySha256")
+        requireProvenanceSha(signatureSha256, "signatureSha256")
+        requireProvenanceSha(payloadSha256, "payloadSha256")
         requireBoundedProvenanceText(sourceOrigin, MAX_ORIGIN_BYTES, "sourceOrigin", true)
         requireBoundedProvenanceText(sourceLicense, MAX_LICENSE_BYTES, "sourceLicense", true)
         require(recordIds.isNotEmpty() && recordIds.all { it > 0L })
@@ -48,8 +48,8 @@ data class VN97AcquisitionProvenanceRecord(
         require(createdWallTimeMillis >= 0L)
 
         if (proposalId.isNotEmpty()) {
-            requireKnowledgeSha(proposalId, "proposalId")
-            requireKnowledgeId(proposalCapabilityId, "proposalCapabilityId")
+            requireProvenanceSha(proposalId, "proposalId")
+            requireProvenanceId(proposalCapabilityId, "proposalCapabilityId")
             require(proposalCapabilityId.startsWith("knowledge."))
             require(proposalCapabilityId == capabilityId) {
                 "acquisition proposal capability does not match reviewed capability"
@@ -69,7 +69,7 @@ data class VN97AcquisitionProvenanceRecord(
         }
 
         if (fetchReceiptId.isNotEmpty()) {
-            requireKnowledgeSha(fetchReceiptId, "fetchReceiptId")
+            requireProvenanceSha(fetchReceiptId, "fetchReceiptId")
             requireBoundedProvenanceText(
                 fetchCanonicalUrl,
                 MAX_FETCH_URL_BYTES,
@@ -162,7 +162,7 @@ class VN97AcquisitionProvenanceLedger(
     fun loadOrNull(
         packageSha256: String,
     ): VN97AcquisitionProvenanceRecord? {
-        requireKnowledgeSha(packageSha256, "packageSha256")
+        requireProvenanceSha(packageSha256, "packageSha256")
         val target = target(packageSha256)
         if (!Files.exists(target, LinkOption.NOFOLLOW_LINKS)) {
             return null
@@ -301,7 +301,7 @@ private fun decodeProvenance(
         "acquisition provenance digest is missing"
     }
     val expected = digestLine.removePrefix("sha256=")
-    requireKnowledgeSha(expected, "provenance digest")
+    requireProvenanceSha(expected, "provenance digest")
     val payload = text.substring(second + 1)
     check(
         provenanceSha(
@@ -483,4 +483,44 @@ private fun provenanceSha(
 ): String =
     MessageDigest.getInstance("SHA-256")
         .digest(bytes)
-        .toKnowledgeHex()
+        .toProvenanceHex()
+
+
+private fun requireProvenanceId(
+    value: String,
+    label: String,
+) {
+    require(
+        value.isNotEmpty() &&
+            value.length <= 128 &&
+            value[0] in 'a'..'z' &&
+            value.all {
+                it in 'a'..'z' ||
+                    it in '0'..'9' ||
+                    it == '.' ||
+                    it == '_' ||
+                    it == '-'
+            }
+    ) {
+        "$label is invalid"
+    }
+}
+
+private fun requireProvenanceSha(
+    value: String,
+    label: String,
+) {
+    require(
+        value.length == 64 &&
+            value.all {
+                it in "0123456789abcdef"
+            }
+    ) {
+        "$label must be lowercase SHA-256 hex"
+    }
+}
+
+private fun ByteArray.toProvenanceHex(): String =
+    joinToString("") {
+        "%02x".format(it.toInt() and 0xff)
+    }
