@@ -1,5 +1,10 @@
 package ai.vn97.app
 
+private const val VN97_GOA_VN97_GOA_VERSION = 1
+private const val VN97_GOA_VN97_GOA_HEADER_BYTES = 48
+private val VN97_GOA_VN97_GOA_MAGIC =
+    "VN97GOA1".toByteArray(StandardCharsets.US_ASCII)
+
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
@@ -237,7 +242,7 @@ class VN97AutonomousGoalStore(
                 exc,
             )
         }
-        if (size !in HEADER_BYTES.toLong()..MAX_FILE_BYTES.toLong()) {
+        if (size !in VN97_GOA_HEADER_BYTES.toLong()..MAX_FILE_BYTES.toLong()) {
             fail("autonomous goal file size is outside bounds")
         }
         val bytes = try {
@@ -320,11 +325,9 @@ class VN97AutonomousGoalStore(
 
     companion object {
         private const val FILE_NAME = "goal.vn97goa1"
-        private const val VERSION = 1
-        private const val HEADER_BYTES = 48
         private const val MAX_GOALS = 128
         private const val MAX_FILE_BYTES =
-            HEADER_BYTES +
+            VN97_GOA_HEADER_BYTES +
                 4 + 8 + 8 + 4 + 4 +
                 4 + 64 +
                 4 + 64 +
@@ -332,8 +335,6 @@ class VN97AutonomousGoalStore(
                 4 + VN97AutonomousGoalRecord.MAX_GOAL_BYTES +
                 4 + VN97AutonomousGoalRecord.MAX_RESPONSE_BYTES +
                 4 + VN97AutonomousGoalRecord.MAX_REASON_BYTES
-        private val MAGIC =
-            "VN97GOA1".toByteArray(StandardCharsets.US_ASCII)
     }
 }
 
@@ -372,11 +373,11 @@ private fun encode(record: VN97AutonomousGoalRecord): ByteArray {
         .array()
     val digest =
         MessageDigest.getInstance("SHA-256").digest(payload)
-    return ByteBuffer.allocate(HEADER_BYTES + payload.size)
+    return ByteBuffer.allocate(VN97_GOA_HEADER_BYTES + payload.size)
         .order(ByteOrder.BIG_ENDIAN)
         .apply {
-            put(MAGIC)
-            putInt(VERSION)
+            put(VN97_GOA_MAGIC)
+            putInt(VN97_GOA_VERSION)
             putInt(payload.size)
             put(digest)
             put(payload)
