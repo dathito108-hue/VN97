@@ -4,6 +4,7 @@ import ai.vn97.avatar.AssistantMode
 import ai.vn97.avatar.AvatarCommand
 import ai.vn97.avatar.AvatarGesture
 import ai.vn97.avatar.VN97AvatarView
+import ai.vn97.platform.VN97AssistantTurnState
 import android.app.Activity
 import android.os.Bundle
 import android.view.Gravity
@@ -13,6 +14,7 @@ import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import java.util.concurrent.Executors
 
 class VN97MainActivity : Activity() {
     private lateinit var avatar: VN97AvatarView
@@ -21,13 +23,17 @@ class VN97MainActivity : Activity() {
     private lateinit var inputView: EditText
     private lateinit var sendButton: Button
 
+    private val worker = Executors.newSingleThreadExecutor()
     private var state = VN97AppState()
     private var avatarSequence = 1L
+
+    private val app: VN97Application
+        get() = application as VN97Application
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        (application as VN97Application).platformRuntime
+        app.platformRuntime
 
         val density = resources.displayMetrics.density
         val root = LinearLayout(this).apply {
@@ -123,16 +129,7 @@ class VN97MainActivity : Activity() {
 
         sendButton = Button(this).apply {
             text = "Send"
-            setOnClickListener {
-                if (!state.inputEnabled) return@setOnClickListener
-                val message = inputView.text.toString()
-                if (message.isBlank()) return@setOnClickListener
-                render(
-                    state.copy(
-                        status = "Trusted VN97 model session is not attached yet.",
-                    )
-                )
-            }
+            setOnClickListener { submitTurn() }
         }
         inputRow.addView(
             sendButton,
@@ -151,6 +148,7 @@ class VN97MainActivity : Activity() {
 
         setContentView(root)
         render(state)
+        attachTrustedModel()
     }
 
     override fun onResume() {
@@ -161,6 +159,97 @@ class VN97MainActivity : Activity() {
     override fun onPause() {
         avatar.onAvatarPause()
         super.onPause()
+    }
+
+    override fun onDestroy() {
+        worker.shutdownNow()
+        super.onDestroy()
+    }
+
+    private fun attachTrustedModel() {
+        worker.execute {
+            try {
+                val active = app.assistant.openIfActivated()
+                runOnUiThread {
+                    if (active) {
+                        render(
+                            VN97AppReducer.reduce(
+                                state,
+                                VN97AppEvent.TrustedModelActivated,
+                            )
+                        )
+                    } else {
+                        render(state)
+                    }
+                }
+            } catch (exc: Throwable) {
+                runOnUiThread {
+                    render(
+                        VN97AppReducer.reduce(
+                            state,
+                            VN97AppEvent.Failed(
+                                "Trusted model activation failed: " +
+                                    exc::class.java.simpleName
+                            ),
+                        )
+                    )
+                }
+            }
+        }
+    }
+
+    private fun submitTurn() {
+        if (!state.inputEnabled) return
+        val message = inputView.text.toString()
+        if (message.isBlank()) return
+        inputView.text.clear()
+        render(VN97AppReducer.reduce(state, VN97AppEvent.TurnStarted))
+
+        worker.execute {
+            try {
+                val update = app.assistant.runTurn(message)
+                runOnUiThread {
+                    when (update.state) {
+                        VN97AssistantTurnState.COMPLETED -> render(
+                            VN97AppReducer.reduce(
+                                state,
+                                VN97AppEvent.TurnCompleted(
+                                    user = message,
+                                    assistant = update.finalResponse,
+                                ),
+                            )
+                        )
+
+                        VN97AssistantTurnState.APPROVAL_REQUIRED -> render(
+                            VN97AppReducer.reduce(
+                                state,
+                                VN97AppEvent.ApprovalRequired,
+                            )
+                        )
+
+                        else -> render(
+                            VN97AppReducer.reduce(
+                                state,
+                                VN97AppEvent.Failed(
+                                    "VN97 turn ended at ${update.state.name}."
+                                ),
+                            )
+                        )
+                    }
+                }
+            } catch (exc: Throwable) {
+                runOnUiThread {
+                    render(
+                        VN97AppReducer.reduce(
+                            state,
+                            VN97AppEvent.Failed(
+                                "VN97 turn failed: " + exc::class.java.simpleName
+                            ),
+                        )
+                    )
+                }
+            }
+        }
     }
 
     private fun render(next: VN97AppState) {
