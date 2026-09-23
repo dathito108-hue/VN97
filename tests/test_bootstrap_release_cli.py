@@ -14,6 +14,8 @@ from vn97 import (
     VN97ReleaseQualityError,
     VN97LanguageCore,
     VN97TokenizerPackage,
+    build_model_image,
+    load_deployment_checkpoint_file,
     save_deployment_checkpoint,
 )
 from vn97.bootstrap_release_cli import main
@@ -111,6 +113,96 @@ def test_release_cli_writes_exact_m10j_assets(tmp_path, capsys):
     assert report["validation"]["target_tokens"] > 0
     assert report["validation"]["mean_loss"] <= 100
     assert len(report["validation"]["dataset_sha256"]) == 64
+
+
+def test_release_cli_can_require_matching_device_evidence(
+    tmp_path,
+    capsys,
+):
+    checkpoint, tokenizer_path, validation = _checkpoint_and_tokenizer(tmp_path)
+    loaded = load_deployment_checkpoint_file(checkpoint)
+    tokenizer = VN97TokenizerPackage.from_bytes(tokenizer_path.read_bytes())
+    preview = build_model_image(
+        loaded.model,
+        tokenizer=tokenizer,
+        tile_rows=4,
+        tile_cols=4,
+    )
+    model_sha = hashlib.sha256(preview.data).hexdigest()
+    evidence_path = tmp_path / "vn97-mobile-evidence.json"
+    evidence_path.write_text(
+        json.dumps(
+            {
+                "battery_energy_counter_delta_nwh": 100,
+                "device": {
+                    "abi": "arm64-v8a",
+                    "manufacturer": "fixture",
+                    "model": "fixture-phone",
+                    "sdk_int": 37,
+                },
+                "model_image_sha256": model_sha,
+                "peak_pss_kib": 120000,
+                "runs": 5,
+                "schema": "VN97MOBEVID1",
+                "speech_prefill": None,
+                "text_decode_per_token": {
+                    "p50_ms": 5.0,
+                    "p95_ms": 6.0,
+                },
+                "text_prefill": {
+                    "p50_ms": 10.0,
+                    "p95_ms": 12.0,
+                },
+                "thermal_status_max": 2,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ),
+        encoding="utf-8",
+    )
+
+    private = cryptography.Ed25519PrivateKey.generate()
+    private_path = tmp_path / "publisher.private"
+    private_path.write_bytes(
+        private.private_bytes(
+            encoding=serialization.Encoding.Raw,
+            format=serialization.PrivateFormat.Raw,
+            encryption_algorithm=serialization.NoEncryption(),
+        )
+    )
+    assets = tmp_path / "evidence-assets"
+    assert main(
+        [
+            "--checkpoint", str(checkpoint),
+            "--tokenizer", str(tokenizer_path),
+            "--private-key", str(private_path),
+            "--key-id", "publisher.main",
+            "--capability-version", "11",
+            "--source-origin", "vn97-production-campaign",
+            "--source-license", "proprietary",
+            "--assets-dir", str(assets),
+            "--validation-input", str(validation),
+            "--validation-format", "text",
+            "--validation-sequence-length", "32",
+            "--validation-batch-size", "1",
+            "--min-validation-target-tokens", "1",
+            "--max-validation-loss", "100",
+            "--tile-rows", "4",
+            "--tile-cols", "4",
+            "--device-evidence", str(evidence_path),
+            "--require-device-evidence",
+            "--max-text-prefill-p95-ms", "20",
+            "--max-text-decode-p95-ms-per-token", "10",
+            "--max-device-peak-pss-kib", "200000",
+            "--max-device-thermal-status", "3",
+        ]
+    ) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["device_evidence"]["evidence_sha256"] == hashlib.sha256(
+        evidence_path.read_bytes()
+    ).hexdigest()
+    assert report["device_evidence"]["model"] == "fixture-phone"
+    assert report["model_image_sha256"] == model_sha
 
 
 def test_release_cli_requires_and_reports_speech_quality_for_speech_checkpoint(
