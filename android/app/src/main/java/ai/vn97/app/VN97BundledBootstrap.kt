@@ -18,7 +18,7 @@ class VN97BundledBootstrap(
     private val application: VN97Application,
     private val provisioner: VN97AppProvisioner,
 ) {
-    fun activateIfPresent(): VN97BundledBootstrapOutcome {
+    fun activateIfPresent(required: Boolean = false): VN97BundledBootstrapOutcome {
         if (provisioner.pendingReview() != null) {
             return VN97BundledBootstrapOutcome.ABSENT
         }
@@ -33,8 +33,14 @@ class VN97BundledBootstrap(
         }
 
         return when (VN97BootstrapAssetContract.classify(entries)) {
-            VN97BootstrapAssetState.ABSENT ->
+            VN97BootstrapAssetState.ABSENT -> {
+                if (required) {
+                    throw IllegalStateException(
+                        "turnkey VN97 build is missing its bundled signed model"
+                    )
+                }
                 VN97BundledBootstrapOutcome.ABSENT
+            }
 
             VN97BootstrapAssetState.INCOMPLETE ->
                 throw IllegalStateException(
