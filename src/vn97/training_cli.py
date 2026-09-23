@@ -3,8 +3,11 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path
+import stat
 import sys
+import tempfile
 
 import torch
 
@@ -36,6 +39,76 @@ def _canonical_json(value: object) -> bytes:
     ).encode("utf-8")
 
 
+def _read_bounded_regular_file(
+    path: Path,
+    *,
+    max_bytes: int,
+) -> bytes:
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        fd = os.open(path, flags)
+    except OSError as exc:
+        raise ValueError(f"training input could not be opened safely: {path}") from exc
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode):
+            raise ValueError(f"training input must be a regular file: {path}")
+        if info.st_size < 0 or info.st_size > max_bytes:
+            raise ValueError("training inputs exceed --max-input-bytes")
+        out = bytearray()
+        while len(out) < info.st_size:
+            chunk = os.read(fd, min(1024 * 1024, info.st_size - len(out)))
+            if not chunk:
+                break
+            out.extend(chunk)
+        after = os.fstat(fd)
+        if (
+            len(out) != info.st_size
+            or after.st_size != info.st_size
+            or after.st_ino != info.st_ino
+            or after.st_dev != info.st_dev
+        ):
+            raise ValueError(f"training input changed while being read: {path}")
+        return bytes(out)
+    finally:
+        os.close(fd)
+
+
+def _atomic_write(path: Path, data: bytes) -> None:
+    if path.is_symlink():
+        raise ValueError(f"output target must not be a symlink: {path}")
+    parent = path.parent
+    parent.mkdir(parents=True, exist_ok=True)
+    if parent.is_symlink():
+        raise ValueError(f"output parent must not be a symlink: {parent}")
+    fd, temp_name = tempfile.mkstemp(
+        prefix=f".{path.name}.",
+        suffix=".tmp",
+        dir=parent,
+    )
+    temp_path = Path(temp_name)
+    try:
+        with os.fdopen(fd, "wb", closefd=True) as output:
+            output.write(data)
+            output.flush()
+            os.fsync(output.fileno())
+        if path.is_symlink():
+            raise ValueError(f"output target became a symlink: {path}")
+        os.replace(temp_path, path)
+        dir_fd = os.open(
+            parent.resolve(strict=True),
+            os.O_RDONLY | getattr(os, "O_DIRECTORY", 0),
+        )
+        try:
+            os.fsync(dir_fd)
+        finally:
+            os.close(dir_fd)
+    finally:
+        temp_path.unlink(missing_ok=True)
+    if path.read_bytes() != data:
+        raise IOError(f"output post-write verification failed: {path}")
+
+
 def _load_records(
     paths: list[Path],
     *,
@@ -50,12 +123,14 @@ def _load_records(
     digest = hashlib.sha256()
 
     for path in paths:
-        if path.is_symlink() or not path.is_file():
-            raise ValueError(f"training input must be a regular non-symlink file: {path}")
-        data = path.read_bytes()
-        total += len(data)
-        if total > max_input_bytes:
+        remaining = max_input_bytes - total
+        if remaining < 0:
             raise ValueError("training inputs exceed --max-input-bytes")
+        data = _read_bounded_regular_file(
+            path,
+            max_bytes=remaining,
+        )
+        total += len(data)
         digest.update(len(data).to_bytes(8, "little"))
         digest.update(data)
 
@@ -120,6 +195,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--max-input-bytes", type=int, default=_MAX_DEFAULT_INPUT_BYTES)
     parser.add_argument("--max-examples", type=int, default=100_000)
+    parser.add_argument("--max-windows", type=int, default=10_000)
     parser.add_argument("--learned-tokens", type=int, default=2048)
     parser.add_argument("--min-pair-count", type=int, default=2)
 
@@ -142,8 +218,12 @@ def _parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
-    if args.max_input_bytes <= 0 or args.max_examples <= 0:
-        raise ValueError("input bounds must be positive")
+    if (
+        args.max_input_bytes <= 0
+        or args.max_examples <= 0
+        or args.max_windows <= 0
+    ):
+        raise ValueError("input/window bounds must be positive")
 
     records, dataset_sha256 = _load_records(
         [Path(value) for value in args.input],
@@ -190,6 +270,7 @@ def main(argv: list[str] | None = None) -> int:
         max_grad_norm=args.max_grad_norm,
         seed=args.seed,
         shuffle=True,
+        max_windows=args.max_windows,
     )
     windows = build_training_windows(
         examples,
@@ -210,7 +291,7 @@ def main(argv: list[str] | None = None) -> int:
 
     tokenizer_bytes = package.to_bytes()
     tokenizer_path = output / "tokenizer.vn97tk1"
-    tokenizer_path.write_bytes(tokenizer_bytes)
+    _atomic_write(tokenizer_path, tokenizer_bytes)
 
     checkpoint_path = output / "model.vn97ck1"
     checkpoint_sha256 = save_deployment_checkpoint(model, checkpoint_path)
@@ -245,7 +326,7 @@ def main(argv: list[str] | None = None) -> int:
         },
     }
     report_path = output / "training-report.json"
-    report_path.write_bytes(_canonical_json(report))
+    _atomic_write(report_path, _canonical_json(report))
 
     print(f"VN97TRAIN1 checkpoint={checkpoint_path}")
     print(f"checkpoint_sha256={checkpoint_sha256}")
