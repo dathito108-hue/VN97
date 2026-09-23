@@ -9,7 +9,27 @@ class VN97FloatingAssistantBootReceiver : BroadcastReceiver() {
         when (intent.action) {
             Intent.ACTION_BOOT_COMPLETED,
             Intent.ACTION_MY_PACKAGE_REPLACED,
-            -> VN97FloatingAssistantService.startIfEnabled(context)
+            -> {
+                VN97FloatingAssistantService.startIfEnabled(context)
+                val pending = goAsync()
+                val app =
+                    context.applicationContext as? VN97Application
+                if (app == null) {
+                    pending.finish()
+                    return
+                }
+                Thread(
+                    {
+                        try {
+                            app.autonomousWork
+                                .reconcileAfterSystemRestart()
+                        } finally {
+                            pending.finish()
+                        }
+                    },
+                    "vn97-m13c-reconcile",
+                ).start()
+            }
         }
     }
 }
