@@ -1,6 +1,5 @@
 package ai.vn97.app
 
-import ai.vn97.platform.M6AndroidProductionCapabilities
 import ai.vn97.platform.VN97AssistantTurnState
 import ai.vn97.platform.VN97AutonomousContinuationSeed
 import ai.vn97.platform.createVN97AutonomousContinuationSeed
