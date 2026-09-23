@@ -18,7 +18,7 @@ from .capability_trust import (
     parse_signature_envelope,
 )
 from .model import VN97LanguageCore
-from .modality import AudioFrameAdapter
+from .modality import AudioFrameAdapter, VisionPatchAdapter
 from .model_image import build_model_image
 from .tokenizer import VN97TokenizerPackage
 
@@ -117,6 +117,7 @@ def build_bootstrap_bundle(
     *,
     tokenizer: VN97TokenizerPackage,
     audio_adapter: AudioFrameAdapter | None = None,
+    vision_adapter: VisionPatchAdapter | None = None,
     source: CapabilitySource,
     capability_version: int,
     signer: VN97BootstrapSigner,
@@ -137,6 +138,11 @@ def build_bootstrap_bundle(
         AudioFrameAdapter,
     ):
         raise TypeError("audio_adapter must be AudioFrameAdapter")
+    if vision_adapter is not None and not isinstance(
+        vision_adapter,
+        VisionPatchAdapter,
+    ):
+        raise TypeError("vision_adapter must be VisionPatchAdapter")
     if type(capability_version) is not int or not 1 <= capability_version <= 0xFFFFFFFF:
         raise ValueError("capability_version must be in unsigned 32-bit range")
 
@@ -148,6 +154,7 @@ def build_bootstrap_bundle(
         model,
         tokenizer=tokenizer,
         audio_adapter=audio_adapter,
+        vision_adapter=vision_adapter,
         tile_rows=tile_rows,
         tile_cols=tile_cols,
     )
