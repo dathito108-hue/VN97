@@ -564,6 +564,9 @@ class VN97MainActivity : Activity() {
     }
 
     override fun onDestroy() {
+        runCatching {
+            app.autonomousWork.releaseForegroundApprovalSession()
+        }
         worker.shutdownNow()
         super.onDestroy()
     }
