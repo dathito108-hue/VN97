@@ -26,6 +26,33 @@ fun main() {
     check(running.phase == VN97AppPhase.RUNNING)
     check(!running.inputEnabled)
 
+    val visualDone = VN97AppReducer.reduce(
+        running,
+        VN97AppEvent.VisualObserved(
+            source = "screen",
+            observation = "settings screen",
+        ),
+    )
+    check(visualDone.phase == VN97AppPhase.READY)
+    check(visualDone.inputEnabled)
+    check(
+        visualDone.transcript.last() ==
+            "VN97 screen: settings screen"
+    )
+
+    val visualRunning = VN97AppReducer.reduce(
+        ready,
+        VN97AppEvent.TurnStarted,
+    )
+    val visualFailed = VN97AppReducer.reduce(
+        visualRunning,
+        VN97AppEvent.VisualFailed(
+            "camera capture unavailable"
+        ),
+    )
+    check(visualFailed.phase == VN97AppPhase.READY)
+    check(visualFailed.inputEnabled)
+
     val waiting = VN97AppReducer.reduce(
         running,
         VN97AppEvent.ApprovalRequired,
