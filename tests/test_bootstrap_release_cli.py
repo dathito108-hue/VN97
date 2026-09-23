@@ -1,3 +1,4 @@
+import hashlib
 import json
 import math
 import struct
@@ -161,6 +162,38 @@ def test_release_cli_requires_and_reports_speech_quality_for_speech_checkpoint(
         encoding="utf-8",
     )
 
+    checkpoint_sha256 = hashlib.sha256(checkpoint.read_bytes()).hexdigest()
+    tokenizer_sha256 = hashlib.sha256(tokenizer_path.read_bytes()).hexdigest()
+    speech_training_report = tmp_path / "speech-training-report.json"
+    speech_training_report.write_text(
+        json.dumps(
+            {
+                "base_checkpoint_sha256": "0" * 64,
+                "checkpoint_sha256": checkpoint_sha256,
+                "dataset_sha256": "1" * 64,
+                "examples": 1,
+                "final_loss": 1.0,
+                "mean_loss": 1.0,
+                "schema": "VN97SPEECHTRAIN1",
+                "steps": 1,
+                "target_tokens": 3,
+                "tokenizer_sha256": tokenizer_sha256,
+                "training": {
+                    "epochs": 1,
+                    "learning_rate": 0.001,
+                    "max_frames": 8,
+                    "max_grad_norm": 1.0,
+                    "max_target_tokens": 16,
+                    "seed": 97,
+                    "weight_decay": 0.01,
+                },
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ),
+        encoding="utf-8",
+    )
+
     private = cryptography.Ed25519PrivateKey.generate()
     raw_private = private.private_bytes(
         encoding=serialization.Encoding.Raw,
@@ -187,6 +220,7 @@ def test_release_cli_requires_and_reports_speech_quality_for_speech_checkpoint(
             "--validation-batch-size", "1",
             "--min-validation-target-tokens", "1",
             "--max-validation-loss", "100",
+            "--speech-training-report", str(speech_training_report),
             "--speech-validation-input", str(speech_validation),
             "--speech-validation-max-examples", "4",
             "--speech-max-frames", "8",
