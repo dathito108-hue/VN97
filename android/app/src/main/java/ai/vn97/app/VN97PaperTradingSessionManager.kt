@@ -308,12 +308,31 @@ class VN97PaperTradingSessionManager(
             )
             store.save(record)
 
-            val reopenedForeground =
+            val handoff = runCatching {
                 application.assistant.releaseForBackgroundContinuation()
+            }
+            if (handoff.isFailure) {
+                val retry = record.copy(
+                    state = VN97PaperTradingSessionState.SCHEDULED,
+                    updatedWallTimeMillis = monotonicNow(record),
+                    nextRunWallTimeMillis =
+                        nextRun(record, System.currentTimeMillis()),
+                    lastOutcome = boundedOutcome(
+                        "VN97_BUSY " +
+                            (handoff.exceptionOrNull()
+                                ?.javaClass?.simpleName ?: "unknown")
+                    ),
+                    terminalReason = "",
+                )
+                store.save(retry)
+                if (!stopped.get()) schedule(retry)
+                return@withSovereignExecution
+            }
+            val reopenForeground = handoff.getOrThrow()
             try {
                 executeOneWake(record, stopped)
             } finally {
-                if (reopenedForeground) {
+                if (reopenForeground) {
                     runCatching { application.assistant.openIfActivated() }
                 }
             }
@@ -377,7 +396,12 @@ class VN97PaperTradingSessionManager(
 
                 val account =
                     application.platformRuntime
-                        .openProductionPaperTradingAccount()
+                        .openProductionPaperTradingAccount(
+                            fileName =
+                                "paper-" +
+                                    record.sessionId.take(16) +
+                                    ".vn97trd1"
+                        )
                 application.platformRuntime
                     .openOrCreateProductionMemory(model)
                     .use { memory ->
@@ -671,8 +695,11 @@ class VN97PaperTradingSessionManager(
     private fun appendTerminalMemoryBestEffort(
         record: VN97PaperTradingSessionRecord,
     ) {
+        var reopenForeground = false
         runCatching {
-            application.assistant.releaseForBackgroundContinuation()
+            reopenForeground =
+                application.assistant
+                    .releaseForBackgroundContinuation()
             openActivatedModel().use { model ->
                 requireModelIdentity(record, model.info.modelId)
                 application.platformRuntime
@@ -689,6 +716,15 @@ class VN97PaperTradingSessionManager(
                     }
             }
         }
+        if (reopenForeground) {
+            runCatching { application.assistant.openIfActivated() }
+        }
+    }
+
+    internal fun shouldSystemRetry(jobId: Int): Boolean {
+        val record = store.loadOrNull(jobId) ?: return false
+        return !record.terminal &&
+            record.state != VN97PaperTradingSessionState.PAUSED
     }
 
     private fun resultOutcome(
