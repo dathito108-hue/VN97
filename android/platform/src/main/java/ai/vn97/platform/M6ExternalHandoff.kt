@@ -45,9 +45,9 @@ data class M6CapabilityDescriptor(
     val optionalScopeKeys: Set<String> = emptySet(),
     val approvalRequired: Boolean = true,
     val maxPayloadUtf8Bytes: Int = 16 * 1024,
-    val payloadSchemaJson: String = "{}",
     val maxLeaseNs: Long = 300_000_000_000L,
     val maxLeaseUses: Int = 1,
+    val payloadSchemaJson: String = "{}",
 ) {
     init {
         externalHandoffValidateIdentifier(capabilityId, "capabilityId")
