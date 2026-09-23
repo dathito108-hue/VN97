@@ -142,6 +142,9 @@ class VN97PaperPerformanceEvidenceStore(
             "%08d.vn97ppe1".format(record.episode),
         )
         if (target.exists()) {
+            check(!Files.isSymbolicLink(target.toPath())) {
+                "paper performance evidence must not be a symlink"
+            }
             val existing = decode(target.readBytes())
             check(existing == record) {
                 "paper performance evidence identity is immutable"
