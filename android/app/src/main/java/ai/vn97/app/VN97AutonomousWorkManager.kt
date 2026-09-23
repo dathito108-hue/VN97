@@ -178,7 +178,8 @@ class VN97AutonomousWorkManager(
         )
         store.save(running)
 
-        return try {
+        return application.withSovereignExecution {
+            try {
             openActivatedModel().use { model ->
                 context.requireActivatedModel(model)
                 requireModelIdentity(running, model.info.modelId)
@@ -347,6 +348,7 @@ class VN97AutonomousWorkManager(
                     )
                 )
                 ContinuationOutcome.RESCHEDULE
+            }
             }
         }
     }
