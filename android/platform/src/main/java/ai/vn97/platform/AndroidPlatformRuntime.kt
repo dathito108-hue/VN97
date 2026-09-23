@@ -111,6 +111,39 @@ class AndroidPlatformRuntime(
         cognitionLimits = cognitionLimits,
     )
 
+    fun createProductionRemoteCapabilityFetchCoordinator(
+        principal: String,
+        auditFileName: String =
+            "m16-capability-fetch-actions.jsonl",
+    ): VN97RemoteCapabilityFetchCoordinator =
+        VN97RemoteCapabilityFetchCoordinator(
+            principal = principal,
+            approvals = externalApprovals,
+            registryFactory = {
+                productionCapabilities
+                    .createSealedArtifactRegistry()
+            },
+            fabricFactory = { grant ->
+                createDurableExternalExecutionFabric(
+                    registry =
+                        productionCapabilities
+                            .createSealedArtifactRegistry(),
+                    grants = listOf(grant),
+                    auditRoot =
+                        appContext.noBackupFilesDir,
+                    auditFileName = auditFileName,
+                )
+            },
+        )
+
+    fun requireFetchedCapabilityArtifact(
+        packageSha256: String,
+    ): File =
+        appDeviceAdapter
+            .requireFetchedCapabilityArtifact(
+                packageSha256
+            )
+
     fun createProductionGameExternalExecutionFabric(
         grants: List<M6PolicyGrant>,
         auditFileName: String = "m14-game-actions.jsonl",
