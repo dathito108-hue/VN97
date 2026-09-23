@@ -33,12 +33,18 @@ class VN97AppRemoteCapabilityFetch(
 
     fun resolve(
         approved: Boolean,
-    ): VN97RemoteCapabilityFetchResult =
-        coordinator.resolve(
+    ): VN97RemoteCapabilityFetchResult {
+        val result = coordinator.resolve(
             approved = approved,
             nowNs =
                 SystemClock.elapsedRealtimeNanos(),
         )
+        if (result.approved) {
+            application.knowledgeAcquisition
+                .noteRemoteFetch(result)
+        }
+        return result
+    }
 
     fun clearPending() {
         coordinator.clearPending()

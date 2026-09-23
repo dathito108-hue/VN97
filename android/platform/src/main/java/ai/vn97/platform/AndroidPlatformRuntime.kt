@@ -1,6 +1,8 @@
 package ai.vn97.platform
 
 import ai.vn97.runtime.NativeActivatedModel
+import ai.vn97.runtime.VN97AcquisitionProvenanceLedger
+import ai.vn97.runtime.VN97AcquisitionProvenanceRecord
 import ai.vn97.runtime.NativeCognitionInferenceEngine
 import ai.vn97.runtime.NativeCognitionLimits
 import ai.vn97.runtime.NativeCognitionRuntimeConfig
@@ -512,6 +514,26 @@ class AndroidPlatformRuntime(
             riskPolicy = riskPolicy,
         )
     }
+
+    fun saveProductionKnowledgeAcquisitionProvenance(
+        record: VN97AcquisitionProvenanceRecord,
+    ): VN97AcquisitionProvenanceRecord =
+        VN97AcquisitionProvenanceLedger(
+            File(
+                appContext.noBackupFilesDir,
+                "vn97-knowledge-acquisition/provenance",
+            )
+        ).saveCompleted(record)
+
+    fun loadProductionKnowledgeAcquisitionProvenance(
+        packageSha256: String,
+    ): VN97AcquisitionProvenanceRecord? =
+        VN97AcquisitionProvenanceLedger(
+            File(
+                appContext.noBackupFilesDir,
+                "vn97-knowledge-acquisition/provenance",
+            )
+        ).loadOrNull(packageSha256)
 
     /**
      * Create the M16D advisory-only knowledge-gap proposal path.

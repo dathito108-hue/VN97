@@ -399,10 +399,21 @@ class VN97CapabilityAcquisitionActivity : Activity() {
             "Re-verifying exact reviewed bytes, enrolling publisher trust, and importing into VN97MEM1…"
         worker.execute {
             val result = runCatching {
-                app.knowledgeAcquisition.acquireReviewed()
+                val acquired =
+                    app.knowledgeAcquisition.acquireReviewed()
+                val provenance = checkNotNull(
+                    app.knowledgeAcquisition.provenance(
+                        acquired.packageSha256
+                    )
+                ) {
+                    "completed acquisition lacks durable provenance"
+                }
+                acquired to provenance
             }
             runOnUiThread {
-                result.onSuccess { acquired ->
+                result.onSuccess { pair ->
+                    val acquired = pair.first
+                    val provenance = pair.second
                     reviewView.text = buildString {
                         append("Knowledge acquisition completed.")
                         append("\ncapability=")
@@ -417,6 +428,18 @@ class VN97CapabilityAcquisitionActivity : Activity() {
                         append(acquired.recordIds.size)
                         append("\nalready_acquired=")
                         append(acquired.alreadyAcquired)
+                        append("\nprovenance_id=")
+                        append(provenance.provenanceId)
+                        append("\nproposal_id=")
+                        append(
+                            provenance.proposalId
+                                .ifEmpty { "none" }
+                        )
+                        append("\nfetch_receipt=")
+                        append(
+                            provenance.fetchReceiptId
+                                .ifEmpty { "none" }
+                        )
                         append(
                             "\nAuthority remains evidence_only; no new tool/device permission was created."
                         )
