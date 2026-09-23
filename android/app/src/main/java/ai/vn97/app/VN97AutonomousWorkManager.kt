@@ -298,6 +298,12 @@ class VN97AutonomousWorkManager(
         check(!record.terminal) {
             "terminal autonomous goal cannot be rescheduled"
         }
+        check(
+            record.state !=
+                VN97AutonomousGoalState.WAITING_APPROVAL
+        ) {
+            "WAITING_APPROVAL must be resolved through foreground M6"
+        }
         val model = openActivatedModel()
         model.use {
             requireModelIdentity(record, model.info.modelId)
