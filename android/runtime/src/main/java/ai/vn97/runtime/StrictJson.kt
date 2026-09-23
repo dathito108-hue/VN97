@@ -1,5 +1,6 @@
 package ai.vn97.runtime
 
+import java.math.BigDecimal
 import java.math.BigInteger
 
 internal sealed interface VnJsonValue
@@ -129,14 +130,36 @@ internal object VnStrictJson {
     }
 
     private fun canonicalDouble(value: Double): String {
-        val raw = java.lang.Double.toString(value)
-        val e = raw.indexOf('E')
-        if (e < 0) return raw
-        val mantissa = raw.substring(0, e)
-        val exponent = raw.substring(e + 1).toInt()
-        val sign = if (exponent >= 0) "+" else "-"
-        val digits = kotlin.math.abs(exponent).toString().padStart(2, '0')
-        return "$mantissa" + "e" + sign + digits
+        if (!value.isFinite()) {
+            throw NativeCognitionContractException("JSON number must be finite")
+        }
+        if (value == 0.0) {
+            return if (java.lang.Double.doubleToRawLongBits(value) < 0) "-0.0" else "0.0"
+        }
+
+        val decimal = BigDecimal.valueOf(value)
+        val normalized = decimal.stripTrailingZeros()
+        val exponent = normalized.precision() - normalized.scale() - 1
+
+        if (exponent < -4 || exponent >= 16) {
+            val negative = normalized.signum() < 0
+            val digits = normalized.abs().unscaledValue().toString()
+            val mantissa = if (digits.length == 1) {
+                digits
+            } else {
+                digits.substring(0, 1) + "." + digits.substring(1)
+            }
+            val sign = if (exponent >= 0) "+" else "-"
+            val exponentDigits = kotlin.math.abs(exponent).toString().padStart(2, '0')
+            return (if (negative) "-" else "") + mantissa + "e" + sign + exponentDigits
+        }
+
+        val plain = normalized.toPlainString()
+        return if (value == kotlin.math.floor(value) && '.' !in plain) {
+            "$plain.0"
+        } else {
+            plain
+        }
     }
 
     private class Parser(
