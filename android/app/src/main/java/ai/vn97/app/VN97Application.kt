@@ -28,6 +28,12 @@ class VN97Application :
         VN97AutonomousWorkManager(this)
     }
 
+    val paperTrading: VN97PaperTradingSessionManager by lazy(
+        LazyThreadSafetyMode.SYNCHRONIZED
+    ) {
+        VN97PaperTradingSessionManager(this)
+    }
+
     val screenCaptureBroker: VN97ScreenCaptureBroker by lazy(
         LazyThreadSafetyMode.SYNCHRONIZED
     ) {

@@ -41,6 +41,11 @@
         </activity>
 
         <service
+            android:name=".VN97PaperTradingJobService"
+            android:exported="false"
+            android:permission="android.permission.BIND_JOB_SERVICE" />
+
+        <service
             android:name=".VN97ScreenCaptureService"
             android:exported="false"
             android:foregroundServiceType="mediaProjection"
