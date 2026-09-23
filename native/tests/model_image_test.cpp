@@ -61,9 +61,13 @@ struct Section {
     std::vector<std::uint8_t> bytes;
 };
 
-std::vector<std::uint8_t> BuildImage() {
+std::vector<std::uint8_t> BuildImage(bool with_audio = false) {
     std::vector<Section> sections;
     sections.push_back({1, kGlobal, Floats(15, 0.1f)});
+    if (with_audio) {
+        sections.push_back({6, kGlobal, PackedZero(3, 320)});
+        sections.push_back({7, kGlobal, Floats(3, 1.0f)});
+    }
     sections.push_back({16, 0, Floats(3, 1.0f)});
     sections.push_back({17, 0, PackedZero(6, 3)});
     sections.push_back({18, 0, PackedZero(3, 3)});
@@ -95,7 +99,7 @@ std::vector<std::uint8_t> BuildImage() {
     std::copy(magic, magic + 8, out.begin());
     WriteU32(out.data() + 8, 1);
     WriteU32(out.data() + 12, 96);
-    WriteU32(out.data() + 16, 0);
+    WriteU32(out.data() + 16, with_audio ? (1u << 2) : 0u);
     WriteU32(out.data() + 20, static_cast<std::uint32_t>(sections.size()));
     WriteU32(out.data() + 24, 32);
     WriteU32(out.data() + 28, 5);
@@ -134,6 +138,22 @@ std::array<std::uint8_t, 32> ExpectedId() {
     }
     return out;
 }
+
+std::array<std::uint8_t, 32> ExpectedAudioId() {
+    constexpr char hex[] =
+        "af3dcfca0932918bc427fd40dfe185fdcd37ce66266bd8919a465157c246153c";
+    std::array<std::uint8_t, 32> out{};
+    auto digit = [](char c) -> std::uint8_t {
+        return static_cast<std::uint8_t>(
+            c <= '9' ? c - '0' : 10 + c - 'a');
+    };
+    for (std::size_t i = 0; i < out.size(); ++i) {
+        out[i] = static_cast<std::uint8_t>(
+            (digit(hex[i * 2]) << 4) |
+            digit(hex[i * 2 + 1]));
+    }
+    return out;
+}
 }
 
 int main() {
@@ -158,6 +178,88 @@ int main() {
     assert(direct != nullptr);
     assert(direct->Info().vocab_size == 5);
     assert(direct->language_model().layers[0].a[0] < 0.0f);
+
+    const auto audio_image = BuildImage(true);
+    assert(audio_image.size() == 1192);
+    const auto audio_id = ExpectedAudioId();
+
+    char audio_path[] = "/tmp/vn97-mi-audio-XXXXXX";
+    const int audio_fd = mkstemp(audio_path);
+    assert(audio_fd >= 0);
+    unlink(audio_path);
+    std::size_t audio_written = 0;
+    while (audio_written < audio_image.size()) {
+        const ssize_t n = write(
+            audio_fd,
+            audio_image.data() + audio_written,
+            audio_image.size() - audio_written);
+        assert(n > 0);
+        audio_written += static_cast<std::size_t>(n);
+    }
+
+    std::unique_ptr<vn97::ActivatedModelImage> audio_direct;
+    assert(
+        vn97::ActivatedModelImage::OpenFd(
+            audio_fd,
+            0,
+            audio_image.size(),
+            audio_id.data(),
+            &audio_direct) ==
+        vn97::ModelImageStatus::kOk);
+    assert(audio_direct != nullptr);
+    assert(audio_direct->Info().has_audio_projection);
+    assert(audio_direct->Info().audio_frame_size == 320);
+    assert(audio_direct->audio_projection() != nullptr);
+
+    std::uint64_t audio_model_handle = 0;
+    assert(
+        vn97_model_open_fd(
+            audio_fd,
+            0,
+            audio_image.size(),
+            audio_id.data(),
+            audio_id.size(),
+            &audio_model_handle) == 0);
+    close(audio_fd);
+
+    vn97_runtime_config audio_config{
+        1,
+        1,
+        3,
+        2,
+        static_cast<int>(vn97::RecurrentBackend::kScalar),
+        static_cast<int>(vn97::PackedTernaryBackend::kScalar),
+    };
+    std::uint64_t audio_runtime = 0;
+    assert(
+        vn97_runtime_create(
+            &audio_config,
+            &audio_runtime) == 0);
+    assert(vn97_runtime_activate(audio_runtime) == 0);
+
+    std::array<float, 320> prepared_audio{};
+    std::array<float, 5> audio_logits{};
+    assert(
+        vn97_model_runtime_prefill_audio(
+            audio_model_handle,
+            audio_runtime,
+            4,
+            prepared_audio.data(),
+            prepared_audio.size(),
+            1,
+            audio_logits.data(),
+            audio_logits.size()) == 0);
+    for (float value : audio_logits) {
+        assert(std::isfinite(value));
+    }
+    vn97_runtime_info audio_runtime_info{};
+    assert(
+        vn97_runtime_info_get(
+            audio_runtime,
+            &audio_runtime_info) == 0);
+    assert(audio_runtime_info.sequence_position == 2);
+    assert(vn97_runtime_destroy(audio_runtime) == 0);
+    assert(vn97_model_destroy(audio_model_handle) == 0);
 
     auto wrong_id = id;
     wrong_id[0] ^= 1;
