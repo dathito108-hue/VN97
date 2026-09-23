@@ -21,9 +21,10 @@ private fun inventory(
     backend: String = "vn97.model_image",
     pending: String = "null",
     artifactSha: String = shaB,
+    capabilityVersion: Long = 1L,
 ): ByteArray {
     val text =
-        """{"generation":1,"history":[{"action":"activate","activation_id":"$shaA","capability_id":"model.language","generation":1,"package_sha256":"$shaC"}],"pending":$pending,"schema":"VN97INV1","stacks":[{"capability_id":"model.language","records":[{"activation_id":"$shaA","artifact_sha256":"$artifactSha","backend_id":"$backend","backend_token":"tok-1","capability_id":"model.language","capability_version":1,"package_sha256":"$shaC","plan_sha256":"$shaD","profile_id":"mobile","profile_sha256":"$shaE","publisher_key_id":"publisher","runtime_api_version":1,"runtime_revision":"rev-1","signature_sha256":"$shaF","source_license":"test","source_origin":"local","source_sha256":"$shaC"}]}]}"""
+        """{"generation":1,"history":[{"action":"activate","activation_id":"$shaA","capability_id":"model.language","generation":1,"package_sha256":"$shaC"}],"pending":$pending,"schema":"VN97INV1","stacks":[{"capability_id":"model.language","records":[{"activation_id":"$shaA","artifact_sha256":"$artifactSha","backend_id":"$backend","backend_token":"tok-1","capability_id":"model.language","capability_version":$capabilityVersion,"package_sha256":"$shaC","plan_sha256":"$shaD","profile_id":"mobile","profile_sha256":"$shaE","publisher_key_id":"publisher","runtime_api_version":1,"runtime_revision":"rev-1","signature_sha256":"$shaF","source_license":"test","source_origin":"local","source_sha256":"$shaC"}]}]}"""
     return text.toByteArray(Charsets.UTF_8)
 }
 
@@ -35,6 +36,11 @@ fun main() {
     check(evidence.backendId == "vn97.model_image")
     check(evidence.artifactSha256 == shaB)
     check(evidence.generation == 1L)
+    checkNotNull(
+        VN97ActivatedModelInventoryEvidence.parse(
+            inventory(capabilityVersion = 0xffff_ffffL)
+        )
+    )
 
     check(
         VN97ActivatedModelInventoryEvidence.parse(
