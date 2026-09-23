@@ -42,7 +42,7 @@ jobs:
           SDKMANAGER="$TOOLS_DIR/cmdline-tools/bin/sdkmanager"
           test -x "$SDKMANAGER"
           yes | "$SDKMANAGER" --sdk_root="$ANDROID_SDK_ROOT" --licenses >/dev/null || true
-          "$SDKMANAGER"             --sdk_root="$ANDROID_SDK_ROOT"             --channel=3             "platforms;android-37"             "build-tools;36.0.0"             "ndk;28.2.13676358"             "cmake;3.22.1"
+          "$SDKMANAGER"             --sdk_root="$ANDROID_SDK_ROOT"             --channel=3             "platforms;android-37.0"             "build-tools;36.0.0"             "ndk;28.2.13676358"             "cmake;3.22.1"
 
       - name: Build VN97 debug APK
         shell: bash
