@@ -9,6 +9,9 @@ description = "VN97 mobile-native recurrent intelligence research core"
 requires-python = ">=3.10"
 dependencies = ["torch>=2.2"]
 
+[project.scripts]
+vn97-train = "vn97.training_cli:main"
+
 [project.optional-dependencies]
 dev = ["pytest>=8"]
 signing = ["cryptography>=42"]
