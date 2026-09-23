@@ -701,19 +701,25 @@ class VN97MainActivity : Activity() {
             return
         }
 
+        val extra = when {
+            visual.verification != null &&
+                visual.afterObservation != null ->
+                "\n\nVisual verification: " +
+                    visual.verification
+            visual.verificationFailure != null ->
+                "\n\n" + visual.verificationFailure
+            else -> ""
+        }
         val withVerification =
             if (
                 turn.update.state ==
                     VN97AssistantTurnState.COMPLETED &&
-                visual.verification != null &&
-                visual.afterObservation != null
+                extra.isNotEmpty()
             ) {
                 turn.copy(
                     update = turn.update.copy(
                         finalResponse =
-                            turn.update.finalResponse +
-                                "\n\nVisual verification: " +
-                                visual.verification
+                            turn.update.finalResponse + extra
                     )
                 )
             } else {
