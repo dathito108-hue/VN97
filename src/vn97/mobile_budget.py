@@ -109,6 +109,7 @@ def estimate_vn97_mobile_footprint(
     config: VN97Config,
     *,
     tokenizer_nbytes: int | None = None,
+    audio_frame_size: int | None = None,
     tile_rows: int = 16,
     tile_cols: int = 16,
     batch_size: int = 1,
@@ -116,7 +117,8 @@ def estimate_vn97_mobile_footprint(
     """Estimate the exact VN97MI1 byte length from model geometry.
 
     The estimate mirrors model_image.build_model_image() section order, 4-byte
-    alignment, VN97T2 tile padding/scales/header cost and tied embedding storage.
+    alignment, VN97T2 tile padding/scales/header cost, optional speech adapter
+    storage and tied embedding storage.
     Learned values are not needed, so campaign candidates can be rejected before
     real parameter allocation/training.
     """
@@ -128,6 +130,9 @@ def estimate_vn97_mobile_footprint(
     if tokenizer_nbytes is not None:
         if type(tokenizer_nbytes) is not int or tokenizer_nbytes <= 0:
             raise ValueError("tokenizer_nbytes must be a positive integer or None")
+    if audio_frame_size is not None:
+        if type(audio_frame_size) is not int or audio_frame_size <= 0:
+            raise ValueError("audio_frame_size must be a positive integer or None")
 
     d_model = int(config.d_model)
     d_state = int(config.d_state)
@@ -162,6 +167,10 @@ def estimate_vn97_mobile_footprint(
         rank = int(config.embedding_rank)
         add_f32(vocab * rank)
         add_f32(rank * d_model)
+
+    if audio_frame_size is not None:
+        add_packed(d_model, audio_frame_size)
+        add_f32(d_model)
 
     for _ in range(config.n_layers):
         add_f32(d_model)
