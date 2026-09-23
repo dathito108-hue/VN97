@@ -145,5 +145,64 @@ fun main() {
         ).buildPlan("invalid", createdNs = 4L)
     }
 
+    val failedController = NativePlanController.create(
+        goal = "recover with a new plan",
+        specs = listOf(
+            NativePlanStepSpec(
+                kind = NativeStepKind.REASON,
+                objective = "old approach",
+            ),
+            NativePlanStepSpec(
+                kind = NativeStepKind.RESPOND,
+                objective = "old response",
+                dependencies = listOf(1),
+            ),
+        ),
+        createdNs = 5L,
+    )
+    failedController.beginStep(1)
+    failedController.failStep(
+        id = 1,
+        reason = "old approach failed",
+        retryable = false,
+    )
+    check(failedController.plan.status == NativePlanStatus.FAILED)
+
+    val replanInference = ScriptedInference(
+        listOf(
+            """{"steps":[{"kind":"REASON","objective":"materially different approach","dependencies":[],"requires_verification":false,"min_confidence":0.0},{"kind":"RESPOND","objective":"new response","dependencies":[1],"requires_verification":false,"min_confidence":0.0}]}"""
+        )
+    )
+    val replanLoop = NativeCognitionLoop(
+        NativeTypedCognitionAdapter(replanInference)
+    )
+    val revision = replanLoop.replanTerminalPlan(
+        previousPlan = failedController.plan,
+        feedback = "failure evidence: old approach failed",
+        createdNs = 6L,
+    )
+    check(revision.previousPlanId == failedController.plan.planId)
+    check(revision.controller.plan.goal == failedController.plan.goal)
+    check(revision.controller.plan.planId != failedController.plan.planId)
+    check(revision.controller.plan.status == NativePlanStatus.READY)
+    check(revision.controller.plan.transitionsUsed == 0)
+    check(revision.controller.plan.memoryQueriesUsed == 0)
+    check(
+        revision.controller.plan.budget ==
+            failedController.plan.budget
+    )
+
+    var nonterminalRejected = false
+    try {
+        replanLoop.replanTerminalPlan(
+            previousPlan = revision.controller.plan,
+            feedback = "not terminal",
+            createdNs = 7L,
+        )
+    } catch (_: IllegalArgumentException) {
+        nonterminalRejected = true
+    }
+    check(nonterminalRejected)
+
     println("M7N_COGNITION_LOOP_PASS")
 }
