@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import stat
@@ -20,6 +21,14 @@ from .evaluation import (
     evaluate_vn97_language,
     require_release_quality,
 )
+from .speech_training import (
+    VN97SpeechReleaseCriteria,
+    VN97SpeechTrainingConfig,
+    evaluate_vn97_speech,
+    require_speech_release_quality,
+)
+from .speech_training_cli import load_speech_manifest
+from .mobile_budget import VN97MobileBudget, estimate_vn97_mobile_footprint
 from .tokenizer import VN97Tokenizer, VN97TokenizerPackage
 from .training import (
     VN97TrainingConfig,
@@ -89,6 +98,91 @@ def _parse_private_key(data: bytes) -> bytes:
     )
 
 
+def _load_speech_training_report(
+    path: Path,
+    *,
+    checkpoint_sha256: str,
+    tokenizer_sha256: str,
+) -> tuple[dict[str, object], str]:
+    data = _read_regular_file(
+        path,
+        max_bytes=1024 * 1024,
+        label="speech training report",
+    )
+    try:
+        text = data.decode("utf-8", errors="strict")
+        report = json.loads(text)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError("speech training report must be strict UTF-8 JSON") from exc
+    expected_keys = {
+        "base_checkpoint_sha256",
+        "checkpoint_sha256",
+        "dataset_sha256",
+        "examples",
+        "final_loss",
+        "mean_loss",
+        "schema",
+        "steps",
+        "target_tokens",
+        "tokenizer_sha256",
+        "training",
+    }
+    if not isinstance(report, dict) or set(report) != expected_keys:
+        raise ValueError("speech training report keys are not exact")
+    if report["schema"] != "VN97SPEECHTRAIN1":
+        raise ValueError("speech training report schema mismatch")
+    if report["checkpoint_sha256"] != checkpoint_sha256:
+        raise ValueError(
+            "speech training report checkpoint does not match release checkpoint"
+        )
+    if report["tokenizer_sha256"] != tokenizer_sha256:
+        raise ValueError(
+            "speech training report tokenizer does not match release tokenizer"
+        )
+    for key in (
+        "base_checkpoint_sha256",
+        "checkpoint_sha256",
+        "dataset_sha256",
+        "tokenizer_sha256",
+    ):
+        value = report[key]
+        if (
+            not isinstance(value, str)
+            or len(value) != 64
+            or any(ch not in "0123456789abcdef" for ch in value)
+        ):
+            raise ValueError(f"speech training report {key} is invalid")
+    if (
+        type(report["examples"]) is not int
+        or report["examples"] <= 0
+        or type(report["steps"]) is not int
+        or report["steps"] <= 0
+        or type(report["target_tokens"]) is not int
+        or report["target_tokens"] <= 0
+    ):
+        raise ValueError("speech training report work counters are invalid")
+    for key in ("final_loss", "mean_loss"):
+        value = report[key]
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(float(value))
+        ):
+            raise ValueError(f"speech training report {key} is invalid")
+    if not isinstance(report["training"], dict):
+        raise ValueError("speech training report training config is invalid")
+    canonical = json.dumps(
+        report,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    )
+    if canonical != text:
+        raise ValueError("speech training report must use canonical JSON")
+    return report, hashlib.sha256(data).hexdigest()
+
+
 def _canonical_json(value: object) -> str:
     return json.dumps(
         value,
@@ -153,6 +247,53 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--validation-device", default="auto")
     parser.add_argument(
+        "--speech-training-report",
+        help=(
+            "canonical VN97SPEECHTRAIN1 report matching the speech-enabled checkpoint"
+        ),
+    )
+    parser.add_argument(
+        "--speech-validation-input",
+        help=(
+            "held-out speech JSONL with 16 kHz mono PCM16 WAV paths; "
+            "required for speech-enabled VN97CK1"
+        ),
+    )
+    parser.add_argument(
+        "--speech-validation-max-examples",
+        type=int,
+        default=100_000,
+    )
+    parser.add_argument(
+        "--speech-max-frames",
+        type=int,
+        default=1500,
+    )
+    parser.add_argument(
+        "--speech-max-target-tokens",
+        type=int,
+        default=512,
+    )
+    parser.add_argument(
+        "--max-speech-validation-loss",
+        type=float,
+    )
+    parser.add_argument(
+        "--min-speech-validation-accuracy",
+        type=float,
+        default=0.0,
+    )
+    parser.add_argument(
+        "--min-speech-validation-target-tokens",
+        type=int,
+        default=32,
+    )
+    parser.add_argument(
+        "--min-speech-validation-examples",
+        type=int,
+        default=1,
+    )
+    parser.add_argument(
         "--max-validation-loss",
         type=float,
         required=True,
@@ -170,6 +311,16 @@ def _parser() -> argparse.ArgumentParser:
 
     parser.add_argument("--tile-rows", type=int, default=16)
     parser.add_argument("--tile-cols", type=int, default=16)
+    parser.add_argument(
+        "--max-model-image-bytes",
+        type=int,
+        default=512 * 1024 * 1024,
+    )
+    parser.add_argument(
+        "--max-recurrent-state-bytes",
+        type=int,
+        default=512 * 1024 * 1024,
+    )
     return parser
 
 
@@ -196,6 +347,7 @@ def main(argv: list[str] | None = None) -> int:
         raise ValueError(
             "VN97TK1 tokenizer vocabulary does not match VN97CK1 checkpoint"
         )
+    tokenizer_sha256 = hashlib.sha256(tokenizer_bytes).hexdigest()
 
     if (
         args.validation_max_input_bytes <= 0
@@ -251,7 +403,106 @@ def main(argv: list[str] | None = None) -> int:
     )
     require_release_quality(evaluation, criteria)
 
-    # Private signing material is not opened until the held-out quality gate passes.
+    speech_evaluation = None
+    speech_dataset_sha256 = None
+    speech_training_report = None
+    speech_training_report_sha256 = None
+    if loaded.audio_adapter is not None:
+        if args.speech_training_report is None:
+            raise ValueError(
+                "speech-enabled VN97CK1 requires --speech-training-report"
+            )
+        speech_training_report, speech_training_report_sha256 = (
+            _load_speech_training_report(
+                Path(args.speech_training_report),
+                checkpoint_sha256=loaded.checkpoint_sha256,
+                tokenizer_sha256=tokenizer_sha256,
+            )
+        )
+        if args.speech_validation_input is None:
+            raise ValueError(
+                "speech-enabled VN97CK1 requires --speech-validation-input"
+            )
+        if args.max_speech_validation_loss is None:
+            raise ValueError(
+                "speech-enabled VN97CK1 requires --max-speech-validation-loss"
+            )
+        if (
+            args.speech_validation_max_examples <= 0
+            or args.speech_max_frames <= 0
+            or args.speech_max_target_tokens <= 1
+            or args.min_speech_validation_target_tokens <= 0
+            or args.min_speech_validation_examples <= 0
+        ):
+            raise ValueError("speech validation bounds must be positive")
+
+        speech_examples, speech_dataset_sha256 = load_speech_manifest(
+            Path(args.speech_validation_input),
+            max_examples=args.speech_validation_max_examples,
+        )
+        if (
+            speech_training_report["dataset_sha256"]
+            == speech_dataset_sha256
+        ):
+            raise ValueError(
+                "speech validation dataset must differ from the training dataset"
+            )
+        speech_config = VN97SpeechTrainingConfig(
+            epochs=1,
+            seed=0,
+            shuffle=False,
+            max_frames=args.speech_max_frames,
+            max_target_tokens=args.speech_max_target_tokens,
+        )
+        speech_evaluation = evaluate_vn97_speech(
+            loaded.model,
+            loaded.audio_adapter,
+            runtime_tokenizer,
+            speech_examples,
+            config=speech_config,
+            device=args.validation_device,
+        )
+        require_speech_release_quality(
+            speech_evaluation,
+            VN97SpeechReleaseCriteria(
+                max_validation_loss=args.max_speech_validation_loss,
+                min_top1_accuracy=args.min_speech_validation_accuracy,
+                min_target_tokens=args.min_speech_validation_target_tokens,
+                min_examples=args.min_speech_validation_examples,
+            ),
+        )
+    elif (
+        args.speech_validation_input is not None
+        or args.speech_training_report is not None
+    ):
+        raise ValueError(
+            "speech release inputs were provided but VN97CK1 has no audio adapter"
+        )
+
+    footprint = estimate_vn97_mobile_footprint(
+        loaded.config,
+        tokenizer_nbytes=len(tokenizer_bytes),
+        audio_frame_size=(
+            None
+            if loaded.audio_adapter is None
+            else loaded.audio_adapter.config.frame_size
+        ),
+        tile_rows=args.tile_rows,
+        tile_cols=args.tile_cols,
+        batch_size=1,
+    )
+    mobile_budget = VN97MobileBudget(
+        max_model_image_bytes=args.max_model_image_bytes,
+        max_recurrent_state_bytes=args.max_recurrent_state_bytes,
+    )
+    rejection = mobile_budget.rejection_status(footprint)
+    if rejection is not None:
+        raise ValueError(
+            "VN97 production intelligence exceeds mobile release budget: "
+            + rejection
+        )
+
+    # Private signing material is not opened until quality and mobile-budget gates pass.
     private_key = _parse_private_key(
         _read_regular_file(
             private_key_path,
@@ -272,6 +523,7 @@ def main(argv: list[str] | None = None) -> int:
     bundle = build_bootstrap_bundle(
         loaded.model,
         tokenizer=tokenizer,
+        audio_adapter=loaded.audio_adapter,
         source=source,
         capability_version=args.capability_version,
         signer=signer,
@@ -285,13 +537,32 @@ def main(argv: list[str] | None = None) -> int:
         "capability_version": bundle.capability_version,
         "checkpoint_sha256": loaded.checkpoint_sha256,
         "model_image_sha256": bundle.model_image_sha256,
+        "mobile_budget": {
+            "max_model_image_bytes": mobile_budget.max_model_image_bytes,
+            "max_recurrent_state_bytes": mobile_budget.max_recurrent_state_bytes,
+        },
+        "mobile_footprint": footprint.canonical_object(),
         "package_sha256": bundle.package_sha256,
         "publisher_key_id": bundle.publisher_key_id,
         "publisher_public_key_sha256": hashlib.sha256(
             bundle.publisher_public_key
         ).hexdigest(),
-        "schema": "VN97BOOTREL2",
-        "tokenizer_sha256": hashlib.sha256(tokenizer_bytes).hexdigest(),
+        "schema": "VN97BOOTREL3",
+        "speech_enabled": loaded.audio_adapter is not None,
+        "speech_runtime_budget": (
+            None
+            if loaded.audio_adapter is None
+            else {
+                "max_audio_frames": args.speech_max_frames,
+                "max_generated_tokens": args.speech_max_target_tokens,
+                "max_recurrent_steps": (
+                    1
+                    + args.speech_max_frames
+                    + args.speech_max_target_tokens
+                ),
+            }
+        ),
+        "tokenizer_sha256": tokenizer_sha256,
         "validation": {
             "dataset_sha256": validation_sha256,
             "examples": len(validation_examples),
@@ -303,6 +574,21 @@ def main(argv: list[str] | None = None) -> int:
             "top1_accuracy": evaluation.top1_accuracy,
             "windows": evaluation.windows,
         },
+        "speech_training_report_sha256": speech_training_report_sha256,
+        "speech_validation": (
+            None
+            if speech_evaluation is None
+            else {
+                "dataset_sha256": speech_dataset_sha256,
+                "examples": speech_evaluation.examples,
+                "max_loss": args.max_speech_validation_loss,
+                "mean_loss": speech_evaluation.mean_loss,
+                "min_target_tokens": args.min_speech_validation_target_tokens,
+                "min_top1_accuracy": args.min_speech_validation_accuracy,
+                "target_tokens": speech_evaluation.target_tokens,
+                "top1_accuracy": speech_evaluation.top1_accuracy,
+            }
+        ),
     }
     print(_canonical_json(report))
     return 0

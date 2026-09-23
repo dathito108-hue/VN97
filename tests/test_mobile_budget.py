@@ -3,6 +3,7 @@ import pytest
 from vn97.config import VN97Config
 from vn97.model import VN97LanguageCore
 from vn97.model_image import build_model_image
+from vn97.modality import AudioAdapterConfig, AudioFrameAdapter
 from vn97.mobile_budget import (
     VN97MobileBudget,
     estimate_vn97_mobile_footprint,
@@ -66,6 +67,37 @@ def test_mobile_footprint_matches_factorized_image_with_tokenizer():
 
     assert footprint.model_image_bytes == len(image.data)
     assert footprint.tokenizer_bytes == len(tokenizer_bytes)
+
+
+def test_mobile_footprint_matches_speech_enabled_image():
+    config = VN97Config(
+        vocab_size=300,
+        d_model=16,
+        n_layers=2,
+        d_state=4,
+    )
+    model = VN97LanguageCore(config)
+    audio = AudioFrameAdapter(
+        config.d_model,
+        ternary_threshold=config.ternary_threshold,
+        config=AudioAdapterConfig(),
+        rms_eps=config.rms_eps,
+    )
+    image = build_model_image(
+        model,
+        audio_adapter=audio,
+        tile_rows=8,
+        tile_cols=16,
+    )
+    footprint = estimate_vn97_mobile_footprint(
+        config,
+        audio_frame_size=audio.config.frame_size,
+        tile_rows=8,
+        tile_cols=16,
+    )
+    assert footprint.model_image_bytes == len(image.data)
+    assert footprint.section_count > 0
+    assert footprint.packed_ternary_bytes > 0
 
 
 def test_mobile_budget_rejects_model_then_state_deterministically():

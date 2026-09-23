@@ -269,6 +269,17 @@ from .scan import (
     affine_scan_rounds,
 )
 from .ssm import RMSNorm, SelectiveSSM, VN97Block
+from .speech_training import (
+    VN97SpeechEvaluationResult,
+    VN97SpeechExample,
+    VN97SpeechReleaseCriteria,
+    VN97SpeechReleaseQualityError,
+    VN97SpeechTrainingConfig,
+    VN97SpeechTrainingResult,
+    evaluate_vn97_speech,
+    require_speech_release_quality,
+    train_vn97_speech_adapter,
+)
 from .training import (
     IGNORE_INDEX,
     VN97ChatMessage,
@@ -527,6 +538,15 @@ __all__ = [
     "RMSNorm",
     "SelectiveSSM",
     "VN97Block",
+    "VN97SpeechEvaluationResult",
+    "VN97SpeechExample",
+    "VN97SpeechReleaseCriteria",
+    "VN97SpeechReleaseQualityError",
+    "VN97SpeechTrainingConfig",
+    "VN97SpeechTrainingResult",
+    "evaluate_vn97_speech",
+    "require_speech_release_quality",
+    "train_vn97_speech_adapter",
     "IGNORE_INDEX",
     "VN97ChatMessage",
     "VN97TrainingConfig",

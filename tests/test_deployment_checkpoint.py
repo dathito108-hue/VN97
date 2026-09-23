@@ -4,6 +4,8 @@ import pytest
 import torch
 
 from vn97 import (
+    AudioAdapterConfig,
+    AudioFrameAdapter,
     CapabilitySource,
     VN97Config,
     VN97DeploymentCheckpointFormatError,
@@ -74,6 +76,50 @@ def test_checkpoint_roundtrip_is_deterministic_and_preserves_ties(tmp_path):
     assert digest == loaded.checkpoint_sha256
     from_file = load_deployment_checkpoint_file(path)
     _assert_same_state(model, from_file.model)
+
+
+def test_speech_enabled_checkpoint_roundtrip_and_bootstrap():
+    tokenizer = VN97TokenizerPackage()
+    model = _model(vocab=tokenizer.vocab_size)
+    adapter = AudioFrameAdapter(
+        model.config.d_model,
+        ternary_threshold=model.config.ternary_threshold,
+        config=AudioAdapterConfig(),
+        rms_eps=model.config.rms_eps,
+    )
+    with torch.no_grad():
+        adapter.projection.weight.add_(0.03125)
+        adapter.norm.weight.mul_(0.875)
+
+    checkpoint = build_deployment_checkpoint(
+        model,
+        audio_adapter=adapter,
+    )
+    loaded = load_deployment_checkpoint(checkpoint)
+    assert loaded.audio_adapter is not None
+    assert (
+        loaded.audio_adapter.projection.threshold
+        == model.config.ternary_threshold
+    )
+    for name, expected in adapter.state_dict().items():
+        assert torch.equal(
+            expected.detach().cpu().float(),
+            loaded.audio_adapter.state_dict()[name].detach().cpu().float(),
+        )
+
+    bundle = build_bootstrap_bundle_from_checkpoint(
+        checkpoint,
+        tokenizer=tokenizer,
+        capability_version=9,
+        signer=FakeSigner(),
+        source_origin="vn97-speech-training",
+        source_license="proprietary",
+        tile_rows=4,
+        tile_cols=4,
+    )
+    assert bundle.model_image.startswith(b"VN97MI1\0")
+    flags = int.from_bytes(bundle.model_image[16:20], "little")
+    assert flags & (1 << 2)
 
 
 def test_factorized_checkpoint_preserves_exact_tied_parameters():

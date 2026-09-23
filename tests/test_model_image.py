@@ -150,6 +150,20 @@ def test_audio_projection_is_signed_inside_the_same_vn97_image():
     assert image.data[audio_offset : audio_offset + 8] == b"VN97T2\0\0"
 
 
+def test_audio_export_rejects_quantization_semantic_mismatch():
+    model = _model()
+    audio = AudioFrameAdapter(
+        model.config.d_model,
+        ternary_threshold=0.25,
+        rms_eps=model.config.rms_eps,
+    )
+    with pytest.raises(ValueError, match="ternary threshold"):
+        build_model_image(
+            model,
+            audio_adapter=audio,
+        )
+
+
 def test_export_rejects_tokenizer_identity_and_nonfinite_parameters():
     with pytest.raises(ValueError, match="vocabulary"):
         build_model_image(
