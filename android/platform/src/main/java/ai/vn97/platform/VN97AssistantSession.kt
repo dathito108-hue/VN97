@@ -127,7 +127,14 @@ class VN97AssistantSession(
     val limits: VN97AssistantSessionLimits = VN97AssistantSessionLimits(),
     private val defaultMemory: NativeMemoryRetriever? = null,
     private val turnMemoryWriter: VN97TurnMemoryWriter? = null,
+    private val turnMemoryRecovery: VN97TurnMemoryRecovery? = null,
 ) {
+    init {
+        require(turnMemoryRecovery == null || turnMemoryWriter != null) {
+            "turn memory recovery requires the canonical M7W writer"
+        }
+    }
+
     private var active: VN97AssistantTurn? = null
     private var activeMemory: NativeMemoryRetriever? = null
     private var pendingApproval: M6PendingExternalApproval? = null
@@ -391,7 +398,7 @@ class VN97AssistantSession(
         require(update.state == VN97AssistantTurnState.COMPLETED) {
             "only a COMPLETED assistant turn can retry memory write-back"
         }
-        val writer = checkNotNull(turnMemoryWriter) {
+        checkNotNull(turnMemoryWriter) {
             "this assistant session has no turn memory writer"
         }
         if (update.memoryCommit?.state == VN97AssistantMemoryCommitState.COMMITTED) {
@@ -405,7 +412,6 @@ class VN97AssistantSession(
                 turn = update.turn,
                 finalResponse = update.finalResponse,
                 timestampNs = timestampNs,
-                writer = writer,
             )
         )
     }
@@ -414,15 +420,21 @@ class VN97AssistantSession(
         turn: VN97AssistantTurn,
         finalResponse: String,
         timestampNs: Long,
-        writer: VN97TurnMemoryWriter = checkNotNull(turnMemoryWriter),
     ): VN97AssistantMemoryCommit = try {
+        val recordId = turnMemoryRecovery?.commitCompletedTurn(
+            turn = turn,
+            finalResponse = finalResponse,
+            timestampNs = timestampNs,
+        ) ?: checkNotNull(turnMemoryWriter) {
+            "this assistant session has no turn memory writer"
+        }.commitCompletedTurn(
+            turn = turn,
+            finalResponse = finalResponse,
+            timestampNs = timestampNs,
+        )
         VN97AssistantMemoryCommit(
             state = VN97AssistantMemoryCommitState.COMMITTED,
-            recordId = writer.commitCompletedTurn(
-                turn = turn,
-                finalResponse = finalResponse,
-                timestampNs = timestampNs,
-            ),
+            recordId = recordId,
         )
     } catch (exc: Exception) {
         VN97AssistantMemoryCommit(

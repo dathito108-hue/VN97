@@ -141,3 +141,20 @@ java -jar "$WORK/m7w-idempotent-turn-memory-writeback-test.jar"
     -d "$WORK/m7x-completed-turn-memory-orchestration-test.jar"
 
 java -jar "$WORK/m7x-completed-turn-memory-orchestration-test.jar"
+
+
+"$KOTLINC" \
+    "$ROOT"/android/runtime/src/main/java/ai/vn97/runtime/*.kt \
+    "$ROOT/android/platform/src/main/java/ai/vn97/platform/M6Approval.kt" \
+    "$ROOT/android/platform/src/main/java/ai/vn97/platform/M6ExternalHandoff.kt" \
+    "$ROOT/android/platform/src/main/java/ai/vn97/platform/M6ExecutionFabric.kt" \
+    "$ROOT/android/platform/src/main/java/ai/vn97/platform/M6EndToEndExternalCoordinator.kt" \
+    "$ROOT/android/platform/src/main/java/ai/vn97/platform/VN97AssistantSession.kt" \
+    "$ROOT/android/platform/src/main/java/ai/vn97/platform/VN97TurnMemoryWriteBack.kt" \
+    "$ROOT/android/platform/src/main/java/ai/vn97/platform/VN97TurnMemoryRecovery.kt" \
+    "$HERE/M7YColdProcessTurnMemoryRecoveryTest.kt" \
+    -Werror \
+    -include-runtime \
+    -d "$WORK/m7y-cold-process-turn-memory-recovery-test.jar"
+
+java -jar "$WORK/m7y-cold-process-turn-memory-recovery-test.jar"
