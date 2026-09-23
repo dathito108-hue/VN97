@@ -330,6 +330,9 @@ class VN97AutonomousWorkManager(
             "autonomous goal does not exist"
         }
         if (record.terminal) return record
+        if (foregroundApprovalJobId == jobId) {
+            closeForegroundApprovalLocked()
+        }
         scheduler.cancelAssistantAndDelete(jobId)
         return record.copy(
             state = VN97AutonomousGoalState.CANCELLED,
@@ -593,6 +596,144 @@ class VN97AutonomousWorkManager(
             }
         }
     }
+
+    private fun approvalRequest(
+        record: VN97AutonomousGoalRecord,
+        session: VN97ForegroundAssistantContinuationSession,
+    ): VN97AutonomousApprovalRequest {
+        val approval = checkNotNull(
+            session.currentUpdate.approval
+        ) {
+            "foreground autonomous continuation lacks approval"
+        }
+        check(approval.planId == record.planId) {
+            "approval plan does not match VN97GOA1"
+        }
+        return VN97AutonomousApprovalRequest(
+            jobId = record.jobId,
+            generation = record.generation,
+            capabilityId = approval.capabilityId,
+            requestDigest = approval.requestDigest,
+            scopeDigest = approval.scopeDigest,
+            presentationJson = approval.presentationJson,
+            expiresNs = approval.expiresNs,
+        )
+    }
+
+    private fun updateRecordFromForeground(
+        record: VN97AutonomousGoalRecord,
+        update: ai.vn97.platform.VN97AssistantTurnUpdate,
+        approved: Boolean?,
+    ): VN97AutonomousGoalRecord {
+        val now = wallNowNs()
+        return when (update.state) {
+            VN97AssistantTurnState.COMPLETED ->
+                record.copy(
+                    state = VN97AutonomousGoalState.COMPLETED,
+                    updatedNs = now,
+                    finalResponse = update.finalResponse,
+                    terminalReason = "",
+                )
+
+            VN97AssistantTurnState.APPROVAL_REQUIRED ->
+                record.copy(
+                    state = VN97AutonomousGoalState.WAITING_APPROVAL,
+                    updatedNs = now,
+                    terminalReason =
+                        "additional foreground approval required",
+                )
+
+            VN97AssistantTurnState.APPROVAL_REJECTED ->
+                record.copy(
+                    state = VN97AutonomousGoalState.FAILED,
+                    updatedNs = now,
+                    terminalReason =
+                        if (approved == false) {
+                            "external action rejected by user"
+                        } else {
+                            "external approval was rejected"
+                        },
+                )
+
+            VN97AssistantTurnState.YIELDED ->
+                record.copy(
+                    state = VN97AutonomousGoalState.SCHEDULED,
+                    updatedNs = now,
+                    terminalReason = "",
+                )
+
+            VN97AssistantTurnState.PAUSED ->
+                record.copy(
+                    state = VN97AutonomousGoalState.PAUSED,
+                    updatedNs = now,
+                    terminalReason = "planner paused after approval",
+                )
+
+            VN97AssistantTurnState.FAILED ->
+                record.copy(
+                    state = VN97AutonomousGoalState.FAILED,
+                    updatedNs = now,
+                    terminalReason =
+                        "planner failed after approval resolution",
+                )
+
+            VN97AssistantTurnState.CANCELLED ->
+                record.copy(
+                    state = VN97AutonomousGoalState.CANCELLED,
+                    updatedNs = now,
+                    terminalReason =
+                        "planner cancelled after approval resolution",
+                )
+
+            VN97AssistantTurnState.BUDGET_EXHAUSTED ->
+                record.copy(
+                    state =
+                        VN97AutonomousGoalState.BUDGET_EXHAUSTED,
+                    updatedNs = now,
+                    terminalReason =
+                        "planner budget exhausted after approval",
+                )
+
+            VN97AssistantTurnState.STALLED ->
+                record.copy(
+                    state = VN97AutonomousGoalState.PAUSED,
+                    updatedNs = now,
+                    terminalReason =
+                        "planner stalled after approval resolution",
+                )
+        }
+    }
+
+    private fun closeForegroundApprovalLocked() {
+        val session = foregroundApproval
+        foregroundApproval = null
+        foregroundApprovalJobId = null
+        if (session != null) {
+            runCatching { session.close() }
+        }
+        reopenForegroundAssistantLocked()
+    }
+
+    private fun reopenForegroundAssistantLocked() {
+        if (reopenForegroundAssistantAfterApproval) {
+            reopenForegroundAssistantAfterApproval = false
+            runCatching {
+                application.assistant.openIfActivated()
+            }
+        }
+    }
+
+    private fun runtimeConfigFor(
+        model: ai.vn97.runtime.NativeActivatedModel,
+    ): NativeRuntimeConfig =
+        NativeRuntimeConfig(
+            layers = model.info.layers,
+            batch = 1,
+            dModel = model.info.dModel,
+            dState = model.info.dState,
+            recurrentBackend = NativeBackend.AUTO,
+            packedBackend = NativeBackend.AUTO,
+        )
 
     private fun terminalRecordFromPlan(
         running: VN97AutonomousGoalRecord,
