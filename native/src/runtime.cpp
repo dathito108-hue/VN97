@@ -205,6 +205,23 @@ RuntimeStatus RuntimeSession::InferStep(
     const std::uint32_t* input_ids,
     float* logits,
     std::size_t logits_count) {
+    return InferStepOutput(model, input_ids, logits, logits_count, false);
+}
+
+RuntimeStatus RuntimeSession::InferStepHidden(
+    const LanguageModelView& model,
+    const std::uint32_t* input_ids,
+    float* hidden,
+    std::size_t hidden_count) {
+    return InferStepOutput(model, input_ids, hidden, hidden_count, true);
+}
+
+RuntimeStatus RuntimeSession::InferStepOutput(
+    const LanguageModelView& model,
+    const std::uint32_t* input_ids,
+    float* logits,
+    std::size_t logits_count,
+    bool hidden_only) {
     if (input_ids == nullptr || logits == nullptr) return RuntimeStatus::kNullArgument;
     std::lock_guard<std::mutex> lock(mutex_);
     if (lifecycle_ != RuntimeLifecycle::kActive) return RuntimeStatus::kInvalidLifecycle;
@@ -244,17 +261,29 @@ RuntimeStatus RuntimeSession::InferStep(
         return RuntimeStatus::kSizeOverflow;
     }
 
-    const auto status = LanguageStepF32WithBackends(
-        model,
-        input_ids,
-        config_.batch,
-        state_.data(),
-        logits,
-        logits_count,
-        language_workspace_.data(),
-        language_workspace_.size(),
-        resolved_recurrent_backend_,
-        resolved_packed_backend_);
+    const auto status = hidden_only
+        ? LanguageStepHiddenF32WithBackends(
+            model,
+            input_ids,
+            config_.batch,
+            state_.data(),
+            logits,
+            logits_count,
+            language_workspace_.data(),
+            language_workspace_.size(),
+            resolved_recurrent_backend_,
+            resolved_packed_backend_)
+        : LanguageStepF32WithBackends(
+            model,
+            input_ids,
+            config_.batch,
+            state_.data(),
+            logits,
+            logits_count,
+            language_workspace_.data(),
+            language_workspace_.size(),
+            resolved_recurrent_backend_,
+            resolved_packed_backend_);
     if (status != LanguageStatus::kOk) {
         return MapLanguageStatus(status);
     }
@@ -560,6 +589,26 @@ int vn97_runtime_infer_step(
     return static_cast<int>(session->InferStep(*language_model_view, input_ids, logits, logits_count));
 }
 
+int vn97_runtime_infer_step_hidden(
+    std::uint64_t handle,
+    const vn97::LanguageModelView* language_model_view,
+    const std::uint32_t* input_ids,
+    std::size_t input_count,
+    float* hidden,
+    std::size_t hidden_count) {
+    if (language_model_view == nullptr || input_ids == nullptr || hidden == nullptr) {
+        return static_cast<int>(vn97::RuntimeStatus::kNullArgument);
+    }
+    const auto session = Lookup(handle);
+    if (!session) return static_cast<int>(vn97::RuntimeStatus::kInvalidHandle);
+    const auto info = session->Info();
+    if (input_count != info.config.batch) {
+        return static_cast<int>(vn97::RuntimeStatus::kInvalidConfig);
+    }
+    return static_cast<int>(
+        session->InferStepHidden(*language_model_view, input_ids, hidden, hidden_count));
+}
+
 int vn97_runtime_prefill(
     std::uint64_t handle,
     const vn97::LanguageModelView* language_model_view,
@@ -588,6 +637,39 @@ int vn97_runtime_prefill(
             input_ids + step * batch,
             final_logits,
             logits_count);
+        if (status != vn97::RuntimeStatus::kOk) return static_cast<int>(status);
+    }
+    return static_cast<int>(vn97::RuntimeStatus::kOk);
+}
+
+int vn97_runtime_prefill_hidden(
+    std::uint64_t handle,
+    const vn97::LanguageModelView* language_model_view,
+    const std::uint32_t* input_ids,
+    std::size_t input_count,
+    std::size_t step_count,
+    float* final_hidden,
+    std::size_t hidden_count) {
+    if (language_model_view == nullptr || input_ids == nullptr || final_hidden == nullptr) {
+        return static_cast<int>(vn97::RuntimeStatus::kNullArgument);
+    }
+    if (step_count == 0) return static_cast<int>(vn97::RuntimeStatus::kInvalidConfig);
+    const auto session = Lookup(handle);
+    if (!session) return static_cast<int>(vn97::RuntimeStatus::kInvalidHandle);
+    const auto info = session->Info();
+    const std::size_t batch = info.config.batch;
+    if (batch == 0 || step_count > std::numeric_limits<std::size_t>::max() / batch) {
+        return static_cast<int>(vn97::RuntimeStatus::kSizeOverflow);
+    }
+    if (input_count != step_count * batch) {
+        return static_cast<int>(vn97::RuntimeStatus::kInvalidConfig);
+    }
+    for (std::size_t step = 0; step < step_count; ++step) {
+        const auto status = session->InferStepHidden(
+            *language_model_view,
+            input_ids + step * batch,
+            final_hidden,
+            hidden_count);
         if (status != vn97::RuntimeStatus::kOk) return static_cast<int>(status);
     }
     return static_cast<int>(vn97::RuntimeStatus::kOk);

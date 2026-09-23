@@ -253,28 +253,8 @@ internal class Utf8StreamAccumulator {
 }
 
 private fun NativeActivatedModel.decodeTokenBytes(tokenId: Int): ByteArray {
-    require(info.hasTokenizer) { "activated model has no VN97TK1 tokenizer" }
     require(tokenId >= 0) { "token ID must be non-negative" }
-    val ids = intArrayOf(tokenId)
-    val sizeOut = LongArray(1)
-    withHandle<Unit> { h ->
-        checkModelStatus(
-            NativeRuntimeBindings.nativeModelDecodedSize(h, ids, true, sizeOut),
-            "VN97TK1 streaming decoded size",
-        )
-    }
-    val size = checkedArrayCount(sizeOut[0], "streaming decoded byte size")
-    if (size == 0) return ByteArray(0)
-    val bytes = ByteArray(size)
-    val written = LongArray(1)
-    withHandle<Unit> { h ->
-        checkModelStatus(
-            NativeRuntimeBindings.nativeModelDecode(h, ids, true, bytes, written),
-            "VN97TK1 streaming decode",
-        )
-    }
-    check(written[0] == sizeOut[0]) { "native tokenizer streaming size changed" }
-    return bytes
+    return decodeBytes(intArrayOf(tokenId), skipControl = true)
 }
 
 fun NativeRuntimeSession.generateStreaming(

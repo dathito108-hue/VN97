@@ -150,6 +150,13 @@ internal object NativeRuntimeBindings {
         stepCount: Int,
         finalLogits: FloatArray,
     ): Int
+    external fun nativePrefillHidden(
+        runtimeHandle: Long,
+        modelHandle: Long,
+        inputIds: IntArray,
+        stepCount: Int,
+        finalHidden: FloatArray,
+    ): Int
     external fun nativeGenerateGreedy(
         runtimeHandle: Long,
         modelHandle: Long,
@@ -314,6 +321,38 @@ class NativeRuntimeSession private constructor(private var handle: Long) : AutoC
             }
         }
         return logits
+    }
+
+    fun prefillHidden(model: NativeActivatedModel, inputIds: IntArray): FloatArray {
+        require(inputIds.isNotEmpty()) { "hidden prefill input must not be empty" }
+        require(inputIds.all { it >= 0 }) { "token IDs must be non-negative" }
+        val runtimeInfo = info()
+        val batch = runtimeInfo.config.batch
+        require(inputIds.size % batch == 0) { "hidden prefill token layout must be [steps, batch]" }
+        require(model.info.layers == runtimeInfo.config.layers &&
+            model.info.dModel == runtimeInfo.config.dModel &&
+            model.info.dState == runtimeInfo.config.dState) {
+            "activated model geometry does not match runtime session"
+        }
+        val stepCount = inputIds.size / batch
+        val hidden = FloatArray(
+            checkedMultiplyArrayCount(batch, model.info.dModel, "final hidden")
+        )
+        model.withHandle { modelHandle ->
+            withHandle<Unit> { runtimeHandle ->
+                checkStatus(
+                    NativeRuntimeBindings.nativePrefillHidden(
+                        runtimeHandle,
+                        modelHandle,
+                        inputIds,
+                        stepCount,
+                        hidden,
+                    ),
+                    "runtime hidden prefill",
+                )
+            }
+        }
+        return hidden
     }
 
     fun generateGreedy(

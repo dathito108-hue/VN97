@@ -647,6 +647,24 @@ int vn97_model_runtime_infer_step(
         logits_count);
 }
 
+int vn97_model_runtime_infer_step_hidden(
+    std::uint64_t model_handle,
+    std::uint64_t runtime_handle,
+    const std::uint32_t* input_ids,
+    std::size_t input_count,
+    float* hidden,
+    std::size_t hidden_count) {
+    const auto model = LookupModel(model_handle);
+    if (!model) return static_cast<int>(vn97::RuntimeStatus::kModelMismatch);
+    return vn97_runtime_infer_step_hidden(
+        runtime_handle,
+        &model->language_model(),
+        input_ids,
+        input_count,
+        hidden,
+        hidden_count);
+}
+
 int vn97_model_runtime_prefill(
     std::uint64_t model_handle,
     std::uint64_t runtime_handle,
@@ -665,6 +683,26 @@ int vn97_model_runtime_prefill(
         step_count,
         final_logits,
         logits_count);
+}
+
+int vn97_model_runtime_prefill_hidden(
+    std::uint64_t model_handle,
+    std::uint64_t runtime_handle,
+    const std::uint32_t* input_ids,
+    std::size_t input_count,
+    std::size_t step_count,
+    float* final_hidden,
+    std::size_t hidden_count) {
+    const auto model = LookupModel(model_handle);
+    if (!model) return static_cast<int>(vn97::RuntimeStatus::kModelMismatch);
+    return vn97_runtime_prefill_hidden(
+        runtime_handle,
+        &model->language_model(),
+        input_ids,
+        input_count,
+        step_count,
+        final_hidden,
+        hidden_count);
 }
 
 int vn97_model_runtime_generate_greedy(

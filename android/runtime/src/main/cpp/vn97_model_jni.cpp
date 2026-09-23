@@ -303,6 +303,33 @@ Java_ai_vn97_runtime_NativeRuntimeBindings_nativePrefill(
 }
 
 extern "C" JNIEXPORT jint JNICALL
+Java_ai_vn97_runtime_NativeRuntimeBindings_nativePrefillHidden(
+    JNIEnv* env,
+    jobject,
+    jlong runtime_handle,
+    jlong model_handle,
+    jintArray input_ids,
+    jint step_count,
+    jfloatArray final_hidden) {
+    if (step_count <= 0 || final_hidden == nullptr) return kRuntimeInvalidConfig;
+    std::vector<std::uint32_t> ids;
+    if (!ReadTokenIds(env, input_ids, &ids)) return kRuntimeInvalidConfig;
+    const jsize hidden_count = env->GetArrayLength(final_hidden);
+    jfloat* values = env->GetFloatArrayElements(final_hidden, nullptr);
+    if (values == nullptr) return kRuntimeInvalidConfig;
+    const int status = vn97_model_runtime_prefill_hidden(
+        static_cast<std::uint64_t>(model_handle),
+        static_cast<std::uint64_t>(runtime_handle),
+        ids.empty() ? nullptr : ids.data(),
+        ids.size(),
+        static_cast<std::size_t>(step_count),
+        values,
+        static_cast<std::size_t>(hidden_count));
+    env->ReleaseFloatArrayElements(final_hidden, values, status == 0 ? 0 : JNI_ABORT);
+    return status;
+}
+
+extern "C" JNIEXPORT jint JNICALL
 Java_ai_vn97_runtime_NativeRuntimeBindings_nativeGenerateGreedy(
     JNIEnv* env,
     jobject,

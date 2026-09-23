@@ -281,19 +281,21 @@ LanguageStatus LanguageWorkspaceFloats(
     return LanguageStatus::kOk;
 }
 
-LanguageStatus LanguageStepF32WithBackends(
+static LanguageStatus LanguageStepF32Internal(
     const LanguageModelView& model,
     const std::uint32_t* input_ids,
     std::size_t batch,
     float* state_io,
     float* logits,
     std::size_t logits_count,
+    float* hidden,
+    std::size_t hidden_count,
     float* workspace,
     std::size_t workspace_count,
     RecurrentBackend recurrent_backend,
     PackedTernaryBackend packed_backend) {
-    if (input_ids == nullptr || state_io == nullptr ||
-        logits == nullptr || workspace == nullptr) {
+    if (input_ids == nullptr || state_io == nullptr || workspace == nullptr ||
+        (logits == nullptr && hidden == nullptr)) {
         return LanguageStatus::kNullArgument;
     }
     if (!ValidStructure(model) || batch == 0) {
@@ -307,12 +309,23 @@ LanguageStatus LanguageStepF32WithBackends(
         return LanguageStatus::kBackendUnavailable;
     }
 
-    std::size_t required_logits = 0;
-    if (MulOverflow(batch, model.vocab_size, &required_logits)) {
-        return LanguageStatus::kSizeOverflow;
+    if (logits != nullptr) {
+        std::size_t required_logits = 0;
+        if (MulOverflow(batch, model.vocab_size, &required_logits)) {
+            return LanguageStatus::kSizeOverflow;
+        }
+        if (logits_count < required_logits) {
+            return LanguageStatus::kOutputTooSmall;
+        }
     }
-    if (logits_count < required_logits) {
-        return LanguageStatus::kOutputTooSmall;
+    if (hidden != nullptr) {
+        std::size_t required_hidden = 0;
+        if (MulOverflow(batch, model.d_model, &required_hidden)) {
+            return LanguageStatus::kSizeOverflow;
+        }
+        if (hidden_count < required_hidden) {
+            return LanguageStatus::kOutputTooSmall;
+        }
     }
 
     std::size_t required_workspace = 0;
@@ -466,14 +479,74 @@ LanguageStatus LanguageStepF32WithBackends(
             model.rms_eps,
             norm);
 
-        ProjectLogits(
-            model,
-            norm,
-            logits + batch_index * model.vocab_size,
-            reduced);
+        if (hidden != nullptr) {
+            std::copy(
+                norm,
+                norm + model.d_model,
+                hidden + batch_index * model.d_model);
+        }
+        if (logits != nullptr) {
+            ProjectLogits(
+                model,
+                norm,
+                logits + batch_index * model.vocab_size,
+                reduced);
+        }
     }
 
     return LanguageStatus::kOk;
+}
+
+LanguageStatus LanguageStepF32WithBackends(
+    const LanguageModelView& model,
+    const std::uint32_t* input_ids,
+    std::size_t batch,
+    float* state_io,
+    float* logits,
+    std::size_t logits_count,
+    float* workspace,
+    std::size_t workspace_count,
+    RecurrentBackend recurrent_backend,
+    PackedTernaryBackend packed_backend) {
+    return LanguageStepF32Internal(
+        model,
+        input_ids,
+        batch,
+        state_io,
+        logits,
+        logits_count,
+        nullptr,
+        0,
+        workspace,
+        workspace_count,
+        recurrent_backend,
+        packed_backend);
+}
+
+LanguageStatus LanguageStepHiddenF32WithBackends(
+    const LanguageModelView& model,
+    const std::uint32_t* input_ids,
+    std::size_t batch,
+    float* state_io,
+    float* hidden,
+    std::size_t hidden_count,
+    float* workspace,
+    std::size_t workspace_count,
+    RecurrentBackend recurrent_backend,
+    PackedTernaryBackend packed_backend) {
+    return LanguageStepF32Internal(
+        model,
+        input_ids,
+        batch,
+        state_io,
+        nullptr,
+        0,
+        hidden,
+        hidden_count,
+        workspace,
+        workspace_count,
+        recurrent_backend,
+        packed_backend);
 }
 
 LanguageStatus LanguageStepF32(
@@ -492,6 +565,28 @@ LanguageStatus LanguageStepF32(
         state_io,
         logits,
         logits_count,
+        workspace,
+        workspace_count,
+        RecurrentBackend::kAuto,
+        PackedTernaryBackend::kAuto);
+}
+
+LanguageStatus LanguageStepHiddenF32(
+    const LanguageModelView& model,
+    const std::uint32_t* input_ids,
+    std::size_t batch,
+    float* state_io,
+    float* hidden,
+    std::size_t hidden_count,
+    float* workspace,
+    std::size_t workspace_count) {
+    return LanguageStepHiddenF32WithBackends(
+        model,
+        input_ids,
+        batch,
+        state_io,
+        hidden,
+        hidden_count,
         workspace,
         workspace_count,
         RecurrentBackend::kAuto,
