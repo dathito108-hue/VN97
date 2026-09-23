@@ -72,7 +72,10 @@ class VN97GameAgentService : Service() {
                     "cancel requested by user",
                 )
             )
-            stopSelf()
+            if (!episodeActive.get()) {
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                stopSelf()
+            }
             return START_NOT_STICKY
         }
 
