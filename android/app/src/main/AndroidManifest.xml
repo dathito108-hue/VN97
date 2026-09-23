@@ -36,6 +36,10 @@
             android:exported="false" />
 
         <activity
+            android:name=".VN97CapabilityAcquisitionActivity"
+            android:exported="false" />
+
+        <activity
             android:name=".VN97MainActivity"
             android:exported="true">
             <intent-filter>
