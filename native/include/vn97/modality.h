@@ -27,6 +27,16 @@ struct AudioProjectionView {
     const float* norm_weight = nullptr;
 };
 
+struct VisionProjectionView {
+    std::uint32_t channels = 0;
+    std::uint32_t patch_size = 0;
+    std::uint32_t input_features = 0;
+    std::uint32_t d_model = 0;
+    float rms_eps = 0.0f;
+    PackedTernaryView projection;
+    const float* norm_weight = nullptr;
+};
+
 std::size_t AudioFrameCount(
     std::size_t sample_count,
     std::size_t frame_size,
@@ -50,6 +60,20 @@ ModalityStatus ProjectAudioFramesF32(
     const float* frames,
     std::size_t frame_value_count,
     std::size_t frame_count,
+    float* embeddings,
+    std::size_t embedding_capacity,
+    float* workspace,
+    std::size_t workspace_count,
+    PackedTernaryBackend backend = PackedTernaryBackend::kAuto);
+
+ModalityStatus ValidateVisionProjection(
+    const VisionProjectionView& view);
+
+ModalityStatus ProjectVisionPatchesF32(
+    const VisionProjectionView& view,
+    const float* patches,
+    std::size_t patch_value_count,
+    std::size_t patch_count,
     float* embeddings,
     std::size_t embedding_capacity,
     float* workspace,
