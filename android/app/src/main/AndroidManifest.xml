@@ -46,6 +46,29 @@
             android:stopWithTask="false" />
 
         <service
+            android:name=".VN97GameAccessibilityService"
+            android:exported="true"
+            android:label="@string/vn97_game_accessibility_label"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/vn97_game_accessibility_service" />
+        </service>
+
+        <service
+            android:name=".VN97GameAgentService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse"
+            android:stopWithTask="false">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="User-authorized package-scoped closed-loop game control using local VN97 perception and bounded accessibility gestures." />
+        </service>
+
+        <service
             android:name=".VN97FloatingAssistantService"
             android:exported="false"
             android:foregroundServiceType="microphone|specialUse"
