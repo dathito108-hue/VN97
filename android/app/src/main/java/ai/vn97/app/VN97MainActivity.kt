@@ -20,6 +20,7 @@ import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
+import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -55,6 +56,21 @@ class VN97MainActivity : Activity() {
     private lateinit var autonomousApprovalView: TextView
     private lateinit var autonomousApproveButton: Button
     private lateinit var autonomousRejectButton: Button
+    private lateinit var paperEndpointView: EditText
+    private lateinit var paperSourceView: EditText
+    private lateinit var paperSymbolsView: EditText
+    private lateinit var paperGoalView: EditText
+    private lateinit var paperIntervalSecondsView: EditText
+    private lateinit var paperMaxEpisodesView: EditText
+    private lateinit var paperBatteryNotLowCheck: CheckBox
+    private lateinit var paperChargingCheck: CheckBox
+    private lateinit var paperJobIdView: EditText
+    private lateinit var paperStatusView: TextView
+    private lateinit var paperStartButton: Button
+    private lateinit var paperPauseButton: Button
+    private lateinit var paperResumeButton: Button
+    private lateinit var paperStopButton: Button
+    private lateinit var paperRefreshButton: Button
     private lateinit var approvalView: TextView
     private lateinit var approveButton: Button
     private lateinit var rejectButton: Button
@@ -586,6 +602,252 @@ class VN97MainActivity : Activity() {
             ),
         )
 
+        val paperTitle = TextView(this).apply {
+            text = "Paper Trading — simulation only"
+            textSize = 18f
+            setTextIsSelectable(true)
+        }
+        root.addView(
+            paperTitle,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ),
+        )
+
+        paperEndpointView = EditText(this).apply {
+            hint = "HTTPS market feed endpoint"
+            maxLines = 2
+        }
+        root.addView(
+            paperEndpointView,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ),
+        )
+
+        val paperSourceSymbolRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+        }
+        paperSourceView = EditText(this).apply {
+            hint = "Source ID"
+            maxLines = 1
+        }
+        paperSymbolsView = EditText(this).apply {
+            hint = "Symbols: ABC,XYZ"
+            maxLines = 1
+        }
+        paperSourceSymbolRow.addView(
+            paperSourceView,
+            LinearLayout.LayoutParams(
+                0,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                1f,
+            ),
+        )
+        paperSourceSymbolRow.addView(
+            paperSymbolsView,
+            LinearLayout.LayoutParams(
+                0,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                1f,
+            ),
+        )
+        root.addView(
+            paperSourceSymbolRow,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ),
+        )
+
+        paperGoalView = EditText(this).apply {
+            hint = "Paper-only trading objective"
+            maxLines = 3
+            setText(
+                "Paper trading simulation only; act only when bounded " +
+                    "market evidence is sufficient."
+            )
+        }
+        root.addView(
+            paperGoalView,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ),
+        )
+
+        val paperBudgetRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+        }
+        paperIntervalSecondsView = EditText(this).apply {
+            hint = "Interval seconds"
+            maxLines = 1
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER
+            setText("60")
+        }
+        paperMaxEpisodesView = EditText(this).apply {
+            hint = "Max episodes"
+            maxLines = 1
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER
+            setText("256")
+        }
+        paperBudgetRow.addView(
+            paperIntervalSecondsView,
+            LinearLayout.LayoutParams(
+                0,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                1f,
+            ),
+        )
+        paperBudgetRow.addView(
+            paperMaxEpisodesView,
+            LinearLayout.LayoutParams(
+                0,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                1f,
+            ),
+        )
+        root.addView(
+            paperBudgetRow,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ),
+        )
+
+        val paperPowerRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+        }
+        paperBatteryNotLowCheck = CheckBox(this).apply {
+            text = "Battery not low"
+            isChecked = true
+        }
+        paperChargingCheck = CheckBox(this).apply {
+            text = "Charging only"
+            isChecked = false
+        }
+        paperPowerRow.addView(
+            paperBatteryNotLowCheck,
+            LinearLayout.LayoutParams(
+                0,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                1f,
+            ),
+        )
+        paperPowerRow.addView(
+            paperChargingCheck,
+            LinearLayout.LayoutParams(
+                0,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                1f,
+            ),
+        )
+        root.addView(
+            paperPowerRow,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ),
+        )
+
+        paperStartButton = Button(this).apply {
+            text = "Start paper session"
+            setOnClickListener { startPaperTradingSession() }
+        }
+        root.addView(
+            paperStartButton,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ),
+        )
+
+        paperJobIdView = EditText(this).apply {
+            hint = "Paper session Job ID"
+            maxLines = 1
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER
+        }
+        root.addView(
+            paperJobIdView,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ),
+        )
+
+        val paperLifecycleRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+        }
+        paperPauseButton = Button(this).apply {
+            text = "Pause"
+            setOnClickListener { controlPaperTradingSession("pause") }
+        }
+        paperResumeButton = Button(this).apply {
+            text = "Resume"
+            setOnClickListener { controlPaperTradingSession("resume") }
+        }
+        paperStopButton = Button(this).apply {
+            text = "Stop"
+            setOnClickListener { controlPaperTradingSession("stop") }
+        }
+        paperLifecycleRow.addView(
+            paperPauseButton,
+            LinearLayout.LayoutParams(
+                0,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                1f,
+            ),
+        )
+        paperLifecycleRow.addView(
+            paperResumeButton,
+            LinearLayout.LayoutParams(
+                0,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                1f,
+            ),
+        )
+        paperLifecycleRow.addView(
+            paperStopButton,
+            LinearLayout.LayoutParams(
+                0,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                1f,
+            ),
+        )
+        root.addView(
+            paperLifecycleRow,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ),
+        )
+
+        paperRefreshButton = Button(this).apply {
+            text = "Refresh paper sessions"
+            setOnClickListener { refreshPaperTradingStatus() }
+        }
+        root.addView(
+            paperRefreshButton,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ),
+        )
+
+        paperStatusView = TextView(this).apply {
+            text = "Paper trading: no sessions."
+            setTextIsSelectable(true)
+        }
+        root.addView(
+            paperStatusView,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ),
+        )
+
         setContentView(root)
         refreshFloatingAssistantButton()
         refreshVoicePermissionButton()
@@ -593,6 +855,7 @@ class VN97MainActivity : Activity() {
         refreshVisualButtons()
         render(state)
         refreshAutonomousStatus()
+        refreshPaperTradingStatus()
         attachTrustedModel()
         if (
             intent?.action ==
@@ -617,6 +880,7 @@ class VN97MainActivity : Activity() {
         refreshGameControlStatus()
         refreshVisualButtons()
         refreshAutonomousStatus()
+        refreshPaperTradingStatus()
     }
 
     override fun onNewIntent(intent: Intent?) {
@@ -1992,6 +2256,178 @@ class VN97MainActivity : Activity() {
                 energy = if (state.phase == VN97AppPhase.MODEL_REQUIRED) 0.15f else 0.5f,
             )
         )
+    }
+
+    private fun startPaperTradingSession() {
+        val spec = try {
+            VN97PaperTradingControlSurface.parse(
+                endpointText = paperEndpointView.text.toString(),
+                sourceIdText = paperSourceView.text.toString(),
+                symbolsText = paperSymbolsView.text.toString(),
+                userGoalText = paperGoalView.text.toString(),
+                intervalSecondsText =
+                    paperIntervalSecondsView.text.toString(),
+                maxEpisodesText = paperMaxEpisodesView.text.toString(),
+                requiresBatteryNotLow =
+                    paperBatteryNotLowCheck.isChecked,
+                requiresCharging = paperChargingCheck.isChecked,
+            )
+        } catch (exc: Throwable) {
+            statusView.text =
+                "Paper session configuration rejected: " +
+                    (exc.message ?: exc::class.java.simpleName)
+            return
+        }
+
+        setPaperTradingControlsEnabled(false)
+        statusView.text =
+            "Starting bounded paper-trading simulation session…"
+        worker.execute {
+            try {
+                val record = app.paperTrading.startSession(
+                    VN97PaperTradingSessionConfig(
+                        endpoint = spec.endpoint,
+                        sourceId = spec.sourceId,
+                        symbols = spec.symbols,
+                        userGoal = spec.userGoal,
+                        intervalMillis = spec.intervalMillis,
+                        maxEpisodes = spec.maxEpisodes,
+                        requiresBatteryNotLow =
+                            spec.requiresBatteryNotLow,
+                        requiresCharging = spec.requiresCharging,
+                    )
+                )
+                runOnUiThread {
+                    paperJobIdView.setText(record.jobId.toString())
+                    statusView.text =
+                        "Paper-only session started. Job ID=" +
+                            record.jobId +
+                            ". No live-money authority exists."
+                    setPaperTradingControlsEnabled(true)
+                    refreshPaperTradingStatus()
+                }
+            } catch (exc: Throwable) {
+                runOnUiThread {
+                    statusView.text =
+                        "Paper session start failed: " +
+                            (exc.message ?: exc::class.java.simpleName)
+                    setPaperTradingControlsEnabled(true)
+                    refreshPaperTradingStatus()
+                }
+            }
+        }
+    }
+
+    private fun controlPaperTradingSession(action: String) {
+        val jobId = try {
+            VN97PaperTradingControlSurface.parseJobId(
+                paperJobIdView.text.toString()
+            )
+        } catch (exc: Throwable) {
+            statusView.text =
+                "Paper session control rejected: " +
+                    (exc.message ?: exc::class.java.simpleName)
+            return
+        }
+
+        setPaperTradingControlsEnabled(false)
+        worker.execute {
+            try {
+                val record = when (action) {
+                    "pause" -> app.paperTrading.pause(jobId)
+                    "resume" -> app.paperTrading.resume(jobId)
+                    "stop" -> app.paperTrading.stop(jobId)
+                    else -> error("unknown paper session UI action")
+                }
+                runOnUiThread {
+                    statusView.text =
+                        "Paper session #" +
+                            record.jobId +
+                            " is now " +
+                            record.state.name +
+                            "."
+                    setPaperTradingControlsEnabled(true)
+                    refreshPaperTradingStatus()
+                }
+            } catch (exc: Throwable) {
+                runOnUiThread {
+                    statusView.text =
+                        "Paper session " +
+                            action +
+                            " failed: " +
+                            (exc.message ?: exc::class.java.simpleName)
+                    setPaperTradingControlsEnabled(true)
+                    refreshPaperTradingStatus()
+                }
+            }
+        }
+    }
+
+    private fun refreshPaperTradingStatus() {
+        if (!::paperStatusView.isInitialized) return
+        paperRefreshButton.isEnabled = false
+        worker.execute {
+            val result = runCatching {
+                app.paperTrading.listReports()
+            }
+            runOnUiThread {
+                val reports = result.getOrElse { exc ->
+                    paperStatusView.text =
+                        "Paper session status unavailable: " +
+                            (exc.message ?: exc::class.java.simpleName)
+                    paperRefreshButton.isEnabled = true
+                    return@runOnUiThread
+                }
+                val uiReports = reports.map { report ->
+                    VN97PaperTradingUiReport(
+                        jobId = report.jobId,
+                        state = report.state.name,
+                        episodesAttempted = report.episodesAttempted,
+                        maxEpisodes = report.maxEpisodes,
+                        wakeCount = report.wakeCount,
+                        lastDecision = report.lastDecision,
+                        lastOutcome = report.lastOutcome,
+                        terminalReason = report.terminalReason,
+                        nextRunWallTimeMillis =
+                            report.nextRunWallTimeMillis,
+                    )
+                }
+                paperStatusView.text =
+                    VN97PaperTradingControlSurface
+                        .formatReports(uiReports)
+                if (
+                    paperJobIdView.text.isNullOrBlank() &&
+                    reports.isNotEmpty()
+                ) {
+                    val selected = reports
+                        .filter {
+                            it.state !=
+                                VN97PaperTradingSessionState.STOPPED &&
+                                it.state !=
+                                    VN97PaperTradingSessionState.COMPLETED &&
+                                it.state !=
+                                    VN97PaperTradingSessionState.FAILED
+                        }
+                        .maxByOrNull { it.jobId }
+                        ?: reports.maxByOrNull { it.jobId }
+                    if (selected != null) {
+                        paperJobIdView.setText(
+                            selected.jobId.toString()
+                        )
+                    }
+                }
+                setPaperTradingControlsEnabled(true)
+            }
+        }
+    }
+
+    private fun setPaperTradingControlsEnabled(enabled: Boolean) {
+        if (!::paperStartButton.isInitialized) return
+        paperStartButton.isEnabled = enabled
+        paperPauseButton.isEnabled = enabled
+        paperResumeButton.isEnabled = enabled
+        paperStopButton.isEnabled = enabled
+        paperRefreshButton.isEnabled = enabled
     }
 
     companion object {
