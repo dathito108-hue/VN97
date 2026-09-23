@@ -288,6 +288,7 @@ from .speech_training import (
     evaluate_vn97_speech,
     require_disjoint_speech_splits,
     require_speech_release_quality,
+    speech_audio_fingerprint,
     speech_example_fingerprint,
     train_vn97_speech_adapter,
 )
@@ -565,6 +566,7 @@ __all__ = [
     "evaluate_vn97_speech",
     "require_disjoint_speech_splits",
     "require_speech_release_quality",
+    "speech_audio_fingerprint",
     "speech_example_fingerprint",
     "train_vn97_speech_adapter",
     "IGNORE_INDEX",
