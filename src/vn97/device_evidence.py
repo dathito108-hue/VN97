@@ -4,7 +4,9 @@ from dataclasses import dataclass
 import hashlib
 import json
 import math
+import os
 from pathlib import Path
+import stat
 from typing import Any
 
 
@@ -238,12 +240,45 @@ def parse_device_evidence(data: bytes) -> VN97DeviceEvidence:
 
 def load_device_evidence(path: str | Path) -> VN97DeviceEvidence:
     target = Path(path)
-    data = target.read_bytes()
-    if not 0 < len(data) <= 1024 * 1024:
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        fd = os.open(target, flags)
+    except OSError as exc:
         raise VN97DeviceEvidenceError(
-            "device evidence byte size is outside bounds"
-        )
-    return parse_device_evidence(data)
+            "device evidence could not be opened safely"
+        ) from exc
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode):
+            raise VN97DeviceEvidenceError(
+                "device evidence must be a regular file"
+            )
+        if not 0 < info.st_size <= 1024 * 1024:
+            raise VN97DeviceEvidenceError(
+                "device evidence byte size is outside bounds"
+            )
+        out = bytearray()
+        while len(out) < info.st_size:
+            chunk = os.read(
+                fd,
+                min(256 * 1024, info.st_size - len(out)),
+            )
+            if not chunk:
+                break
+            out.extend(chunk)
+        after = os.fstat(fd)
+        if (
+            len(out) != info.st_size
+            or after.st_size != info.st_size
+            or after.st_ino != info.st_ino
+            or after.st_dev != info.st_dev
+        ):
+            raise VN97DeviceEvidenceError(
+                "device evidence changed while being read"
+            )
+        return parse_device_evidence(bytes(out))
+    finally:
+        os.close(fd)
 
 
 def require_device_evidence(
