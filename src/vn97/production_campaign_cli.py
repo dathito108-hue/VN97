@@ -428,6 +428,10 @@ def main(argv: list[str] | None = None) -> int:
 
     production_report = {
         "language_campaign_report_sha256": language_report_sha256,
+        "deployment": {
+            "tile_cols": args.tile_cols,
+            "tile_rows": args.tile_rows,
+        },
         "language_checkpoint_sha256": checkpoint.checkpoint_sha256,
         "mobile_budget": {
             "max_model_image_bytes": budget.max_model_image_bytes,
