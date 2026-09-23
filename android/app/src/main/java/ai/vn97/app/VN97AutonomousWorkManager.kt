@@ -352,7 +352,30 @@ class VN97AutonomousWorkManager(
             .take(MAX_RECONCILE_GOALS)
 
         val reconciled = active.map { record ->
-            reconcileRecord(record)
+            runCatching {
+                reconcileRecord(record)
+            }.getOrElse { exc ->
+                scheduler.cancel(record.jobId)
+                val recoverableState =
+                    when (record.state) {
+                        VN97AutonomousGoalState.WAITING_APPROVAL,
+                        VN97AutonomousGoalState.WAITING_DEPENDENCY,
+                        VN97AutonomousGoalState.PAUSED,
+                        -> record.state
+
+                        else -> VN97AutonomousGoalState.SCHEDULED
+                    }
+                record.copy(
+                    state = recoverableState,
+                    updatedNs = maxOf(
+                        record.updatedNs,
+                        wallNowNs(),
+                    ),
+                    terminalReason =
+                        "reconciliation deferred: " +
+                            exc::class.java.simpleName,
+                ).also(store::save)
+            }
         }
         store.list()
             .filter {
