@@ -1,5 +1,6 @@
 #include "vn97/modality.h"
 
+#include <algorithm>
 #include <cmath>
 #include <limits>
 
@@ -18,6 +19,49 @@ float Coord(std::size_t index, std::size_t count) {
     if (count <= 1) return 0.0f;
     return -1.0f + 2.0f * static_cast<float>(index) /
         static_cast<float>(count - 1);
+}
+
+bool FiniteArray(const float* values, std::size_t count) {
+    if (values == nullptr) return false;
+    for (std::size_t i = 0; i < count; ++i) {
+        if (!std::isfinite(values[i])) return false;
+    }
+    return true;
+}
+
+bool MatrixShape(
+    const PackedTernaryView& matrix,
+    std::uint32_t rows,
+    std::uint32_t cols) {
+    return matrix.rows == rows &&
+        matrix.cols == cols &&
+        matrix.rows != 0 &&
+        matrix.cols != 0 &&
+        matrix.scale_bytes != nullptr &&
+        matrix.packed_data != nullptr &&
+        matrix.tile_rows != 0 &&
+        matrix.tile_cols != 0 &&
+        matrix.padded_rows >= matrix.rows &&
+        matrix.padded_cols >= matrix.cols &&
+        matrix.padded_rows % matrix.tile_rows == 0 &&
+        matrix.padded_cols % matrix.tile_cols == 0;
+}
+
+void RmsNorm(
+    const float* input,
+    const float* weight,
+    std::size_t count,
+    float eps,
+    float* output) {
+    float sum = 0.0f;
+    for (std::size_t i = 0; i < count; ++i) {
+        sum += input[i] * input[i];
+    }
+    const float inv =
+        1.0f / std::sqrt(sum / static_cast<float>(count) + eps);
+    for (std::size_t i = 0; i < count; ++i) {
+        output[i] = weight[i] * input[i] * inv;
+    }
 }
 
 }  // namespace
@@ -95,6 +139,98 @@ ModalityStatus PrepareAudioFramesF32(
                 out[i] *= inv_rms;
             }
         }
+    }
+    return ModalityStatus::kOk;
+}
+
+ModalityStatus ValidateAudioProjection(
+    const AudioProjectionView& view) {
+    if (
+        view.frame_size == 0 ||
+        view.d_model == 0 ||
+        !ValidEps(view.rms_eps) ||
+        view.norm_weight == nullptr ||
+        !MatrixShape(
+            view.projection,
+            view.d_model,
+            view.frame_size)
+    ) {
+        return ModalityStatus::kInvalidModel;
+    }
+    if (!FiniteArray(view.norm_weight, view.d_model)) {
+        return ModalityStatus::kNonFinite;
+    }
+    return ModalityStatus::kOk;
+}
+
+ModalityStatus ProjectAudioFramesF32(
+    const AudioProjectionView& view,
+    const float* frames,
+    std::size_t frame_value_count,
+    std::size_t frame_count,
+    float* embeddings,
+    std::size_t embedding_capacity,
+    float* workspace,
+    std::size_t workspace_count,
+    PackedTernaryBackend backend) {
+    if (
+        frames == nullptr ||
+        embeddings == nullptr ||
+        workspace == nullptr
+    ) {
+        return ModalityStatus::kNullArgument;
+    }
+    const auto model_status = ValidateAudioProjection(view);
+    if (model_status != ModalityStatus::kOk) return model_status;
+    if (frame_count == 0) return ModalityStatus::kInvalidShape;
+
+    if (
+        MulOverflows(frame_count, view.frame_size) ||
+        MulOverflows(frame_count, view.d_model)
+    ) {
+        return ModalityStatus::kSizeOverflow;
+    }
+    const std::size_t required_input =
+        frame_count * view.frame_size;
+    const std::size_t required_output =
+        frame_count * view.d_model;
+    if (
+        frame_value_count != required_input ||
+        embedding_capacity < required_output ||
+        workspace_count < view.d_model
+    ) {
+        return ModalityStatus::kOutputTooSmall;
+    }
+    if (!FiniteArray(frames, required_input)) {
+        return ModalityStatus::kNonFinite;
+    }
+
+    const auto resolved = ResolvePackedTernaryBackend(backend);
+    if (!PackedTernaryBackendAvailable(resolved)) {
+        return ModalityStatus::kBackendUnavailable;
+    }
+
+    for (std::size_t frame = 0; frame < frame_count; ++frame) {
+        const float* input =
+            frames + frame * view.frame_size;
+        const auto status = PackedTernaryMatVecF32WithBackend(
+            view.projection,
+            input,
+            nullptr,
+            workspace,
+            resolved);
+        if (status == PackedTernaryStatus::kBackendUnavailable) {
+            return ModalityStatus::kBackendUnavailable;
+        }
+        if (status != PackedTernaryStatus::kOk) {
+            return ModalityStatus::kInvalidModel;
+        }
+        RmsNorm(
+            workspace,
+            view.norm_weight,
+            view.d_model,
+            view.rms_eps,
+            embeddings + frame * view.d_model);
     }
     return ModalityStatus::kOk;
 }
