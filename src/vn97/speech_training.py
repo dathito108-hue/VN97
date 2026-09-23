@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
 import math
 import random
+import struct
 from typing import Sequence
 
 import torch
@@ -17,6 +19,7 @@ from .tokenizer import VN97Tokenizer
 class VN97SpeechExample:
     waveform: torch.Tensor
     transcript: str
+    audio_sha256: str | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.waveform, torch.Tensor):
@@ -27,6 +30,50 @@ class VN97SpeechExample:
             raise ValueError("speech waveform contains non-finite values")
         if not isinstance(self.transcript, str) or not self.transcript.strip():
             raise ValueError("speech transcript must be non-empty text")
+        if self.audio_sha256 is not None and (
+            len(self.audio_sha256) != 64
+            or any(ch not in "0123456789abcdef" for ch in self.audio_sha256)
+        ):
+            raise ValueError("audio_sha256 must be lowercase SHA-256 or None")
+
+
+def speech_example_fingerprint(example: VN97SpeechExample) -> str:
+    if not isinstance(example, VN97SpeechExample):
+        raise TypeError("example must be VN97SpeechExample")
+    if example.audio_sha256 is None:
+        values = example.waveform.detach().cpu().to(torch.float32).contiguous()
+        digest = hashlib.sha256()
+        digest.update(b"VN97SPEECHAUDIO1\0")
+        for value in values.tolist():
+            digest.update(struct.pack("<f", float(value)))
+        audio_sha256 = digest.hexdigest()
+    else:
+        audio_sha256 = example.audio_sha256
+    digest = hashlib.sha256()
+    digest.update(b"VN97SPEECHREC1\0")
+    digest.update(bytes.fromhex(audio_sha256))
+    digest.update(b"\0")
+    digest.update(example.transcript.encode("utf-8"))
+    return digest.hexdigest()
+
+
+def require_disjoint_speech_splits(
+    training: Sequence[VN97SpeechExample],
+    validation: Sequence[VN97SpeechExample],
+    release: Sequence[VN97SpeechExample],
+) -> None:
+    if not training or not validation or not release:
+        raise ValueError("speech train/validation/release splits must be non-empty")
+    sets = (
+        ("training/validation", training, validation),
+        ("training/release", training, release),
+        ("validation/release", validation, release),
+    )
+    for label, first, second in sets:
+        left = {speech_example_fingerprint(value) for value in first}
+        right = {speech_example_fingerprint(value) for value in second}
+        if left.intersection(right):
+            raise ValueError(f"{label} speech records overlap")
 
 
 @dataclass(frozen=True)
