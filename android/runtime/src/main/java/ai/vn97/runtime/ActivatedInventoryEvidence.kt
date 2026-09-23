@@ -148,13 +148,13 @@ object VN97ActivatedModelInventoryEvidence {
         val capability = requireId(obj.string("capability_id"), "capability_id")
         val backend = requireId(obj.string("backend_id"), "backend_id")
         requireToken(obj.string("backend_token"), "backend_token")
-        requirePositiveInt(obj, "capability_version")
+        requireUnsigned32(obj, "capability_version")
         requireSha(obj.string("package_sha256"), "package_sha256")
         requireSha(obj.string("plan_sha256"), "plan_sha256")
         requireId(obj.string("profile_id"), "profile_id")
         requireSha(obj.string("profile_sha256"), "profile_sha256")
         requireId(obj.string("publisher_key_id"), "publisher_key_id")
-        requirePositiveInt(obj, "runtime_api_version")
+        requirePositiveLong(obj, "runtime_api_version")
         val revision = requireToken(obj.string("runtime_revision"), "runtime_revision")
         requireSha(obj.string("signature_sha256"), "signature_sha256")
         requireText(obj.string("source_license"), "source_license", 128)
@@ -240,13 +240,18 @@ object VN97ActivatedModelInventoryEvidence {
             if (it == 0L) fail("$key must be positive")
         }
 
-    private fun requirePositiveInt(obj: VnJsonObject, key: String): Int {
+    private fun requireUnsigned32(obj: VnJsonObject, key: String): Long {
         val value = obj.nonnegativeLong(key)
-        if (value !in 1L..Int.MAX_VALUE.toLong()) {
-            fail("$key must be positive Int")
+        if (value !in 1L..0xffff_ffffL) {
+            fail("$key must be in unsigned 32-bit version range")
         }
-        return value.toInt()
+        return value
     }
+
+    private fun requirePositiveLong(obj: VnJsonObject, key: String): Long =
+        obj.nonnegativeLong(key).also {
+            if (it == 0L) fail("$key must be positive")
+        }
 
     private fun requireId(value: String, label: String): String {
         if (
