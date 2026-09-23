@@ -148,16 +148,24 @@ class AndroidContinuationScheduler(private val context: Context) {
      * Schedule one persisted, reboot-surviving assistant continuation bound to the exact
      * durable VN97ACB1 principal/plan/model identity returned by persistAssistant(...).
      */
-    fun scheduleAssistant(spec: VN97AssistantContinuationSpec): Int = scheduleJob(
-        jobId = spec.jobId,
-        minimumLatencyMillis = spec.minimumLatencyMillis,
-        extras = runtimeExtras(spec.runtimeConfig).apply {
-            putString(CONTINUATION_MODE_KEY, CONTINUATION_MODE_ASSISTANT)
-            putString(ASSISTANT_PRINCIPAL_KEY, spec.binding.principal)
-            putString(ASSISTANT_PLAN_ID_KEY, spec.binding.planId)
-            putString(ASSISTANT_MODEL_ID_KEY, spec.binding.modelIdHex)
-        },
-    )
+    fun scheduleAssistant(spec: VN97AssistantContinuationSpec): Int {
+        val root = context.continuationRoot(spec.jobId)
+        VN97AssistantContinuationBindingStore(root).require(spec.binding)
+        val continuity = AtomicCompositeContinuityStore(root).loadOrNull()
+            ?: error("assistant continuation VN97CNT1 is missing")
+        restoreAssistantContinuation(spec.binding, continuity)
+
+        return scheduleJob(
+            jobId = spec.jobId,
+            minimumLatencyMillis = spec.minimumLatencyMillis,
+            extras = runtimeExtras(spec.runtimeConfig).apply {
+                putString(CONTINUATION_MODE_KEY, CONTINUATION_MODE_ASSISTANT)
+                putString(ASSISTANT_PRINCIPAL_KEY, spec.binding.principal)
+                putString(ASSISTANT_PLAN_ID_KEY, spec.binding.planId)
+                putString(ASSISTANT_MODEL_ID_KEY, spec.binding.modelIdHex)
+            },
+        )
+    }
 
     fun cancel(jobId: Int) = scheduler.cancel(jobId)
 
