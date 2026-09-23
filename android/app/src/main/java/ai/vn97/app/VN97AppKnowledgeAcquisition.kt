@@ -20,6 +20,9 @@ class VN97AppKnowledgeAcquisition(
         signatureUri: Uri,
         publisherKeyUri: Uri,
     ): VN97KnowledgeAcquisitionReview {
+        check(application.assistant.openIfActivated()) {
+            "trusted VN97 model is not active"
+        }
         val resolver = application.contentResolver
         val signatureBytes = readBounded(
             signatureUri,
