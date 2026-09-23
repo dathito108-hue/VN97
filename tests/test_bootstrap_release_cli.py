@@ -150,6 +150,12 @@ def test_release_cli_rejects_private_key_symlink(tmp_path):
                 "--source-origin", "vn97-training",
                 "--source-license", "proprietary",
                 "--assets-dir", str(tmp_path / "assets"),
+                "--validation-input", str(validation),
+                "--validation-format", "text",
+                "--validation-sequence-length", "32",
+                "--validation-batch-size", "1",
+                "--min-validation-target-tokens", "1",
+                "--max-validation-loss", "100",
             ]
         )
 
