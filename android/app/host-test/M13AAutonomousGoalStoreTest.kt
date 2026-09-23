@@ -1,6 +1,7 @@
 import ai.vn97.app.VN97AutonomousGoalRecord
 import ai.vn97.app.VN97AutonomousGoalState
 import ai.vn97.app.VN97AutonomousGoalStore
+import ai.vn97.app.VN97AutonomousPowerPolicy
 import java.nio.file.Files
 
 private inline fun expectFailure(block: () -> Unit) {
@@ -115,6 +116,54 @@ fun main() {
             previousJobId = 0,
             createdNs = 700L,
             updatedNs = 700L,
+        )
+    }
+
+    val longHorizon = VN97AutonomousGoalRecord(
+        jobId = 0x40000064,
+        planId = "66".repeat(32),
+        modelIdHex = base.modelIdHex,
+        principal = base.principal,
+        goal = "continue after a durable event",
+        state = VN97AutonomousGoalState.WAITING_DEPENDENCY,
+        createdNs = 800L,
+        updatedNs = 800L,
+        notBeforeWallTimeMillis = 10_000L,
+        deadlineWallTimeMillis = 20_000L,
+        dependencyKey = "network.ready",
+        dependencySatisfied = false,
+        powerPolicy = VN97AutonomousPowerPolicy.BATTERY_NOT_LOW,
+    )
+    store.save(longHorizon)
+    check(store.loadOrNull(longHorizon.jobId) == longHorizon)
+
+    val dependencySatisfied = longHorizon.copy(
+        state = VN97AutonomousGoalState.SCHEDULED,
+        updatedNs = 900L,
+        dependencySatisfied = true,
+        scheduleAttemptCount = 1,
+        lastScheduledWallTimeMillis = 10_000L,
+    )
+    store.save(dependencySatisfied)
+    check(
+        store.loadOrNull(longHorizon.jobId) ==
+            dependencySatisfied
+    )
+
+    expectFailure {
+        store.save(
+            dependencySatisfied.copy(
+                updatedNs = 1_000L,
+                dependencySatisfied = false,
+            )
+        )
+    }
+    expectFailure {
+        store.save(
+            dependencySatisfied.copy(
+                updatedNs = 1_000L,
+                scheduleAttemptCount = 0,
+            )
         )
     }
 
