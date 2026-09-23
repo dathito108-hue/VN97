@@ -12,6 +12,8 @@ from vn97 import (
     VN97DeploymentCheckpointIntegrityError,
     VN97LanguageCore,
     VN97TokenizerPackage,
+    VisionAdapterConfig,
+    VisionPatchAdapter,
     build_bootstrap_bundle_from_checkpoint,
     build_deployment_checkpoint,
     load_deployment_checkpoint,
@@ -120,6 +122,43 @@ def test_speech_enabled_checkpoint_roundtrip_and_bootstrap():
     assert bundle.model_image.startswith(b"VN97MI1\0")
     flags = int.from_bytes(bundle.model_image[16:20], "little")
     assert flags & (1 << 2)
+
+
+def test_vision_enabled_checkpoint_roundtrip_and_bootstrap():
+    tokenizer = VN97TokenizerPackage()
+    model = _model(vocab=tokenizer.vocab_size)
+    adapter = VisionPatchAdapter(
+        model.config.d_model,
+        ternary_threshold=model.config.ternary_threshold,
+        config=VisionAdapterConfig(),
+        rms_eps=model.config.rms_eps,
+    )
+    checkpoint = build_deployment_checkpoint(
+        model,
+        vision_adapter=adapter,
+    )
+    loaded = load_deployment_checkpoint(checkpoint)
+    assert loaded.vision_adapter is not None
+    assert loaded.vision_adapter.config.channels == 3
+    assert loaded.vision_adapter.config.patch_size == 16
+    for name, expected in adapter.state_dict().items():
+        assert torch.equal(
+            expected.detach().cpu().float(),
+            loaded.vision_adapter.state_dict()[name].detach().cpu().float(),
+        )
+
+    bundle = build_bootstrap_bundle_from_checkpoint(
+        checkpoint,
+        tokenizer=tokenizer,
+        capability_version=10,
+        signer=FakeSigner(),
+        source_origin="vn97-vision-training",
+        source_license="proprietary",
+        tile_rows=4,
+        tile_cols=4,
+    )
+    flags = int.from_bytes(bundle.model_image[16:20], "little")
+    assert flags & (1 << 3)
 
 
 def test_factorized_checkpoint_preserves_exact_tied_parameters():
