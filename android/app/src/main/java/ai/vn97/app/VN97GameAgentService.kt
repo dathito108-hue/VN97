@@ -37,7 +37,9 @@ class VN97GameAgentService : Service() {
             ACTION_STOP -> {
                 app.gameAgent.requestStop()
                 publishStatus(app.gameAgent.status())
-                stopSelf()
+                if (!running.get()) {
+                    stopSelf()
+                }
                 return START_NOT_STICKY
             }
 
