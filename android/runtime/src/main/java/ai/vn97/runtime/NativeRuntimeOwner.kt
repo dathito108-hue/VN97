@@ -71,6 +71,21 @@ class NativeRuntimeOwner(
     ): IntArray = requireSession().generateGreedy(model, promptIds, maxNewTokens, eosToken)
 
     @Synchronized
+    fun chatStreaming(
+        model: NativeActivatedModel,
+        userMessage: String,
+        config: NativeChatConfig = NativeChatConfig(),
+        cancellation: NativeChatCancellation = NativeChatCancellation(),
+        onDelta: (NativeChatDelta) -> Boolean,
+    ): NativeChatTurnResult = requireSession().chatStreaming(
+        model = model,
+        userMessage = userMessage,
+        config = config,
+        cancellation = cancellation,
+        onDelta = onDelta,
+    )
+
+    @Synchronized
     fun suspendAndPersist(): NativeRuntimeInfo {
         val runtime = requireSession()
         val before = runtime.info()
