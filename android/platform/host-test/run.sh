@@ -67,3 +67,16 @@ java -jar "$WORK/m7q-durable-audit-test.jar"
     -d "$WORK/m7r-production-capability-assembly-test.jar"
 
 java -jar "$WORK/m7r-production-capability-assembly-test.jar"
+
+"$KOTLINC" \
+    "$ROOT"/android/runtime/src/main/java/ai/vn97/runtime/*.kt \
+    "$ROOT/android/platform/src/main/java/ai/vn97/platform/M6Approval.kt" \
+    "$ROOT/android/platform/src/main/java/ai/vn97/platform/M6ExternalHandoff.kt" \
+    "$ROOT/android/platform/src/main/java/ai/vn97/platform/M6ExecutionFabric.kt" \
+    "$ROOT/android/platform/src/main/java/ai/vn97/platform/M6EndToEndExternalCoordinator.kt" \
+    "$HERE/M7SEndToEndExternalCoordinatorTest.kt" \
+    -Werror \
+    -include-runtime \
+    -d "$WORK/m7s-end-to-end-external-coordinator-test.jar"
+
+java -jar "$WORK/m7s-end-to-end-external-coordinator-test.jar"

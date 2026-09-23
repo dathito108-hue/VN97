@@ -1,5 +1,7 @@
 package ai.vn97.platform
 
+import ai.vn97.runtime.NativeCognitionLimits
+import ai.vn97.runtime.NativeTypedCognitionAdapter
 import android.content.Context
 import java.io.File
 
@@ -59,5 +61,21 @@ class AndroidPlatformRuntime(
         grants = grants,
         auditRoot = appContext.noBackupFilesDir,
         auditFileName = auditFileName,
+    )
+
+    fun createProductionExternalCoordinator(
+        cognition: NativeTypedCognitionAdapter,
+        grants: List<M6PolicyGrant>,
+        cognitionLimits: NativeCognitionLimits = NativeCognitionLimits(),
+        auditFileName: String = "m6-actions.jsonl",
+    ): M6EndToEndExternalCoordinator = M6EndToEndExternalCoordinator(
+        cognition = cognition,
+        binder = externalIntentBinder,
+        approvals = externalApprovals,
+        executionFabric = createProductionExternalExecutionFabric(
+            grants = grants,
+            auditFileName = auditFileName,
+        ),
+        cognitionLimits = cognitionLimits,
     )
 }
