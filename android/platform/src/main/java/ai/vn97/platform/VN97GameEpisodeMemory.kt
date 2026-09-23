@@ -531,9 +531,9 @@ class VN97GameEpisodeMemory internal constructor(
             30L * 24L * 60L * 60L * 1_000_000_000L
 
         private val GAME_CAPABILITIES = setOf(
-            M6AndroidProductionCapabilities.GAME_TAP_CAPABILITY,
-            M6AndroidProductionCapabilities.GAME_SWIPE_CAPABILITY,
-            M6AndroidProductionCapabilities.GAME_BACK_CAPABILITY,
+            "device.game.tap",
+            "device.game.swipe",
+            "device.game.back",
         )
     }
 }
