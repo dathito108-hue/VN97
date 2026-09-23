@@ -720,6 +720,20 @@ class VN97AutonomousWorkManager(
             )
             store.save(successor)
         }
+        store.save(
+            terminalRecord.copy(
+                updatedNs = maxOf(
+                    terminalRecord.updatedNs,
+                    successor.updatedNs,
+                ),
+                terminalReason =
+                    reason.take(12 * 1024) +
+                        " | successor_job=" +
+                        successor.jobId +
+                        " generation=" +
+                        successor.generation,
+            )
+        )
         return successor
     }
 
