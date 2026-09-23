@@ -191,6 +191,27 @@ fun main() {
     )
     expectRejected { registry.validate(invalidApp) }
 
+    val productionClipboardGrant =
+        M6AndroidProductionCapabilities.userApprovedClipboardGrant(
+            "runtime.user"
+        )
+    check(
+        productionClipboardGrant.capabilityId ==
+            M6AndroidProductionCapabilities.CLIPBOARD_WRITE_CAPABILITY
+    )
+    check(
+        productionClipboardGrant.scopeDigest ==
+            M6CapabilityScope.fromMap(
+                mapOf(
+                    M6AndroidProductionCapabilities.CLIPBOARD_CHANNEL_SCOPE to
+                        M6AndroidProductionCapabilities.CLIPBOARD_CHANNEL_VALUE
+                )
+            ).digest
+    )
+    check(productionClipboardGrant.approvalRequired == true)
+    check(productionClipboardGrant.maxLeaseUses == 1)
+    check(productionClipboardGrant.maxLeaseNs == 30_000_000_000L)
+
     val clipboardText = "hello\n\"VN97\" \\ mobile 😀"
     val clipboardController = waiting("ef".repeat(32), "write clipboard")
     val clipboardRequest = assembly.intentBinder.bind(

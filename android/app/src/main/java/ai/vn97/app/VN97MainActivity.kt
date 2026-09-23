@@ -8,6 +8,7 @@ import ai.vn97.platform.VN97AssistantTurnState
 import android.app.Activity
 import android.os.Bundle
 import android.view.Gravity
+import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.EditText
@@ -22,6 +23,9 @@ class VN97MainActivity : Activity() {
     private lateinit var transcriptView: TextView
     private lateinit var inputView: EditText
     private lateinit var sendButton: Button
+    private lateinit var approvalView: TextView
+    private lateinit var approveButton: Button
+    private lateinit var rejectButton: Button
 
     private val worker = Executors.newSingleThreadExecutor()
     private var state = VN97AppState()
@@ -84,6 +88,42 @@ class VN97MainActivity : Activity() {
         statusView = TextView(this)
         root.addView(
             statusView,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ),
+        )
+
+        approvalView = TextView(this).apply {
+            visibility = View.GONE
+            setTextIsSelectable(true)
+        }
+        root.addView(
+            approvalView,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ),
+        )
+
+        val approvalRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.END
+        }
+        rejectButton = Button(this).apply {
+            text = "Reject"
+            visibility = View.GONE
+            setOnClickListener { resolveApproval(false) }
+        }
+        approveButton = Button(this).apply {
+            text = "Approve"
+            visibility = View.GONE
+            setOnClickListener { resolveApproval(true) }
+        }
+        approvalRow.addView(rejectButton)
+        approvalRow.addView(approveButton)
+        root.addView(
+            approvalRow,
             LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT,
@@ -184,14 +224,9 @@ class VN97MainActivity : Activity() {
                 }
             } catch (exc: Throwable) {
                 runOnUiThread {
-                    render(
-                        VN97AppReducer.reduce(
-                            state,
-                            VN97AppEvent.Failed(
-                                "Trusted model activation failed: " +
-                                    exc::class.java.simpleName
-                            ),
-                        )
+                    renderFailure(
+                        "Trusted model activation failed: " +
+                            exc::class.java.simpleName
                     )
                 }
             }
@@ -207,49 +242,81 @@ class VN97MainActivity : Activity() {
 
         worker.execute {
             try {
-                val update = app.assistant.runTurn(message)
-                runOnUiThread {
-                    when (update.state) {
-                        VN97AssistantTurnState.COMPLETED -> render(
-                            VN97AppReducer.reduce(
-                                state,
-                                VN97AppEvent.TurnCompleted(
-                                    user = message,
-                                    assistant = update.finalResponse,
-                                ),
-                            )
-                        )
-
-                        VN97AssistantTurnState.APPROVAL_REQUIRED -> render(
-                            VN97AppReducer.reduce(
-                                state,
-                                VN97AppEvent.ApprovalRequired,
-                            )
-                        )
-
-                        else -> render(
-                            VN97AppReducer.reduce(
-                                state,
-                                VN97AppEvent.Failed(
-                                    "VN97 turn ended at ${update.state.name}."
-                                ),
-                            )
-                        )
-                    }
-                }
+                val result = app.assistant.runTurn(message)
+                runOnUiThread { applyTurnResult(result) }
             } catch (exc: Throwable) {
                 runOnUiThread {
-                    render(
-                        VN97AppReducer.reduce(
-                            state,
-                            VN97AppEvent.Failed(
-                                "VN97 turn failed: " + exc::class.java.simpleName
-                            ),
-                        )
+                    renderFailure("VN97 turn failed: " + exc::class.java.simpleName)
+                }
+            }
+        }
+    }
+
+    private fun resolveApproval(approved: Boolean) {
+        if (state.phase != VN97AppPhase.WAITING_APPROVAL) return
+        render(
+            state.copy(
+                status = if (approved) {
+                    "Applying explicit approval…"
+                } else {
+                    "Rejecting external action…"
+                },
+            )
+        )
+        worker.execute {
+            try {
+                val result = app.assistant.resolvePendingApproval(approved)
+                runOnUiThread { applyTurnResult(result) }
+            } catch (exc: Throwable) {
+                runOnUiThread {
+                    renderFailure(
+                        "Approval resolution failed: " +
+                            exc::class.java.simpleName
                     )
                 }
             }
         }
+    }
+
+    private fun applyTurnResult(result: VN97AppTurnResult) {
+        when (result.update.state) {
+            VN97AssistantTurnState.COMPLETED -> render(
+                VN97AppReducer.reduce(
+                    state,
+                    VN97AppEvent.TurnCompleted(
+                        user = result.userMessage,
+                        assistant = result.update.finalResponse,
+                    ),
+                )
+            )
+
+            VN97AssistantTurnState.APPROVAL_REQUIRED -> render(
+                VN97AppReducer.reduce(
+                    state,
+                    VN97AppEvent.ApprovalRequired,
+                )
+            )
+
+            VN97AssistantTurnState.APPROVAL_REJECTED -> render(
+                VN97AppReducer.reduce(
+                    state,
+                    VN97AppEvent.ApprovalRejected(result.userMessage),
+                )
+            )
+
+            else -> renderFailure(
+                "VN97 turn ended at ${result.update.state.name}."
+            )
+        }
+    }
+
+    private fun renderFailure(message: String) {
+        render(
+            VN97AppReducer.reduce(
+                state,
+                VN97AppEvent.Failed(message),
+            )
+        )
     }
 
     private fun render(next: VN97AppState) {
@@ -258,6 +325,20 @@ class VN97MainActivity : Activity() {
         inputView.isEnabled = state.inputEnabled
         sendButton.isEnabled = state.inputEnabled
         transcriptView.text = state.transcript.joinToString("\n\n")
+
+        val approval = if (state.phase == VN97AppPhase.WAITING_APPROVAL) {
+            app.assistant.pendingApproval()
+        } else {
+            null
+        }
+        approvalView.text = approval?.presentationJson.orEmpty()
+        val approvalVisibility =
+            if (approval == null) View.GONE else View.VISIBLE
+        approvalView.visibility = approvalVisibility
+        approveButton.visibility = approvalVisibility
+        rejectButton.visibility = approvalVisibility
+        approveButton.isEnabled = approval != null
+        rejectButton.isEnabled = approval != null
 
         val mode = when (state.phase) {
             VN97AppPhase.MODEL_REQUIRED -> AssistantMode.SLEEPING
