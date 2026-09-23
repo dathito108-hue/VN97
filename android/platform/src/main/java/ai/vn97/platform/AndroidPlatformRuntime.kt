@@ -351,6 +351,28 @@ class AndroidPlatformRuntime(
     }
 
     /**
+     * Bind the activated canonical VN97 cognition stack to one deterministic M15A
+     * paper account. Market snapshots remain caller-supplied bounded observations;
+     * this factory creates no broker or live-money route.
+     */
+    fun createProductionPaperTradingAgent(
+        model: NativeActivatedModel,
+        account: VN97PaperTradingAccount,
+        memory: NativeMemoryRetriever? = null,
+        cognitionRuntimeConfig: NativeCognitionRuntimeConfig =
+            NativeCognitionRuntimeConfig(),
+        limits: VN97PaperTradingAgentLimits =
+            VN97PaperTradingAgentLimits(),
+    ): VN97PaperTradingAgent =
+        VN97PaperTradingAgent.production(
+            model = model,
+            account = account,
+            memory = memory,
+            cognitionRuntimeConfig = cognitionRuntimeConfig,
+            limits = limits,
+        )
+
+    /**
      * Open the M15A deterministic paper-trading account in app-private no-backup
      * storage. This is simulation only: no broker credential, network order route,
      * or live-money capability is created here.
