@@ -234,6 +234,7 @@ def load_speech_manifest(
             VN97SpeechExample(
                 waveform=waveform,
                 transcript=value["text"],
+                audio_sha256=wav_hash.hex(),
             )
         )
         if len(examples) > max_examples:
