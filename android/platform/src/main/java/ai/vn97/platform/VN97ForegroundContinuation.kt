@@ -13,6 +13,7 @@ import java.io.File
 class VN97ForegroundAssistantContinuationSession internal constructor(
     val jobId: Int,
     val binding: VN97AssistantContinuationBinding,
+    private val model: NativeActivatedModel,
     private val owner: NativeRuntimeOwner,
     private val resources: VN97ProductionAssistantResources,
     private val compositeStore: AtomicCompositeContinuityStore,
@@ -109,6 +110,13 @@ class VN97ForegroundAssistantContinuationSession internal constructor(
             if (first == null) failure = exc
             else first.addSuppressed(exc)
         }
+        try {
+            model.close()
+        } catch (exc: Throwable) {
+            val first = failure
+            if (first == null) failure = exc
+            else first.addSuppressed(exc)
+        }
         closed = true
         failure?.let { throw it }
     }
@@ -184,6 +192,7 @@ fun openVN97ForegroundAssistantContinuation(
             return VN97ForegroundAssistantContinuationSession(
                 jobId = jobId,
                 binding = binding,
+                model = model,
                 owner = owner,
                 resources = resources,
                 compositeStore = compositeStore,
@@ -195,7 +204,17 @@ fun openVN97ForegroundAssistantContinuation(
             throw exc
         }
     } catch (exc: Throwable) {
-        owner.close()
-        throw exc
+        var failure: Throwable = exc
+        try {
+            owner.close()
+        } catch (closeExc: Throwable) {
+            failure.addSuppressed(closeExc)
+        }
+        try {
+            model.close()
+        } catch (closeExc: Throwable) {
+            failure.addSuppressed(closeExc)
+        }
+        throw failure
     }
 }
