@@ -11,6 +11,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.projection.MediaProjectionManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
 import android.provider.Settings
@@ -511,6 +512,7 @@ class VN97MainActivity : Activity() {
         }
         refreshFloatingAssistantButton()
         refreshVoicePermissionButton()
+        requestAutonomousNotificationPermissionIfNeeded()
         refreshVisualButtons()
         refreshAutonomousStatus()
     }
@@ -539,6 +541,20 @@ class VN97MainActivity : Activity() {
                     "Microphone enabled for local VN97 voice capture."
                 } else {
                     "Microphone permission was not granted."
+                }
+        }
+        if (requestCode == REQUEST_AUTONOMOUS_NOTIFICATION_PERMISSION) {
+            statusView.text =
+                if (
+                    Build.VERSION.SDK_INT <
+                        Build.VERSION_CODES.TIRAMISU ||
+                    checkSelfPermission(
+                        Manifest.permission.POST_NOTIFICATIONS
+                    ) == PackageManager.PERMISSION_GRANTED
+                ) {
+                    "Autonomous completion notifications enabled."
+                } else {
+                    "Autonomous notification permission was not granted."
                 }
         }
         if (requestCode == REQUEST_CAMERA_PERMISSION) {
@@ -570,6 +586,32 @@ class VN97MainActivity : Activity() {
         }
         worker.shutdownNow()
         super.onDestroy()
+    }
+
+    private fun requestAutonomousNotificationPermissionIfNeeded() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            return
+        }
+        if (
+            checkSelfPermission(
+                Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
+        ) {
+            return
+        }
+        val preferences =
+            getSharedPreferences(
+                "vn97-autonomous-notifications",
+                MODE_PRIVATE,
+            )
+        if (preferences.getBoolean("prompted", false)) {
+            return
+        }
+        preferences.edit().putBoolean("prompted", true).apply()
+        requestPermissions(
+            arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+            REQUEST_AUTONOMOUS_NOTIFICATION_PERMISSION,
+        )
     }
 
     private fun hasMicrophonePermission(): Boolean =
@@ -1626,6 +1668,7 @@ class VN97MainActivity : Activity() {
         private const val REQUEST_SIGNATURE = 4102
         private const val REQUEST_PUBLISHER_KEY = 4103
         private const val REQUEST_MICROPHONE_PERMISSION = 4201
+        private const val REQUEST_AUTONOMOUS_NOTIFICATION_PERMISSION = 4202
         private const val REQUEST_SCREEN_CAPTURE = 4301
         private const val REQUEST_CAMERA_PERMISSION = 4302
     }

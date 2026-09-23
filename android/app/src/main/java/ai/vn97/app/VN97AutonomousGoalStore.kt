@@ -13,7 +13,7 @@ import java.nio.file.LinkOption
 import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
 
-private const val VN97_GOA_VERSION = 2
+private const val VN97_GOA_VERSION = 3
 private const val VN97_GOA_HEADER_BYTES = 48
 private val VN97_GOA_MAGIC =
     "VN97GOA1".toByteArray(StandardCharsets.US_ASCII)
@@ -26,13 +26,28 @@ enum class VN97AutonomousGoalState(val code: Int) {
     COMPLETED(5),
     FAILED(6),
     CANCELLED(7),
-    BUDGET_EXHAUSTED(8);
+    BUDGET_EXHAUSTED(8),
+    WAITING_DEPENDENCY(9);
 
     companion object {
         fun fromCode(code: Int): VN97AutonomousGoalState =
             entries.firstOrNull { it.code == code }
                 ?: throw VN97AutonomousGoalStoreException(
                     "unknown VN97GOA1 state code: $code"
+                )
+    }
+}
+
+enum class VN97AutonomousPowerPolicy(val code: Int) {
+    ADAPTIVE(0),
+    BATTERY_NOT_LOW(1),
+    CHARGING_ONLY(2);
+
+    companion object {
+        fun fromCode(code: Int): VN97AutonomousPowerPolicy =
+            entries.firstOrNull { it.code == code }
+                ?: throw VN97AutonomousGoalStoreException(
+                    "unknown VN97GOA1 power policy code: $code"
                 )
     }
 }
@@ -52,6 +67,15 @@ data class VN97AutonomousGoalRecord(
     val wakeCount: Int = 0,
     val finalResponse: String = "",
     val terminalReason: String = "",
+    val notBeforeWallTimeMillis: Long = 0L,
+    val deadlineWallTimeMillis: Long = 0L,
+    val dependencyKey: String = "",
+    val dependencySatisfied: Boolean = dependencyKey.isEmpty(),
+    val powerPolicy: VN97AutonomousPowerPolicy =
+        VN97AutonomousPowerPolicy.ADAPTIVE,
+    val scheduleAttemptCount: Int = 0,
+    val lastScheduledWallTimeMillis: Long = 0L,
+    val terminalNotificationSent: Boolean = false,
 ) {
     init {
         require(jobId > 0) { "autonomous jobId must be positive" }
@@ -82,6 +106,40 @@ data class VN97AutonomousGoalRecord(
         }
         require(wakeCount >= 0) {
             "autonomous wakeCount must be non-negative"
+        }
+        require(notBeforeWallTimeMillis >= 0L) {
+            "autonomous not-before time must be non-negative"
+        }
+        require(deadlineWallTimeMillis >= 0L) {
+            "autonomous deadline must be non-negative"
+        }
+        if (
+            deadlineWallTimeMillis > 0L &&
+            notBeforeWallTimeMillis > 0L
+        ) {
+            require(deadlineWallTimeMillis >= notBeforeWallTimeMillis) {
+                "autonomous deadline precedes not-before time"
+            }
+        }
+        requireUtf8Bound(
+            dependencyKey,
+            MAX_DEPENDENCY_KEY_BYTES,
+            "dependencyKey",
+            nonEmpty = false,
+        )
+        require(dependencyKey.isEmpty() || dependencyKey.isNotBlank()) {
+            "dependencyKey must not contain only whitespace"
+        }
+        if (dependencyKey.isEmpty()) {
+            require(dependencySatisfied) {
+                "empty dependency must be satisfied"
+            }
+        }
+        require(scheduleAttemptCount >= 0) {
+            "scheduleAttemptCount must be non-negative"
+        }
+        require(lastScheduledWallTimeMillis >= 0L) {
+            "lastScheduledWallTimeMillis must be non-negative"
         }
         requireUtf8Bound(
             finalResponse,
@@ -134,12 +192,19 @@ data class VN97AutonomousGoalRecord(
             rootJobId == other.rootJobId &&
             generation == other.generation &&
             previousJobId == other.previousJobId &&
-            createdNs == other.createdNs
+            createdNs == other.createdNs &&
+            notBeforeWallTimeMillis ==
+                other.notBeforeWallTimeMillis &&
+            deadlineWallTimeMillis ==
+                other.deadlineWallTimeMillis &&
+            dependencyKey == other.dependencyKey &&
+            powerPolicy == other.powerPolicy
 
     companion object {
         internal const val MAX_GOAL_BYTES = 32 * 1024
         internal const val MAX_RESPONSE_BYTES = 128 * 1024
         internal const val MAX_REASON_BYTES = 16 * 1024
+        internal const val MAX_DEPENDENCY_KEY_BYTES = 512
     }
 }
 
@@ -198,6 +263,34 @@ class VN97AutonomousGoalStore(
             record.wakeCount < existing.wakeCount
         ) {
             fail("autonomous goal wake count moved backwards")
+        }
+        if (
+            existing != null &&
+            existing.dependencySatisfied &&
+            !record.dependencySatisfied
+        ) {
+            fail("autonomous dependency satisfaction moved backwards")
+        }
+        if (
+            existing != null &&
+            record.scheduleAttemptCount <
+                existing.scheduleAttemptCount
+        ) {
+            fail("autonomous schedule attempts moved backwards")
+        }
+        if (
+            existing != null &&
+            record.lastScheduledWallTimeMillis <
+                existing.lastScheduledWallTimeMillis
+        ) {
+            fail("autonomous last scheduled time moved backwards")
+        }
+        if (
+            existing != null &&
+            existing.terminalNotificationSent &&
+            !record.terminalNotificationSent
+        ) {
+            fail("autonomous terminal notification state moved backwards")
         }
 
         val bytes = encode(record)
@@ -358,7 +451,9 @@ class VN97AutonomousGoalStore(
                 4 + 256 +
                 4 + VN97AutonomousGoalRecord.MAX_GOAL_BYTES +
                 4 + VN97AutonomousGoalRecord.MAX_RESPONSE_BYTES +
-                4 + VN97AutonomousGoalRecord.MAX_REASON_BYTES
+                4 + VN97AutonomousGoalRecord.MAX_REASON_BYTES +
+                8 + 8 + 4 + 4 + 4 + 8 + 4 +
+                4 + VN97AutonomousGoalRecord.MAX_DEPENDENCY_KEY_BYTES
     }
 }
 
@@ -371,6 +466,8 @@ private fun encode(record: VN97AutonomousGoalRecord): ByteArray {
         record.finalResponse.toByteArray(StandardCharsets.UTF_8)
     val reason =
         record.terminalReason.toByteArray(StandardCharsets.UTF_8)
+    val dependency =
+        record.dependencyKey.toByteArray(StandardCharsets.UTF_8)
 
     val payloadSize = 4 + 8 + 8 + 4 + 4 + 4 + 4 + 4 +
         stringBytes(plan) +
@@ -378,7 +475,9 @@ private fun encode(record: VN97AutonomousGoalRecord): ByteArray {
         stringBytes(principal) +
         stringBytes(goal) +
         stringBytes(response) +
-        stringBytes(reason)
+        stringBytes(reason) +
+        8 + 8 + 4 + 4 + 4 + 8 + 4 +
+        stringBytes(dependency)
     val payload = ByteBuffer.allocate(payloadSize)
         .order(ByteOrder.BIG_ENDIAN)
         .apply {
@@ -396,6 +495,14 @@ private fun encode(record: VN97AutonomousGoalRecord): ByteArray {
             putBytes(goal)
             putBytes(response)
             putBytes(reason)
+            putLong(record.notBeforeWallTimeMillis)
+            putLong(record.deadlineWallTimeMillis)
+            putInt(if (record.dependencySatisfied) 1 else 0)
+            putInt(record.powerPolicy.code)
+            putInt(record.scheduleAttemptCount)
+            putLong(record.lastScheduledWallTimeMillis)
+            putInt(if (record.terminalNotificationSent) 1 else 0)
+            putBytes(dependency)
         }
         .array()
     val digest =
@@ -479,6 +586,33 @@ private fun decode(bytes: ByteArray): VN97AutonomousGoalRecord {
         VN97AutonomousGoalRecord.MAX_REASON_BYTES,
         "terminalReason",
     )
+    var notBeforeWallTimeMillis = 0L
+    var deadlineWallTimeMillis = 0L
+    var dependencyKey = ""
+    var dependencySatisfied = true
+    var powerPolicy = VN97AutonomousPowerPolicy.ADAPTIVE
+    var scheduleAttemptCount = 0
+    var lastScheduledWallTimeMillis = 0L
+    var terminalNotificationSent = false
+    if (version >= 3) {
+        if (source.remaining() < 40) {
+            fail("VN97GOA1 scheduling fields are truncated")
+        }
+        notBeforeWallTimeMillis = source.long
+        deadlineWallTimeMillis = source.long
+        dependencySatisfied =
+            decodeBoolean(source.int, "dependencySatisfied")
+        powerPolicy =
+            VN97AutonomousPowerPolicy.fromCode(source.int)
+        scheduleAttemptCount = source.int
+        lastScheduledWallTimeMillis = source.long
+        terminalNotificationSent =
+            decodeBoolean(source.int, "terminalNotificationSent")
+        dependencyKey = source.readText(
+            VN97AutonomousGoalRecord.MAX_DEPENDENCY_KEY_BYTES,
+            "dependencyKey",
+        )
+    }
     if (source.hasRemaining()) {
         fail("VN97GOA1 payload has trailing bytes")
     }
@@ -497,8 +631,23 @@ private fun decode(bytes: ByteArray): VN97AutonomousGoalRecord {
         wakeCount = wakeCount,
         finalResponse = response,
         terminalReason = reason,
+        notBeforeWallTimeMillis = notBeforeWallTimeMillis,
+        deadlineWallTimeMillis = deadlineWallTimeMillis,
+        dependencyKey = dependencyKey,
+        dependencySatisfied = dependencySatisfied,
+        powerPolicy = powerPolicy,
+        scheduleAttemptCount = scheduleAttemptCount,
+        lastScheduledWallTimeMillis = lastScheduledWallTimeMillis,
+        terminalNotificationSent = terminalNotificationSent,
     )
 }
+
+private fun decodeBoolean(value: Int, label: String): Boolean =
+    when (value) {
+        0 -> false
+        1 -> true
+        else -> fail("$label must be encoded as 0 or 1")
+    }
 
 private fun stringBytes(bytes: ByteArray): Int =
     Math.addExact(4, bytes.size)
