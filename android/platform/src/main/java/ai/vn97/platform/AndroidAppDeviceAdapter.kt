@@ -9,13 +9,20 @@ import android.os.Build
 import android.os.PersistableBundle
 
 internal object PlatformCapabilityIds {
-    const val APP_LAUNCH = M6AndroidProductionCapabilities.APP_LAUNCH_CAPABILITY
-    const val CLIPBOARD_WRITE = M6AndroidProductionCapabilities.CLIPBOARD_WRITE_CAPABILITY
+    const val APP_LAUNCH =
+        M6AndroidProductionCapabilities.APP_LAUNCH_CAPABILITY
+    const val CLIPBOARD_WRITE =
+        M6AndroidProductionCapabilities.CLIPBOARD_WRITE_CAPABILITY
+    const val DEVICE_TAP =
+        M6AndroidProductionCapabilities.DEVICE_TAP_CAPABILITY
+    const val DEVICE_SWIPE =
+        M6AndroidProductionCapabilities.DEVICE_SWIPE_CAPABILITY
 }
 
 internal class AndroidAppDeviceAdapter(
     context: Context,
     private val permissionBroker: AndroidPermissionBroker,
+    private val gameSession: AndroidGameSessionController,
 ) : M6AndroidActionPort {
     private val appContext = context.applicationContext
 
@@ -37,10 +44,17 @@ internal class AndroidAppDeviceAdapter(
 
     override fun writeClipboard(text: String): String {
         val bytes = text.toByteArray(Charsets.UTF_8)
-        require(bytes.size <= MAX_CLIPBOARD_UTF8_BYTES) { "clipboard text exceeds byte bound" }
-        permissionBroker.requireGranted(PlatformCapabilityIds.CLIPBOARD_WRITE)
-        val clipboard = appContext.getSystemService(ClipboardManager::class.java)
-            ?: throw IllegalStateException("clipboard service unavailable")
+        require(bytes.size <= MAX_CLIPBOARD_UTF8_BYTES) {
+            "clipboard text exceeds byte bound"
+        }
+        permissionBroker.requireGranted(
+            PlatformCapabilityIds.CLIPBOARD_WRITE
+        )
+        val clipboard =
+            appContext.getSystemService(ClipboardManager::class.java)
+                ?: throw IllegalStateException(
+                    "clipboard service unavailable"
+                )
         val clip = ClipData.newPlainText("VN97", text)
         clip.description.extras = PersistableBundle().apply {
             if (Build.VERSION.SDK_INT >= 33) {
@@ -51,6 +65,42 @@ internal class AndroidAppDeviceAdapter(
         }
         clipboard.setPrimaryClip(clip)
         return "clipboard:written"
+    }
+
+    override fun tap(
+        packageName: String,
+        xNormalized: Int,
+        yNormalized: Int,
+    ): String {
+        permissionBroker.requireGranted(
+            PlatformCapabilityIds.DEVICE_TAP
+        )
+        gameSession.reserveAction(packageName)
+        return AndroidAccessibilityGestureBridge.performTap(
+            xNormalized = xNormalized,
+            yNormalized = yNormalized,
+        )
+    }
+
+    override fun swipe(
+        packageName: String,
+        fromXNormalized: Int,
+        fromYNormalized: Int,
+        toXNormalized: Int,
+        toYNormalized: Int,
+        durationMs: Long,
+    ): String {
+        permissionBroker.requireGranted(
+            PlatformCapabilityIds.DEVICE_SWIPE
+        )
+        gameSession.reserveAction(packageName)
+        return AndroidAccessibilityGestureBridge.performSwipe(
+            fromXNormalized = fromXNormalized,
+            fromYNormalized = fromYNormalized,
+            toXNormalized = toXNormalized,
+            toYNormalized = toYNormalized,
+            durationMs = durationMs,
+        )
     }
 
     companion object {
