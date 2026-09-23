@@ -1,6 +1,7 @@
 package ai.vn97.app
 
 import ai.vn97.platform.VN97MarketDataPolicy
+import ai.vn97.platform.VN97PaperPerformanceEvaluator
 import ai.vn97.platform.VN97PaperTradingDecisionKind
 import ai.vn97.runtime.NativeActivatedInventoryModelLoader
 import ai.vn97.runtime.NativeCognitionInferenceEngine
@@ -81,6 +82,13 @@ class VN97PaperTradingSessionManager(
     private val scheduler = checkNotNull(
         application.getSystemService(JobScheduler::class.java)
     )
+    private val performanceEvidence =
+        VN97PaperPerformanceEvidenceStore(
+            File(
+                application.noBackupFilesDir,
+                "vn97-paper-performance",
+            )
+        )
 
     fun startSession(
         config: VN97PaperTradingSessionConfig,
@@ -197,6 +205,9 @@ class VN97PaperTradingSessionManager(
 
     fun listReports(): List<VN97PaperTradingSessionReport> =
         store.list().map(::reportOf)
+
+    fun performanceEvidence(): VN97PaperPerformanceAggregate =
+        performanceEvidence.aggregate()
 
     fun reconcileAfterSystemRestart(): List<VN97PaperTradingSessionRecord> =
         application.withSovereignExecution {
@@ -387,6 +398,22 @@ class VN97PaperTradingSessionManager(
                     return
                 }
 
+                val account =
+                    application.platformRuntime
+                        .openProductionPaperTradingAccount(
+                            fileName =
+                                "paper-" +
+                                    record.sessionId.take(16) +
+                                    ".vn97trd1"
+                        )
+
+                // M15F preflight: a fresh snapshot must mark every currently
+                // held paper position before VN97 may reason or execute.
+                VN97PaperPerformanceEvaluator.evaluate(
+                    account = account.snapshot(),
+                    market = snapshot,
+                )
+
                 record = record.copy(
                     updatedWallTimeMillis = monotonicNow(record),
                     episodesAttempted =
@@ -402,14 +429,6 @@ class VN97PaperTradingSessionManager(
                 store.save(record)
                 if (stopped.get()) return
 
-                val account =
-                    application.platformRuntime
-                        .openProductionPaperTradingAccount(
-                            fileName =
-                                "paper-" +
-                                    record.sessionId.take(16) +
-                                    ".vn97trd1"
-                        )
                 application.platformRuntime
                     .openOrCreateProductionMemory(model)
                     .use { memory ->
@@ -426,6 +445,29 @@ class VN97PaperTradingSessionManager(
                             nowNs = nowNs,
                         )
                         val outcome = resultOutcome(result)
+                        val performance =
+                            VN97PaperPerformanceEvaluator.evaluate(
+                                account = account.snapshot(),
+                                market = snapshot,
+                            )
+                        val evidence =
+                            VN97PaperPerformanceEvidence.from(
+                                sessionId = record.sessionId,
+                                jobId = record.jobId,
+                                episode = record.episodesAttempted,
+                                recordedWallTimeMillis = nowMs,
+                                performance = performance,
+                                decision = result.finalResponse,
+                                outcome = outcome,
+                            )
+                        performanceEvidence.append(evidence)
+                        appendPerformanceMemory(
+                            model = model,
+                            memory = memory,
+                            record = record,
+                            evidence = evidence,
+                            nowNs = nowNs,
+                        )
                         appendEpisodeMemory(
                             model = model,
                             memory = memory,
@@ -506,7 +548,8 @@ class VN97PaperTradingSessionManager(
             }
             val latest = store.loadOrNull(record.jobId)
                 ?: return
-            if (latest.terminal ||
+            if (
+                latest.terminal ||
                 latest.state == VN97PaperTradingSessionState.PAUSED
             ) {
                 return
@@ -619,6 +662,49 @@ class VN97PaperTradingSessionManager(
         scheduler.cancel(record.jobId)
         appendTerminalMemoryBestEffort(terminal)
         return terminal
+    }
+
+    private fun appendPerformanceMemory(
+        model: ai.vn97.runtime.NativeActivatedModel,
+        memory: ai.vn97.runtime.NativeMemoryStore,
+        record: VN97PaperTradingSessionRecord,
+        evidence: VN97PaperPerformanceEvidence,
+        nowNs: Long,
+    ) {
+        val content = buildString {
+            append("VN97PAPERPERF1")
+            append(10.toChar())
+            append("session_id=")
+            append(record.sessionId)
+            append(10.toChar())
+            append("episode=")
+            append(evidence.episode)
+            append(10.toChar())
+            append("snapshot_id=")
+            append(evidence.snapshotId)
+            append(10.toChar())
+            append("marked_equity_micros=")
+            append(evidence.markedEquityMicros)
+            append(10.toChar())
+            append("total_pnl_micros=")
+            append(evidence.totalPnlMicros)
+            append(10.toChar())
+            append("return_bps=")
+            append(evidence.totalReturnBasisPoints)
+            append(10.toChar())
+            append("max_authority=paper_simulation_only")
+        }.take(MAX_MEMORY_CONTENT_CHARS)
+        val engine = NativeCognitionInferenceEngine(model)
+        memory.append(
+            kind = NativeMemoryKind.EPISODIC,
+            timestampNs = nowNs,
+            importance = 0.9f,
+            source = PAPER_PERFORMANCE_MEMORY_SOURCE,
+            content = content,
+            vector = engine.embedText(content, memory.vectorDim),
+            parentId = 0L,
+            durable = true,
+        )
     }
 
     private fun appendEpisodeMemory(
@@ -864,6 +950,8 @@ class VN97PaperTradingSessionManager(
             "vn97.trading.paper.episode"
         private const val PAPER_TERMINAL_MEMORY_SOURCE =
             "vn97.trading.paper.terminal"
+        private const val PAPER_PERFORMANCE_MEMORY_SOURCE =
+            "vn97.trading.paper.performance"
     }
 }
 
