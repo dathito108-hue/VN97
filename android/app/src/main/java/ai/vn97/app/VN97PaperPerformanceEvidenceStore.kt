@@ -214,7 +214,20 @@ class VN97PaperPerformanceEvidenceStore(
             require(size in 1L..MAX_RECORD_BYTES.toLong()) {
                 "paper performance evidence size is outside bound"
             }
-            decode(Files.readAllBytes(file.toPath()))
+            decode(Files.readAllBytes(file.toPath())).also { record ->
+                require(record.sessionId == sessionId) {
+                    "paper performance evidence is in the wrong session directory"
+                }
+                require(
+                    file.name ==
+                        "%08d.vn97ppe1".format(record.episode)
+                ) {
+                    "paper performance evidence filename does not match episode"
+                }
+            }
+        }
+        require(records.map { it.jobId }.distinct().size <= 1) {
+            "paper performance session contains multiple job identities"
         }
         require(records.zipWithNext().all { (a, b) ->
             b.episode > a.episode &&
