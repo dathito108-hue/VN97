@@ -87,8 +87,10 @@ data class VN97AssistantTurnUpdate(
 class VN97AssistantSession(
     private val coordinator: M6EndToEndExternalCoordinator,
     val limits: VN97AssistantSessionLimits = VN97AssistantSessionLimits(),
+    private val defaultMemory: NativeMemoryRetriever? = null,
 ) {
     private var active: VN97AssistantTurn? = null
+    private var activeMemory: NativeMemoryRetriever? = null
     private var pendingApproval: M6PendingExternalApproval? = null
     private var nextTurnId = 1L
 
@@ -110,14 +112,15 @@ class VN97AssistantSession(
         require(createdNs >= 0L) { "createdNs must be non-negative" }
         require(nowNs >= 0L) { "nowNs must be non-negative" }
 
+        val turnMemory = memoryForNewTurn(memory)
         val controller = coordinator.buildPlan(
             goal = userMessage,
             budget = budget,
             createdNs = createdNs,
         )
-        val turn = createActiveTurn(controller, principal)
+        val turn = createActiveTurn(controller, principal, turnMemory)
         return try {
-            drive(turn, memory, nowNs, seed = null)
+            drive(turn, turnMemory, nowNs, seed = null)
         } catch (exc: Throwable) {
             clearIfActive(turn)
             throw exc
@@ -141,9 +144,10 @@ class VN97AssistantSession(
         require(nowNs >= 0L) { "nowNs must be non-negative" }
         require(!controller.plan.isTerminal()) { "restored planner is already terminal" }
 
-        val turn = createActiveTurn(controller, principal)
+        val turnMemory = memoryForNewTurn(memory)
+        val turn = createActiveTurn(controller, principal, turnMemory)
         return try {
-            drive(turn, memory, nowNs, seed = null)
+            drive(turn, turnMemory, nowNs, seed = null)
         } catch (exc: Throwable) {
             clearIfActive(turn)
             throw exc
@@ -161,8 +165,9 @@ class VN97AssistantSession(
             "the active turn is waiting for approval resolution"
         }
         require(nowNs >= 0L) { "nowNs must be non-negative" }
+        val turnMemory = memoryForActiveTurn(memory)
         return try {
-            drive(turn, memory, nowNs, seed = null)
+            drive(turn, turnMemory, nowNs, seed = null)
         } catch (exc: Throwable) {
             clearIfActive(turn)
             throw exc
@@ -179,6 +184,7 @@ class VN97AssistantSession(
     ): VN97AssistantTurnUpdate {
         requireActive(turn)
         require(nowNs >= 0L) { "nowNs must be non-negative" }
+        val turnMemory = memoryForActiveTurn(memory)
         val expected = checkNotNull(pendingApproval) {
             "the active turn is not waiting for approval"
         }
@@ -192,12 +198,12 @@ class VN97AssistantSession(
                 controller = turn.controller,
                 pending = expected,
                 approved = approved,
-                memory = memory,
+                memory = turnMemory,
                 maxCycles = limits.maxCyclesPerAdvance,
                 approvalTtlNs = limits.approvalTtlNs,
                 nowNs = nowNs,
             )
-            drive(turn, memory, nowNs, seed = resolved)
+            drive(turn, turnMemory, nowNs, seed = resolved)
         } catch (exc: Throwable) {
             clearIfActive(turn)
             throw exc
@@ -207,12 +213,14 @@ class VN97AssistantSession(
     private fun createActiveTurn(
         controller: NativePlanController,
         principal: String,
+        memory: NativeMemoryRetriever?,
     ): VN97AssistantTurn {
         if (nextTurnId == Long.MAX_VALUE) {
             throw IllegalStateException("assistant turn sequence exhausted")
         }
         val turn = VN97AssistantTurn(nextTurnId++, controller, principal)
         active = turn
+        activeMemory = memory
         pendingApproval = null
         return turn
     }
@@ -324,6 +332,29 @@ class VN97AssistantSession(
         )
     }
 
+    private fun memoryForNewTurn(
+        memory: NativeMemoryRetriever?,
+    ): NativeMemoryRetriever? {
+        val bound = defaultMemory
+        if (bound != null) {
+            check(memory == null || memory === bound) {
+                "cannot override the session-bound sovereign memory"
+            }
+            return bound
+        }
+        return memory
+    }
+
+    private fun memoryForActiveTurn(
+        memory: NativeMemoryRetriever?,
+    ): NativeMemoryRetriever? {
+        val bound = activeMemory
+        check(memory == null || memory === bound) {
+            "cannot change sovereign memory during an active assistant turn"
+        }
+        return bound
+    }
+
     private fun requireActive(turn: VN97AssistantTurn) {
         check(active === turn) { "turn is not the active assistant turn" }
     }
@@ -331,6 +362,7 @@ class VN97AssistantSession(
     private fun clearIfActive(turn: VN97AssistantTurn) {
         if (active === turn) {
             active = null
+            activeMemory = null
             pendingApproval = null
         }
     }

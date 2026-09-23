@@ -4,6 +4,7 @@ import ai.vn97.runtime.NativeActivatedModel
 import ai.vn97.runtime.NativeCognitionInferenceEngine
 import ai.vn97.runtime.NativeCognitionLimits
 import ai.vn97.runtime.NativeCognitionRuntimeConfig
+import ai.vn97.runtime.NativeMemoryRetriever
 import ai.vn97.runtime.NativeMemoryStore
 import ai.vn97.runtime.NativeTypedCognitionAdapter
 import android.content.Context
@@ -95,6 +96,62 @@ class AndroidPlatformRuntime(
         cognitionLimits: NativeCognitionLimits = NativeCognitionLimits(),
         sessionLimits: VN97AssistantSessionLimits = VN97AssistantSessionLimits(),
         auditFileName: String = "m6-actions.jsonl",
+    ): VN97AssistantSession = assembleProductionAssistantSession(
+        model = model,
+        grants = grants,
+        cognitionRuntimeConfig = cognitionRuntimeConfig,
+        cognitionLimits = cognitionLimits,
+        sessionLimits = sessionLimits,
+        auditFileName = auditFileName,
+        memory = null,
+    )
+
+    /**
+     * Open the canonical app-private VN97MEM1 store and bind it to the existing M7T
+     * assistant session for the complete turn lifecycle.
+     */
+    fun createProductionMemoryBackedAssistant(
+        model: NativeActivatedModel,
+        grants: List<M6PolicyGrant>,
+        cognitionRuntimeConfig: NativeCognitionRuntimeConfig = NativeCognitionRuntimeConfig(),
+        cognitionLimits: NativeCognitionLimits = NativeCognitionLimits(),
+        sessionLimits: VN97AssistantSessionLimits = VN97AssistantSessionLimits(),
+        auditFileName: String = "m6-actions.jsonl",
+        memoryFileName: String = "memory.vn97mem1",
+        recoverTornTail: Boolean = true,
+    ): VN97ProductionAssistantResources {
+        val memory = openOrCreateProductionMemory(
+            model = model,
+            fileName = memoryFileName,
+            recoverTornTail = recoverTornTail,
+        )
+        return try {
+            VN97ProductionAssistantResources(
+                session = assembleProductionAssistantSession(
+                    model = model,
+                    grants = grants,
+                    cognitionRuntimeConfig = cognitionRuntimeConfig,
+                    cognitionLimits = cognitionLimits,
+                    sessionLimits = sessionLimits,
+                    auditFileName = auditFileName,
+                    memory = memory,
+                ),
+                memory = memory,
+            )
+        } catch (exc: Throwable) {
+            memory.close()
+            throw exc
+        }
+    }
+
+    private fun assembleProductionAssistantSession(
+        model: NativeActivatedModel,
+        grants: List<M6PolicyGrant>,
+        cognitionRuntimeConfig: NativeCognitionRuntimeConfig,
+        cognitionLimits: NativeCognitionLimits,
+        sessionLimits: VN97AssistantSessionLimits,
+        auditFileName: String,
+        memory: NativeMemoryRetriever?,
     ): VN97AssistantSession {
         val cognition = NativeTypedCognitionAdapter(
             NativeCognitionInferenceEngine(
@@ -110,6 +167,7 @@ class AndroidPlatformRuntime(
                 auditFileName = auditFileName,
             ),
             limits = sessionLimits,
+            defaultMemory = memory,
         )
     }
 
@@ -155,6 +213,15 @@ class AndroidPlatformRuntime(
             vectorDim = model.info.dModel,
             overwrite = false,
         )
+    }
+}
+
+class VN97ProductionAssistantResources internal constructor(
+    val session: VN97AssistantSession,
+    val memory: NativeMemoryStore,
+) : AutoCloseable {
+    override fun close() {
+        memory.close()
     }
 }
 
