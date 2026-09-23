@@ -40,6 +40,7 @@ class VN97MainActivity : Activity() {
     private lateinit var cameraAnalyzeButton: Button
     private lateinit var mobileEvidenceButton: Button
     private lateinit var gameAccessibilityButton: Button
+    private lateinit var gameControlsContainer: LinearLayout
     private lateinit var gamePackageView: EditText
     private lateinit var gameGoalView: EditText
     private lateinit var gameStartButton: Button
@@ -212,6 +213,32 @@ class VN97MainActivity : Activity() {
             ),
         )
 
+        gameControlsContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
+        }
+        val gamePanelButton = Button(this).apply {
+            text = "Game Agent"
+            setOnClickListener {
+                gameControlsContainer.visibility =
+                    if (
+                        gameControlsContainer.visibility ==
+                            View.VISIBLE
+                    ) {
+                        View.GONE
+                    } else {
+                        View.VISIBLE
+                    }
+            }
+        }
+        root.addView(
+            gamePanelButton,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ),
+        )
+
         gameAccessibilityButton = Button(this).apply {
             setOnClickListener {
                 startActivity(
@@ -219,7 +246,7 @@ class VN97MainActivity : Activity() {
                 )
             }
         }
-        root.addView(
+        gameControlsContainer.addView(
             gameAccessibilityButton,
             LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -231,7 +258,7 @@ class VN97MainActivity : Activity() {
             hint = "Game package (for example com.example.game)"
             maxLines = 1
         }
-        root.addView(
+        gameControlsContainer.addView(
             gamePackageView,
             LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -243,7 +270,7 @@ class VN97MainActivity : Activity() {
             hint = "Game objective for VN97"
             maxLines = 3
         }
-        root.addView(
+        gameControlsContainer.addView(
             gameGoalView,
             LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -278,7 +305,7 @@ class VN97MainActivity : Activity() {
                 1f,
             ),
         )
-        root.addView(
+        gameControlsContainer.addView(
             gameActionRow,
             LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -290,8 +317,15 @@ class VN97MainActivity : Activity() {
             text = "Game Agent: idle"
             setTextIsSelectable(true)
         }
-        root.addView(
+        gameControlsContainer.addView(
             gameStatusView,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ),
+        )
+        root.addView(
+            gameControlsContainer,
             LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT,
