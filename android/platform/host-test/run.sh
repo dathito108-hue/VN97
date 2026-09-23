@@ -18,3 +18,14 @@ KOTLINC="${KOTLINC:-kotlinc}"
     -d "$WORK/m7b2-approval-test.jar"
 
 java -jar "$WORK/m7b2-approval-test.jar"
+
+"$KOTLINC" \
+    "$ROOT/android/platform/src/main/java/ai/vn97/platform/M6Approval.kt" \
+    "$ROOT/android/platform/src/main/java/ai/vn97/platform/M6ExternalHandoff.kt" \
+    "$HERE/M7ORuntimeStubs.kt" \
+    "$HERE/M7OExternalHandoffTest.kt" \
+    -Werror \
+    -include-runtime \
+    -d "$WORK/m7o-external-handoff-test.jar"
+
+java -jar "$WORK/m7o-external-handoff-test.jar"

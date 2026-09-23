@@ -13,6 +13,9 @@ class AndroidPlatformRuntime(
         issuer = approvalIssuer,
     )
 
+    val externalApprovals: M6ExternalApprovalHandoff =
+        M6ExternalApprovalHandoff(AndroidApprovalControllerPort(approvals))
+
     internal val permissionBroker = AndroidPermissionBroker(context, permissionRequirements)
     internal val appDeviceAdapter = AndroidAppDeviceAdapter(context, permissionBroker)
 }
