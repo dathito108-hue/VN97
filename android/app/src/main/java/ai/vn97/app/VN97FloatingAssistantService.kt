@@ -46,6 +46,11 @@ class VN97FloatingAssistantService : Service() {
         flags: Int,
         startId: Int,
     ): Int {
+        if (intent?.action == ACTION_DISABLE) {
+            disable(this)
+            stopSelf()
+            return START_NOT_STICKY
+        }
         if (!isEnabled(this) || !Settings.canDrawOverlays(this)) {
             stopSelf()
             return START_NOT_STICKY
@@ -273,7 +278,7 @@ class VN97FloatingAssistantService : Service() {
             .setCategory(Notification.CATEGORY_SERVICE)
             .addAction(
                 Notification.Action.Builder(
-                    null,
+                    R.drawable.ic_vn97_assistant,
                     "Hide",
                     stop,
                 ).build()
