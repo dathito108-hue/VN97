@@ -9,6 +9,10 @@ import ai.vn97.platform.VN97AssistantContinuationWork
 import ai.vn97.platform.VN97AssistantSessionLimits
 import ai.vn97.runtime.NativeActivatedInventoryModelLoader
 import ai.vn97.runtime.NativeBackend
+import ai.vn97.runtime.NativePlan
+import ai.vn97.runtime.NativePlanStatus
+import ai.vn97.runtime.NativeStepKind
+import ai.vn97.runtime.NativeStepStatus
 import ai.vn97.runtime.NativeRuntimeConfig
 import android.os.SystemClock
 import java.io.File
@@ -325,7 +329,17 @@ class VN97AutonomousWorkManager(
             }
         } catch (exc: Throwable) {
             val now = wallNowNs()
-            if (running.wakeCount >= MAX_WAKE_COUNT) {
+            val plan = context.controller.plan
+            if (plan.isTerminal()) {
+                store.save(
+                    terminalRecordFromPlan(
+                        running,
+                        plan,
+                        now,
+                    )
+                )
+                ContinuationOutcome.COMPLETE
+            } else if (running.wakeCount >= MAX_WAKE_COUNT) {
                 store.save(
                     running.copy(
                         state = VN97AutonomousGoalState.FAILED,
@@ -350,6 +364,78 @@ class VN97AutonomousWorkManager(
                 ContinuationOutcome.RESCHEDULE
             }
             }
+        }
+    }
+
+    private fun terminalRecordFromPlan(
+        running: VN97AutonomousGoalRecord,
+        plan: NativePlan,
+        nowNs: Long,
+    ): VN97AutonomousGoalRecord {
+        check(plan.isTerminal()) {
+            "terminal ledger recovery requires terminal planner"
+        }
+        return when (plan.status) {
+            NativePlanStatus.COMPLETED -> {
+                val response = plan.steps
+                    .asReversed()
+                    .firstOrNull {
+                        it.spec.kind == NativeStepKind.RESPOND &&
+                            it.status == NativeStepStatus.SUCCEEDED
+                    }
+                    ?.result
+                    .orEmpty()
+                if (response.isBlank()) {
+                    running.copy(
+                        state = VN97AutonomousGoalState.FAILED,
+                        updatedNs = nowNs,
+                        terminalReason =
+                            "completed planner is missing final response",
+                    )
+                } else {
+                    running.copy(
+                        state = VN97AutonomousGoalState.COMPLETED,
+                        updatedNs = nowNs,
+                        finalResponse = response,
+                        terminalReason = "",
+                    )
+                }
+            }
+
+            NativePlanStatus.FAILED ->
+                running.copy(
+                    state = VN97AutonomousGoalState.FAILED,
+                    updatedNs = nowNs,
+                    terminalReason =
+                        plan.terminalReason.ifBlank {
+                            "planner failed"
+                        },
+                )
+
+            NativePlanStatus.CANCELLED ->
+                running.copy(
+                    state = VN97AutonomousGoalState.CANCELLED,
+                    updatedNs = nowNs,
+                    terminalReason =
+                        plan.terminalReason.ifBlank {
+                            "planner cancelled"
+                        },
+                )
+
+            NativePlanStatus.BUDGET_EXHAUSTED ->
+                running.copy(
+                    state =
+                        VN97AutonomousGoalState.BUDGET_EXHAUSTED,
+                    updatedNs = nowNs,
+                    terminalReason =
+                        plan.terminalReason.ifBlank {
+                            "planner budget exhausted"
+                        },
+                )
+
+            else -> throw IllegalStateException(
+                "unexpected non-terminal planner state"
+            )
         }
     }
 
