@@ -77,6 +77,20 @@ from .capability_inventory import (
     InventoryEvent,
     InventorySnapshot,
 )
+from .bootstrap_bundle import (
+    BOOTSTRAP_CAPABILITY_ID,
+    BOOTSTRAP_PACKAGE_NAME,
+    BOOTSTRAP_PUBLISHER_KEY_NAME,
+    BOOTSTRAP_SECTION_FORMAT,
+    BOOTSTRAP_SECTION_ROLE,
+    BOOTSTRAP_SIGNATURE_NAME,
+    Ed25519PrivateKeySigner,
+    VN97BootstrapBundle,
+    VN97BootstrapBundleError,
+    VN97BootstrapSigner,
+    build_bootstrap_bundle,
+    write_bootstrap_assets,
+)
 from .capability_trust import (
     AdapterSpec,
     CapabilityTrustError,
@@ -223,6 +237,18 @@ from .tokenizer import (
 )
 
 __all__ = [
+    "BOOTSTRAP_CAPABILITY_ID",
+    "BOOTSTRAP_PACKAGE_NAME",
+    "BOOTSTRAP_PUBLISHER_KEY_NAME",
+    "BOOTSTRAP_SECTION_FORMAT",
+    "BOOTSTRAP_SECTION_ROLE",
+    "BOOTSTRAP_SIGNATURE_NAME",
+    "Ed25519PrivateKeySigner",
+    "VN97BootstrapBundle",
+    "VN97BootstrapBundleError",
+    "VN97BootstrapSigner",
+    "build_bootstrap_bundle",
+    "write_bootstrap_assets",
     "ActivationConflictError",
     "ActivationRecoveryRequired",
     "BackendStatus",
