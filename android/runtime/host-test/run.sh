@@ -64,3 +64,12 @@ java -Djava.library.path="$WORK" -jar "$WORK/m7h-host-test.jar"
     -d "$WORK/m7i-host-test.jar"
 
 java -Djava.library.path="$WORK" -jar "$WORK/m7i-host-test.jar"
+
+"$KOTLINC" \
+    "$ROOT"/android/runtime/src/main/java/ai/vn97/runtime/*.kt \
+    "$HERE/M7JTypedCognitionTest.kt" \
+    -Werror \
+    -include-runtime \
+    -d "$WORK/m7j-host-test.jar"
+
+java -Djava.library.path="$WORK" -jar "$WORK/m7j-host-test.jar"

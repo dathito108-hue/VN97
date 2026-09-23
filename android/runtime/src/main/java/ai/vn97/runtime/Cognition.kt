@@ -126,10 +126,19 @@ internal object NativeCognitionPrompt {
     }
 }
 
+interface NativeCognitionInference {
+    fun generateOperation(
+        operation: NativeCognitionOperation,
+        requestJson: String,
+    ): String
+
+    fun embedText(text: String, vectorDim: Int): FloatArray
+}
+
 class NativeCognitionInferenceEngine(
     private val model: NativeActivatedModel,
     private val config: NativeCognitionRuntimeConfig = NativeCognitionRuntimeConfig(),
-) {
+) : NativeCognitionInference {
     init {
         require(model.info.hasTokenizer) {
             "native cognition requires VN97TK1 in the activated model"
@@ -145,7 +154,7 @@ class NativeCognitionInferenceEngine(
         maxPromptUtf8Bytes = config.adapterConfig.maxPromptUtf8Bytes,
     )
 
-    fun generateOperation(
+    override fun generateOperation(
         operation: NativeCognitionOperation,
         requestJson: String,
     ): String = generateText(
@@ -173,7 +182,7 @@ class NativeCognitionInferenceEngine(
         return decodeStrictUtf8(bytes)
     }
 
-    fun embedText(text: String, vectorDim: Int): FloatArray {
+    override fun embedText(text: String, vectorDim: Int): FloatArray {
         require(vectorDim > 0) { "vectorDim must be positive" }
         if (vectorDim != model.info.dModel) {
             throw NativeCognitionContractException(
