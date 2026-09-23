@@ -23,6 +23,8 @@ import android.widget.TextView
 import java.io.File
 import java.io.FileOutputStream
 import java.nio.charset.StandardCharsets
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 import java.util.concurrent.Executors
 
 class VN97MainActivity : Activity() {
@@ -739,15 +741,18 @@ class VN97MainActivity : Activity() {
                     output.flush()
                     output.fd.sync()
                 }
-                if (target.exists() && !target.delete()) {
-                    throw IllegalStateException(
-                        "could not replace previous mobile evidence"
+                try {
+                    Files.move(
+                        temp.toPath(),
+                        target.toPath(),
+                        StandardCopyOption.ATOMIC_MOVE,
+                        StandardCopyOption.REPLACE_EXISTING,
                     )
-                }
-                if (!temp.renameTo(target)) {
+                } catch (exc: Throwable) {
                     temp.delete()
                     throw IllegalStateException(
-                        "could not atomically publish mobile evidence"
+                        "could not atomically publish mobile evidence",
+                        exc,
                     )
                 }
                 if (!target.readBytes().contentEquals(bytes)) {
