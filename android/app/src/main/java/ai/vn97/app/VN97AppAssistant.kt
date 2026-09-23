@@ -2,6 +2,8 @@ package ai.vn97.app
 
 import ai.vn97.platform.M6AndroidProductionCapabilities
 import ai.vn97.platform.VN97AssistantTurnState
+import ai.vn97.platform.VN97AutonomousContinuationSeed
+import ai.vn97.platform.createVN97AutonomousContinuationSeed
 import ai.vn97.platform.VN97AssistantTurnUpdate
 import ai.vn97.platform.VN97MobileEvidenceConfig
 import ai.vn97.platform.VN97MobileEvidenceRecord
@@ -11,7 +13,6 @@ import ai.vn97.runtime.NativeActivatedModel
 import ai.vn97.runtime.NativeCognitionInferenceEngine
 import ai.vn97.runtime.NativePreparedAudio
 import ai.vn97.runtime.NativePreparedVision
-import android.content.Intent
 import android.os.SystemClock
 import java.io.File
 
@@ -80,6 +81,30 @@ class VN97AppAssistant(
                 userMessage = userMessage,
                 update = advanceYielded(session, first, maxAdvances),
             )
+        )
+    }
+
+    fun createAutonomousSeed(
+        goal: String,
+    ): VN97AutonomousContinuationSeed = synchronized(lock) {
+        require(goal.isNotBlank()) {
+            "autonomous goal must not be blank"
+        }
+        check(pendingResult == null) {
+            "cannot create autonomous goal while approval is pending"
+        }
+        val activeResources = checkNotNull(resources) {
+            "trusted VN97 model is not active"
+        }
+        check(!activeResources.session.hasActiveTurn) {
+            "cannot create autonomous goal while a turn is active"
+        }
+        val activeModel = checkNotNull(model) {
+            "trusted VN97 model is not active"
+        }
+        createVN97AutonomousContinuationSeed(
+            model = activeModel,
+            goal = goal,
         )
     }
 
@@ -317,33 +342,10 @@ class VN97AppAssistant(
     }
 
     private fun productionGrants() =
-        buildList {
-            add(
-                M6AndroidProductionCapabilities.userApprovedClipboardGrant(
-                    APP_PRINCIPAL
-                )
-            )
-            val launcher = Intent(Intent.ACTION_MAIN).apply {
-                addCategory(Intent.CATEGORY_LAUNCHER)
-            }
-            application.packageManager
-                .queryIntentActivities(launcher, 0)
-                .asSequence()
-                .mapNotNull { it.activityInfo?.packageName }
-                .filter { it.isNotBlank() }
-                .distinct()
-                .sorted()
-                .take(MAX_LAUNCHABLE_APP_GRANTS)
-                .forEach { packageName ->
-                    runCatching {
-                        M6AndroidProductionCapabilities
-                            .userApprovedAppLaunchGrant(
-                                APP_PRINCIPAL,
-                                packageName,
-                            )
-                    }.getOrNull()?.let(::add)
-                }
-        }
+        VN97ProductionAuthority.grants(
+            application,
+            APP_PRINCIPAL,
+        )
 
     private fun closeLocked() {
         var failure: Throwable? = null
@@ -371,7 +373,6 @@ class VN97AppAssistant(
 
     companion object {
         const val APP_PRINCIPAL = "runtime.user"
-        private const val MAX_LAUNCHABLE_APP_GRANTS = 512
         private const val MAX_VISUAL_VERIFY_FIELD_CHARS = 2 * 1024
     }
 }
