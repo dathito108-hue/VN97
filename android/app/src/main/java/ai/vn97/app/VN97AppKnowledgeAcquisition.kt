@@ -49,6 +49,40 @@ class VN97AppKnowledgeAcquisition(
         }
     }
 
+    fun reviewFetchedPackage(
+        packageSha256: String,
+        signatureUri: Uri,
+        publisherKeyUri: Uri,
+    ): VN97KnowledgeAcquisitionReview {
+        check(application.assistant.openIfActivated()) {
+            "trusted VN97 model is not active"
+        }
+        val signatureBytes = readBounded(
+            signatureUri,
+            MAX_SIGNATURE_BYTES,
+            "VN97SIG1",
+        )
+        val publisherKey = parsePublisherKey(
+            readBounded(
+                publisherKeyUri,
+                MAX_PUBLISHER_KEY_BYTES,
+                "publisher public key",
+            )
+        )
+        val artifact =
+            application.platformRuntime
+                .requireFetchedCapabilityArtifact(
+                    packageSha256
+                )
+        return artifact.inputStream().use { input ->
+            application.assistant.reviewKnowledgeCapability(
+                packageInput = input,
+                signatureBytes = signatureBytes,
+                publisherPublicKey = publisherKey,
+            )
+        }
+    }
+
     fun acquireReviewed(): VN97KnowledgeAcquisitionResult =
         application.assistant.acquireReviewedKnowledge()
 
