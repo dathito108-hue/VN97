@@ -2,6 +2,7 @@ package ai.vn97.app
 
 import ai.vn97.platform.AndroidAccessibilityGestureBridge
 import android.accessibilityservice.AccessibilityService
+import android.content.Intent
 import android.view.accessibility.AccessibilityEvent
 
 /**
@@ -30,6 +31,11 @@ class VN97GameAccessibilityService : AccessibilityService() {
     }
 
     override fun onInterrupt() = Unit
+
+    override fun onUnbind(intent: Intent?): Boolean {
+        AndroidAccessibilityGestureBridge.detach(this)
+        return super.onUnbind(intent)
+    }
 
     override fun onDestroy() {
         AndroidAccessibilityGestureBridge.detach(this)
