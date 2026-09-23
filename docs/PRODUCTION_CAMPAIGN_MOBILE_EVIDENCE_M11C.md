@@ -119,6 +119,8 @@ The turnkey release build hides this developer control.
 
 `vn97-bootstrap-release` now supports:
 
+- `--production-campaign-report <production-campaign-report.json>`;
+- `--require-production-campaign-report`;
 - `--device-evidence <vn97-mobile-evidence.json>`;
 - `--require-device-evidence`;
 - minimum measured runs;
@@ -133,9 +135,11 @@ Before the private Ed25519 signing key is opened, release:
 
 1. builds the unsigned preview VN97MI1;
 2. computes its SHA-256;
-3. parses canonical VN97MOBEVID1;
-4. requires the evidence model SHA-256 to match the preview exactly;
-5. applies configured mobile evidence thresholds.
+3. when production-campaign gating is enabled, requires VN97PRODCAMP1 to match
+   the unified checkpoint, tokenizer and preview model-image identities;
+4. parses canonical VN97MOBEVID1 when device evidence is supplied;
+5. requires the evidence model SHA-256 to match the preview exactly;
+6. applies configured mobile evidence thresholds.
 
 After signing, the bundle VN97MI1 SHA-256 is asserted to be unchanged from the
 evidence-gated preview.
