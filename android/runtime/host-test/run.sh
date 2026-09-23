@@ -152,3 +152,16 @@ java -jar "$WORK/m10d-capability-staging-test.jar"
     -d "$WORK/m10e-publisher-trust-test.jar"
 
 java -jar "$WORK/m10e-publisher-trust-test.jar"
+
+
+"$KOTLINC" \
+    "$ROOT/android/runtime/src/main/java/ai/vn97/runtime/CapabilityCompatibility.kt" \
+    "$ROOT/android/runtime/src/main/java/ai/vn97/runtime/CapabilityInventory.kt" \
+    "$ROOT/android/runtime/src/main/java/ai/vn97/runtime/CapabilityActivation.kt" \
+    "$HERE/M10FActivationStubs.kt" \
+    "$HERE/M10FTransactionalActivationTest.kt" \
+    -Werror \
+    -include-runtime \
+    -d "$WORK/m10f-transactional-activation-test.jar"
+
+java -jar "$WORK/m10f-transactional-activation-test.jar"
