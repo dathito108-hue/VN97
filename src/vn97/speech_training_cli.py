@@ -270,6 +270,7 @@ def main(argv: list[str] | None = None) -> int:
     if adapter is None:
         adapter = AudioFrameAdapter(
             checkpoint.config.d_model,
+            ternary_threshold=checkpoint.config.ternary_threshold,
             config=AudioAdapterConfig(),
             rms_eps=checkpoint.config.rms_eps,
         )
