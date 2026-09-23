@@ -156,6 +156,11 @@ from .continual_training import (
     VN97FineTuneResult,
     guarded_fine_tune_vn97,
 )
+from .dataset_split import (
+    VN97DatasetSplitError,
+    dataset_record_fingerprints,
+    require_disjoint_dataset_splits,
+)
 from .deployment_checkpoint import (
     HEADER_SIZE as DEPLOYMENT_CHECKPOINT_HEADER_SIZE,
     MAGIC as DEPLOYMENT_CHECKPOINT_MAGIC,
@@ -451,6 +456,9 @@ __all__ = [
     "VerificationDecision",
     "VerificationRequest",
     "VN97Config",
+    "VN97DatasetSplitError",
+    "dataset_record_fingerprints",
+    "require_disjoint_dataset_splits",
     "VN97LanguageCore",
     "VN97States",
     "VN97ModelImage",
