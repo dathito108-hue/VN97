@@ -261,7 +261,8 @@ class M6ExternalIntentBinder(
 
     fun proposeAndBind(
         controller: NativePlanController,
-        backend: NativeTypedCognitionAdapter,\n    ): M6ExternalActionRequest {
+        backend: NativeTypedCognitionAdapter,
+    ): M6ExternalActionRequest {
         val snapshot = requestForBackend(controller)
         val intent = try {
             backend.proposeExternalIntent(snapshot)
