@@ -54,3 +54,16 @@ java -jar "$WORK/m7p-execution-fabric-test.jar"
     -d "$WORK/m7q-durable-audit-test.jar"
 
 java -jar "$WORK/m7q-durable-audit-test.jar"
+
+"$KOTLINC" \
+    "$ROOT/android/platform/src/main/java/ai/vn97/platform/M6Approval.kt" \
+    "$ROOT/android/platform/src/main/java/ai/vn97/platform/M6ExternalHandoff.kt" \
+    "$ROOT/android/platform/src/main/java/ai/vn97/platform/M6ExecutionFabric.kt" \
+    "$ROOT/android/platform/src/main/java/ai/vn97/platform/M6AndroidProductionCapabilities.kt" \
+    "$HERE/M7PRuntimeStubs.kt" \
+    "$HERE/M7RProductionCapabilitiesHostTest.kt" \
+    -Werror \
+    -include-runtime \
+    -d "$WORK/m7r-production-capability-assembly-test.jar"
+
+java -jar "$WORK/m7r-production-capability-assembly-test.jar"
