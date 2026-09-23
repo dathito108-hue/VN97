@@ -23,6 +23,7 @@ from .deployment_checkpoint import (
     build_deployment_checkpoint,
     load_deployment_checkpoint,
 )
+from .dataset_split import require_disjoint_dataset_splits
 from .evaluation import (
     VN97ReleaseCriteria,
     VN97ReleaseQualityError,
@@ -207,9 +208,15 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--input", action="append", required=True)
     parser.add_argument("--validation-input", action="append", required=True)
+    parser.add_argument("--release-input", action="append", required=True)
     parser.add_argument("--format", choices=("text", "chat"), default="chat")
     parser.add_argument(
         "--validation-format",
+        choices=("text", "chat"),
+        default=None,
+    )
+    parser.add_argument(
+        "--release-format",
         choices=("text", "chat"),
         default=None,
     )
@@ -234,6 +241,21 @@ def _parser() -> argparse.ArgumentParser:
         type=int,
         default=10_000,
     )
+    parser.add_argument(
+        "--release-max-input-bytes",
+        type=int,
+        default=64 * 1024 * 1024,
+    )
+    parser.add_argument(
+        "--release-max-examples",
+        type=int,
+        default=100_000,
+    )
+    parser.add_argument(
+        "--release-max-windows",
+        type=int,
+        default=10_000,
+    )
 
     parser.add_argument("--learned-tokens", type=int, default=2048)
     parser.add_argument("--min-pair-count", type=int, default=2)
@@ -241,6 +263,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--stride", type=int, default=None)
     parser.add_argument("--batch-size", type=int, default=4)
     parser.add_argument("--validation-batch-size", type=int, default=4)
+    parser.add_argument("--release-batch-size", type=int, default=4)
     parser.add_argument("--epochs", type=int, default=1)
     parser.add_argument("--weight-decay", type=float, default=0.01)
     parser.add_argument("--max-grad-norm", type=float, default=1.0)
@@ -270,6 +293,21 @@ def _parser() -> argparse.ArgumentParser:
         type=int,
         default=64,
     )
+    parser.add_argument(
+        "--release-max-validation-loss",
+        type=float,
+        default=None,
+    )
+    parser.add_argument(
+        "--release-min-validation-accuracy",
+        type=float,
+        default=None,
+    )
+    parser.add_argument(
+        "--release-min-validation-target-tokens",
+        type=int,
+        default=None,
+    )
     return parser
 
 
@@ -291,9 +329,19 @@ def main(argv: list[str] | None = None) -> int:
         args.max_parameters <= 0
         or args.max_model_image_bytes <= 0
         or args.max_recurrent_state_bytes <= 0
+        or args.max_input_bytes <= 0
+        or args.max_examples <= 0
+        or args.max_windows <= 0
+        or args.validation_max_input_bytes <= 0
+        or args.validation_max_examples <= 0
+        or args.validation_max_windows <= 0
+        or args.release_max_input_bytes <= 0
+        or args.release_max_examples <= 0
+        or args.release_max_windows <= 0
         or args.epochs <= 0
         or args.batch_size <= 0
         or args.validation_batch_size <= 0
+        or args.release_batch_size <= 0
         or not 0 < args.deployment_tile_rows <= 256
         or not 0 < args.deployment_tile_cols <= 256
     ):
@@ -301,6 +349,7 @@ def main(argv: list[str] | None = None) -> int:
 
     train_paths = [Path(value) for value in args.input]
     validation_paths = [Path(value) for value in args.validation_input]
+    release_paths = [Path(value) for value in args.release_input]
     train_ids = _file_identities(
         train_paths,
         label="campaign training input",
@@ -309,9 +358,17 @@ def main(argv: list[str] | None = None) -> int:
         validation_paths,
         label="campaign validation input",
     )
-    if train_ids.intersection(validation_ids):
+    release_ids = _file_identities(
+        release_paths,
+        label="campaign release input",
+    )
+    if (
+        train_ids.intersection(validation_ids)
+        or train_ids.intersection(release_ids)
+        or validation_ids.intersection(release_ids)
+    ):
         raise ValueError(
-            "campaign training and validation inputs must be physically distinct files"
+            "campaign training, validation and release inputs must be physically distinct files"
         )
 
     train_records, train_sha256 = _load_records(
@@ -326,6 +383,21 @@ def main(argv: list[str] | None = None) -> int:
         mode=validation_mode,
         max_input_bytes=args.validation_max_input_bytes,
         max_examples=args.validation_max_examples,
+    )
+    release_mode = args.release_format or validation_mode
+    release_records, release_sha256 = _load_records(
+        release_paths,
+        mode=release_mode,
+        max_input_bytes=args.release_max_input_bytes,
+        max_examples=args.release_max_examples,
+    )
+    require_disjoint_dataset_splits(
+        train_records,
+        training_mode=args.format,
+        validation_records=validation_records,
+        validation_mode=validation_mode,
+        release_records=release_records,
+        release_mode=release_mode,
     )
     corpus = (
         train_records
@@ -357,6 +429,23 @@ def main(argv: list[str] | None = None) -> int:
         max_validation_loss=args.max_validation_loss,
         min_top1_accuracy=args.min_validation_accuracy,
         min_target_tokens=args.min_validation_target_tokens,
+    )
+    release_criteria = VN97ReleaseCriteria(
+        max_validation_loss=(
+            criteria.max_validation_loss
+            if args.release_max_validation_loss is None
+            else args.release_max_validation_loss
+        ),
+        min_top1_accuracy=(
+            criteria.min_top1_accuracy
+            if args.release_min_validation_accuracy is None
+            else args.release_min_validation_accuracy
+        ),
+        min_target_tokens=(
+            criteria.min_target_tokens
+            if args.release_min_validation_target_tokens is None
+            else args.release_min_validation_target_tokens
+        ),
     )
     mobile_budget = VN97MobileBudget(
         max_model_image_bytes=args.max_model_image_bytes,
@@ -549,6 +638,49 @@ def main(argv: list[str] | None = None) -> int:
             "internal campaign best-checkpoint tracking mismatch"
         )
 
+    # The release split is deliberately first encoded/evaluated only after the
+    # validation-selected winner is fixed. A release failure never falls back to
+    # another candidate, because that would turn the sealed set into a selector.
+    release_examples = _examples(
+        release_records,
+        mode=release_mode,
+        tokenizer=tokenizer,
+    )
+    release_window_config = VN97TrainingConfig(
+        sequence_length=args.sequence_length,
+        stride=args.stride,
+        batch_size=args.release_batch_size,
+        epochs=1,
+        seed=0,
+        shuffle=False,
+        max_windows=args.release_max_windows,
+    )
+    release_windows = build_training_windows(
+        release_examples,
+        release_window_config,
+        pad_token_id=tokenizer.pad_id,
+    )
+    release_loaded = load_deployment_checkpoint(best_checkpoint)
+    if release_loaded.checkpoint_sha256 != best.checkpoint_sha256:
+        raise VN97CampaignError(
+            "selected checkpoint identity changed before sealed release evaluation"
+        )
+    release_evaluation = evaluate_vn97_language(
+        release_loaded.model,
+        release_windows,
+        batch_size=args.release_batch_size,
+        device=args.device,
+    )
+    try:
+        require_release_quality(
+            release_evaluation,
+            release_criteria,
+        )
+    except VN97ReleaseQualityError as exc:
+        raise VN97CampaignError(
+            "selected campaign winner failed sealed release gate"
+        ) from exc
+
     output = Path(args.output_dir)
     if output.is_symlink():
         raise ValueError("campaign output-dir must not be a symlink")
@@ -568,13 +700,23 @@ def main(argv: list[str] | None = None) -> int:
             "max_validation_loss": criteria.max_validation_loss,
             "min_top1_accuracy": criteria.min_top1_accuracy,
             "min_validation_target_tokens": criteria.min_target_tokens,
+            "release_max_validation_loss": release_criteria.max_validation_loss,
+            "release_min_top1_accuracy": release_criteria.min_top1_accuracy,
+            "release_min_validation_target_tokens": release_criteria.min_target_tokens,
         },
-        "schema": "VN97CAMP1",
+        "release_evaluation": {
+            "mean_loss": release_evaluation.mean_loss,
+            "target_tokens": release_evaluation.target_tokens,
+            "top1_accuracy": release_evaluation.top1_accuracy,
+            "windows": release_evaluation.windows,
+        },
+        "schema": "VN97CAMP2",
         "selected_candidate_id": best.candidate.candidate_id,
         "selected_checkpoint_sha256": best.checkpoint_sha256,
         "tokenizer_sha256": tokenizer_sha256,
         "training_dataset_sha256": train_sha256,
         "validation_dataset_sha256": validation_sha256,
+        "release_dataset_sha256": release_sha256,
     }
     _atomic_write(
         output / "campaign-report.json",
@@ -582,7 +724,7 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     print(
-        "VN97CAMP1 "
+        "VN97CAMP2 "
         f"selected={best.candidate.candidate_id} "
         f"checkpoint_sha256={best.checkpoint_sha256}"
     )
