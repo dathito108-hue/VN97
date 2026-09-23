@@ -30,6 +30,10 @@ from .evaluation import (
     require_release_quality,
 )
 from .model import VN97LanguageCore
+from .mobile_budget import (
+    VN97MobileBudget,
+    estimate_vn97_mobile_footprint,
+)
 from .tokenizer import VN97Tokenizer, learn_byte_bpe
 from .training import (
     VN97TrainingConfig,
@@ -242,6 +246,18 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-grad-norm", type=float, default=1.0)
     parser.add_argument("--device", default="auto")
     parser.add_argument("--max-parameters", type=int, required=True)
+    parser.add_argument(
+        "--max-model-image-bytes",
+        type=int,
+        default=512 * 1024 * 1024,
+    )
+    parser.add_argument(
+        "--max-recurrent-state-bytes",
+        type=int,
+        default=512 * 1024 * 1024,
+    )
+    parser.add_argument("--deployment-tile-rows", type=int, default=16)
+    parser.add_argument("--deployment-tile-cols", type=int, default=16)
 
     parser.add_argument("--max-validation-loss", type=float, required=True)
     parser.add_argument(
@@ -273,9 +289,13 @@ def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     if (
         args.max_parameters <= 0
+        or args.max_model_image_bytes <= 0
+        or args.max_recurrent_state_bytes <= 0
         or args.epochs <= 0
         or args.batch_size <= 0
         or args.validation_batch_size <= 0
+        or not 0 < args.deployment_tile_rows <= 256
+        or not 0 < args.deployment_tile_cols <= 256
     ):
         raise ValueError("campaign resource/training bounds must be positive")
 
@@ -338,6 +358,10 @@ def main(argv: list[str] | None = None) -> int:
         min_top1_accuracy=args.min_validation_accuracy,
         min_target_tokens=args.min_validation_target_tokens,
     )
+    mobile_budget = VN97MobileBudget(
+        max_model_image_bytes=args.max_model_image_bytes,
+        max_recurrent_state_bytes=args.max_recurrent_state_bytes,
+    )
 
     # Materialize the exact same supervised windows once for every candidate.
     window_config = VN97TrainingConfig(
@@ -378,31 +402,50 @@ def main(argv: list[str] | None = None) -> int:
     best_observation: VN97CampaignObservation | None = None
 
     for candidate in candidates:
+        candidate_config = VN97Config(
+            vocab_size=tokenizer.vocab_size,
+            d_model=candidate.d_model,
+            n_layers=candidate.n_layers,
+            d_state=candidate.d_state,
+            embedding_rank=candidate.embedding_rank,
+        )
         parameter_count = _estimate_parameter_count(
             vocab_size=tokenizer.vocab_size,
             candidate=candidate,
         )
+        footprint = estimate_vn97_mobile_footprint(
+            candidate_config,
+            tokenizer_nbytes=len(tokenizer_bytes),
+            tile_rows=args.deployment_tile_rows,
+            tile_cols=args.deployment_tile_cols,
+        )
+        admission = {
+            "candidate": candidate.canonical_object(),
+            "candidate_id": candidate.candidate_id,
+            "mobile_footprint": footprint.canonical_object(),
+            "parameter_count": parameter_count,
+        }
         if parameter_count > args.max_parameters:
             rows.append(
                 {
-                    "candidate": candidate.canonical_object(),
-                    "candidate_id": candidate.candidate_id,
-                    "parameter_count": parameter_count,
+                    **admission,
                     "status": "REJECTED_PARAMETER_BUDGET",
                 }
             )
             continue
 
-        torch.manual_seed(candidate.seed)
-        model = VN97LanguageCore(
-            VN97Config(
-                vocab_size=tokenizer.vocab_size,
-                d_model=candidate.d_model,
-                n_layers=candidate.n_layers,
-                d_state=candidate.d_state,
-                embedding_rank=candidate.embedding_rank,
+        mobile_rejection = mobile_budget.rejection_status(footprint)
+        if mobile_rejection is not None:
+            rows.append(
+                {
+                    **admission,
+                    "status": mobile_rejection,
+                }
             )
-        )
+            continue
+
+        torch.manual_seed(candidate.seed)
+        model = VN97LanguageCore(candidate_config)
         actual_parameter_count = sum(
             int(parameter.numel())
             for parameter in model.parameters()
@@ -452,6 +495,7 @@ def main(argv: list[str] | None = None) -> int:
                 "top1_accuracy": evaluation.top1_accuracy,
                 "windows": evaluation.windows,
             },
+            "mobile_footprint": footprint.canonical_object(),
             "parameter_count": parameter_count,
             "status": status,
             "training": {
@@ -516,7 +560,11 @@ def main(argv: list[str] | None = None) -> int:
     report = {
         "candidates": rows,
         "criteria": {
+            "deployment_tile_cols": args.deployment_tile_cols,
+            "deployment_tile_rows": args.deployment_tile_rows,
+            "max_model_image_bytes": mobile_budget.max_model_image_bytes,
             "max_parameters": args.max_parameters,
+            "max_recurrent_state_bytes": mobile_budget.max_recurrent_state_bytes,
             "max_validation_loss": criteria.max_validation_loss,
             "min_top1_accuracy": criteria.min_top1_accuracy,
             "min_validation_target_tokens": criteria.min_target_tokens,
