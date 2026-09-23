@@ -358,6 +358,11 @@ class VN97AutonomousWorkManager(
         if (initial.terminal) return ContinuationOutcome.COMPLETE
 
         if (initial.wakeCount >= MAX_WAKE_COUNT) {
+            if (!context.controller.plan.isTerminal()) {
+                context.controller.cancel(
+                    "autonomous wake budget exhausted"
+                )
+            }
             val exhausted = initial.copy(
                 state = VN97AutonomousGoalState.FAILED,
                 updatedNs = wallNowNs(),
