@@ -5,6 +5,7 @@ import ai.vn97.avatar.AvatarCommand
 import ai.vn97.avatar.AvatarGesture
 import ai.vn97.avatar.VN97AvatarView
 import ai.vn97.platform.VN97AssistantTurnState
+import ai.vn97.platform.VN97GameAccessibilityController
 import android.Manifest
 import android.app.Activity
 import android.content.Intent
@@ -38,6 +39,10 @@ class VN97MainActivity : Activity() {
     private lateinit var screenShareButton: Button
     private lateinit var screenAnalyzeButton: Button
     private lateinit var cameraAnalyzeButton: Button
+    private lateinit var gameControlStatusView: TextView
+    private lateinit var gameAccessibilityButton: Button
+    private lateinit var gameAuthorizeButton: Button
+    private lateinit var gameRevokeButton: Button
     private lateinit var mobileEvidenceButton: Button
     private lateinit var transcriptView: TextView
     private lateinit var inputView: EditText
@@ -186,6 +191,64 @@ class VN97MainActivity : Activity() {
         }
         root.addView(
             cameraAnalyzeButton,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ),
+        )
+
+        gameControlStatusView = TextView(this).apply {
+            setTextIsSelectable(true)
+        }
+        root.addView(
+            gameControlStatusView,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ),
+        )
+
+        val gameControlRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+        }
+        gameAccessibilityButton = Button(this).apply {
+            text = "Game accessibility"
+            setOnClickListener { openGameAccessibilitySettings() }
+        }
+        gameAuthorizeButton = Button(this).apply {
+            text = "Authorize last app"
+            setOnClickListener { authorizeLastGamePackage() }
+        }
+        gameRevokeButton = Button(this).apply {
+            text = "Stop game control"
+            setOnClickListener { revokeGameControl() }
+        }
+        gameControlRow.addView(
+            gameAccessibilityButton,
+            LinearLayout.LayoutParams(
+                0,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                1f,
+            ),
+        )
+        gameControlRow.addView(
+            gameAuthorizeButton,
+            LinearLayout.LayoutParams(
+                0,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                1f,
+            ),
+        )
+        gameControlRow.addView(
+            gameRevokeButton,
+            LinearLayout.LayoutParams(
+                0,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                1f,
+            ),
+        )
+        root.addView(
+            gameControlRow,
             LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT,
@@ -489,6 +552,7 @@ class VN97MainActivity : Activity() {
         setContentView(root)
         refreshFloatingAssistantButton()
         refreshVoicePermissionButton()
+        refreshGameControlStatus()
         refreshVisualButtons()
         render(state)
         refreshAutonomousStatus()
@@ -513,6 +577,7 @@ class VN97MainActivity : Activity() {
         refreshFloatingAssistantButton()
         refreshVoicePermissionButton()
         requestAutonomousNotificationPermissionIfNeeded()
+        refreshGameControlStatus()
         refreshVisualButtons()
         refreshAutonomousStatus()
     }
@@ -586,6 +651,142 @@ class VN97MainActivity : Activity() {
         }
         worker.shutdownNow()
         super.onDestroy()
+    }
+
+    private fun openGameAccessibilitySettings() {
+        startActivity(
+            Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+        )
+    }
+
+    private fun authorizeLastGamePackage() {
+        if (!VN97GameAccessibilityController.isConnected()) {
+            statusView.text =
+                "Enable VN97 Game Control in Android accessibility settings first."
+            openGameAccessibilitySettings()
+            return
+        }
+        val packageName =
+            VN97GameAccessibilityController
+                .lastExternalPackageName()
+        if (packageName.isNullOrBlank() || packageName == this.packageName) {
+            statusView.text =
+                "Open the target game, then return to VN97 before authorizing it."
+            refreshGameControlStatus()
+            return
+        }
+
+        gameAuthorizeButton.isEnabled = false
+        gameRevokeButton.isEnabled = false
+        statusView.text =
+            "Authorizing exact-package game control for $packageName…"
+        worker.execute {
+            try {
+                val session =
+                    app.platformRuntime.gameControlPolicy.authorize(
+                        packageName
+                    )
+                val refreshed =
+                    if (state.phase == VN97AppPhase.READY) {
+                        app.assistant.reloadActivatedModel()
+                    } else {
+                        false
+                    }
+                runOnUiThread {
+                    statusView.text =
+                        "Game control authorized for " +
+                            session.packageName +
+                            " until " +
+                            session.expiresAtWallTimeMillis +
+                            if (refreshed) {
+                                ". VN97 authority grants refreshed."
+                            } else {
+                                "."
+                            }
+                    refreshGameControlStatus()
+                }
+            } catch (exc: Throwable) {
+                runOnUiThread {
+                    statusView.text =
+                        "Game authorization failed: " +
+                            exc::class.java.simpleName
+                    refreshGameControlStatus()
+                }
+            }
+        }
+    }
+
+    private fun revokeGameControl() {
+        gameAuthorizeButton.isEnabled = false
+        gameRevokeButton.isEnabled = false
+        worker.execute {
+            try {
+                app.platformRuntime.gameControlPolicy.revoke()
+                if (state.phase == VN97AppPhase.READY) {
+                    runCatching {
+                        app.assistant.reloadActivatedModel()
+                    }
+                }
+                runOnUiThread {
+                    statusView.text =
+                        "Game control authorization revoked."
+                    refreshGameControlStatus()
+                }
+            } catch (exc: Throwable) {
+                runOnUiThread {
+                    statusView.text =
+                        "Game control revoke failed: " +
+                            exc::class.java.simpleName
+                    refreshGameControlStatus()
+                }
+            }
+        }
+    }
+
+    private fun refreshGameControlStatus() {
+        val connected =
+            VN97GameAccessibilityController.isConnected()
+        val lastExternal =
+            VN97GameAccessibilityController
+                .lastExternalPackageName()
+        val active =
+            runCatching {
+                app.platformRuntime.gameControlPolicy
+                    .activeSessionOrNull()
+            }.getOrNull()
+
+        gameControlStatusView.text = buildString {
+            append("Game control: ")
+            append(
+                when {
+                    active != null -> "authorized"
+                    connected -> "accessibility ready"
+                    else -> "accessibility disabled"
+                }
+            )
+            if (active != null) {
+                append("\npackage=")
+                append(active.packageName)
+                append("\nexpires_ms=")
+                append(active.expiresAtWallTimeMillis)
+            }
+            if (!lastExternal.isNullOrBlank()) {
+                append("\nlast external app=")
+                append(lastExternal)
+            }
+            append(
+                "\nScreen sharing must remain user-approved for visual game perception."
+            )
+        }
+        gameAccessibilityButton.text =
+            if (connected) {
+                "Game accessibility enabled"
+            } else {
+                "Enable game accessibility"
+            }
+        gameAuthorizeButton.isEnabled =
+            connected && !lastExternal.isNullOrBlank()
+        gameRevokeButton.isEnabled = active != null
     }
 
     private fun requestAutonomousNotificationPermissionIfNeeded() {

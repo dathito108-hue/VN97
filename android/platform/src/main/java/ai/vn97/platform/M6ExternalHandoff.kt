@@ -47,6 +47,7 @@ data class M6CapabilityDescriptor(
     val maxPayloadUtf8Bytes: Int = 16 * 1024,
     val maxLeaseNs: Long = 300_000_000_000L,
     val maxLeaseUses: Int = 1,
+    val payloadSchemaJson: String = "{}",
 ) {
     init {
         externalHandoffValidateIdentifier(capabilityId, "capabilityId")
@@ -60,6 +61,14 @@ data class M6CapabilityDescriptor(
             externalHandoffValidateIdentifier(it, "scope key")
         }
         require(maxPayloadUtf8Bytes > 0) { "maxPayloadUtf8Bytes must be positive" }
+        require(
+            payloadSchemaJson.isNotEmpty() &&
+                payloadSchemaJson.toByteArray(StandardCharsets.UTF_8).size <= 4096 &&
+                payloadSchemaJson.startsWith('{') &&
+                payloadSchemaJson.endsWith('}')
+        ) {
+            "payloadSchemaJson must be a bounded JSON object"
+        }
         require(maxLeaseNs > 0L) { "maxLeaseNs must be positive" }
         require(maxLeaseUses > 0) { "maxLeaseUses must be positive" }
     }
@@ -71,6 +80,7 @@ data class M6CapabilityDescriptor(
             optionalScopeKeys = optionalScopeKeys.sorted(),
             approvalRequired = approvalRequired,
             maxPayloadUtf8Bytes = minOf(maxPayloadUtf8Bytes, limits.maxPayloadUtf8Bytes),
+            payloadSchemaJson = payloadSchemaJson,
         )
 }
 

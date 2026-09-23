@@ -5,6 +5,21 @@ import java.nio.charset.StandardCharsets
 internal interface M6AndroidActionPort {
     fun launchPackage(packageName: String): String
     fun writeClipboard(text: String): String
+    fun gameTap(
+        packageName: String,
+        xBasisPoints: Int,
+        yBasisPoints: Int,
+        durationMillis: Long,
+    ): String
+    fun gameSwipe(
+        packageName: String,
+        startXBasisPoints: Int,
+        startYBasisPoints: Int,
+        endXBasisPoints: Int,
+        endYBasisPoints: Int,
+        durationMillis: Long,
+    ): String
+    fun gameBack(packageName: String): String
 }
 
 class M6AndroidProductionCapabilities internal constructor(
@@ -16,6 +31,7 @@ class M6AndroidProductionCapabilities internal constructor(
             requiredScopeKeys = setOf(APP_PACKAGE_SCOPE),
             approvalRequired = true,
             maxPayloadUtf8Bytes = 2,
+            payloadSchemaJson = "{}",
             maxLeaseNs = 30_000_000_000L,
             maxLeaseUses = 1,
         ),
@@ -24,7 +40,37 @@ class M6AndroidProductionCapabilities internal constructor(
             requiredScopeKeys = setOf(CLIPBOARD_CHANNEL_SCOPE),
             approvalRequired = true,
             maxPayloadUtf8Bytes = MAX_CLIPBOARD_PAYLOAD_UTF8_BYTES,
+            payloadSchemaJson = "{\"text\":\"string\"}",
             maxLeaseNs = 30_000_000_000L,
+            maxLeaseUses = 1,
+        ),
+        M6CapabilityDescriptor(
+            capabilityId = GAME_TAP_CAPABILITY,
+            requiredScopeKeys = setOf(APP_PACKAGE_SCOPE),
+            approvalRequired = false,
+            maxPayloadUtf8Bytes = 96,
+            payloadSchemaJson =
+                "{\"duration_ms\":80,\"x_bps\":5000,\"y_bps\":5000}",
+            maxLeaseNs = GAME_ACTION_LEASE_NS,
+            maxLeaseUses = 1,
+        ),
+        M6CapabilityDescriptor(
+            capabilityId = GAME_SWIPE_CAPABILITY,
+            requiredScopeKeys = setOf(APP_PACKAGE_SCOPE),
+            approvalRequired = false,
+            maxPayloadUtf8Bytes = 192,
+            payloadSchemaJson =
+                "{\"duration_ms\":300,\"end_x_bps\":8000,\"end_y_bps\":5000,\"start_x_bps\":2000,\"start_y_bps\":5000}",
+            maxLeaseNs = GAME_ACTION_LEASE_NS,
+            maxLeaseUses = 1,
+        ),
+        M6CapabilityDescriptor(
+            capabilityId = GAME_BACK_CAPABILITY,
+            requiredScopeKeys = setOf(APP_PACKAGE_SCOPE),
+            approvalRequired = false,
+            maxPayloadUtf8Bytes = 2,
+            payloadSchemaJson = "{}",
+            maxLeaseNs = GAME_ACTION_LEASE_NS,
             maxLeaseUses = 1,
         ),
     )
@@ -55,6 +101,52 @@ class M6AndroidProductionCapabilities internal constructor(
                 },
                 M6PayloadValidator(::validateClipboardWriteRequest),
             )
+            registry.register(
+                descriptors[2],
+                M6CapabilityHandler { action ->
+                    val request = validateGameTapRequest(action.request)
+                    M6ActionOutcome(
+                        success = true,
+                        result = actions.gameTap(
+                            request.packageName,
+                            request.xBasisPoints,
+                            request.yBasisPoints,
+                            request.durationMillis,
+                        ),
+                    )
+                },
+                M6PayloadValidator(::validateGameTapRequest),
+            )
+            registry.register(
+                descriptors[3],
+                M6CapabilityHandler { action ->
+                    val request = validateGameSwipeRequest(action.request)
+                    M6ActionOutcome(
+                        success = true,
+                        result = actions.gameSwipe(
+                            request.packageName,
+                            request.startXBasisPoints,
+                            request.startYBasisPoints,
+                            request.endXBasisPoints,
+                            request.endYBasisPoints,
+                            request.durationMillis,
+                        ),
+                    )
+                },
+                M6PayloadValidator(::validateGameSwipeRequest),
+            )
+            registry.register(
+                descriptors[4],
+                M6CapabilityHandler { action ->
+                    val packageName =
+                        validateGameBackRequest(action.request)
+                    M6ActionOutcome(
+                        success = true,
+                        result = actions.gameBack(packageName),
+                    )
+                },
+                M6PayloadValidator(::validateGameBackRequest),
+            )
             registry.seal()
         }
 
@@ -72,6 +164,115 @@ class M6AndroidProductionCapabilities internal constructor(
         }
         require(request.payloadJson == "{}") {
             "app launch payload must be an empty canonical object"
+        }
+        return packageName
+    }
+
+    private data class GameTapRequest(
+        val packageName: String,
+        val xBasisPoints: Int,
+        val yBasisPoints: Int,
+        val durationMillis: Long,
+    )
+
+    private data class GameSwipeRequest(
+        val packageName: String,
+        val startXBasisPoints: Int,
+        val startYBasisPoints: Int,
+        val endXBasisPoints: Int,
+        val endYBasisPoints: Int,
+        val durationMillis: Long,
+    )
+
+    private fun validateGameScope(
+        request: M6ExternalActionRequest,
+        capabilityId: String,
+    ): String {
+        require(request.capabilityId == capabilityId) {
+            "game handler received wrong capability"
+        }
+        val scope = request.scope.asMap()
+        require(scope.keys == setOf(APP_PACKAGE_SCOPE)) {
+            "game scope must contain only package"
+        }
+        val packageName = checkNotNull(scope[APP_PACKAGE_SCOPE])
+        require(isCanonicalAndroidPackage(packageName)) {
+            "game package is invalid"
+        }
+        return packageName
+    }
+
+    private fun validateGameTapRequest(
+        request: M6ExternalActionRequest,
+    ): GameTapRequest {
+        val packageName = validateGameScope(
+            request,
+            GAME_TAP_CAPABILITY,
+        )
+        val match = GAME_TAP_PAYLOAD.matchEntire(request.payloadJson)
+            ?: throw IllegalArgumentException(
+                "game tap payload must match canonical schema"
+            )
+        val duration = match.groupValues[1].toLong()
+        val x = match.groupValues[2].toInt()
+        val y = match.groupValues[3].toInt()
+        require(duration in MIN_TAP_MILLIS..MAX_TAP_MILLIS) {
+            "game tap duration is outside bounds"
+        }
+        require(x in 0..BASIS_POINTS && y in 0..BASIS_POINTS) {
+            "game tap coordinates are outside basis-point bounds"
+        }
+        return GameTapRequest(packageName, x, y, duration)
+    }
+
+    private fun validateGameSwipeRequest(
+        request: M6ExternalActionRequest,
+    ): GameSwipeRequest {
+        val packageName = validateGameScope(
+            request,
+            GAME_SWIPE_CAPABILITY,
+        )
+        val match = GAME_SWIPE_PAYLOAD.matchEntire(request.payloadJson)
+            ?: throw IllegalArgumentException(
+                "game swipe payload must match canonical schema"
+            )
+        val duration = match.groupValues[1].toLong()
+        val endX = match.groupValues[2].toInt()
+        val endY = match.groupValues[3].toInt()
+        val startX = match.groupValues[4].toInt()
+        val startY = match.groupValues[5].toInt()
+        require(duration in MIN_SWIPE_MILLIS..MAX_SWIPE_MILLIS) {
+            "game swipe duration is outside bounds"
+        }
+        require(
+            listOf(startX, startY, endX, endY).all {
+                it in 0..BASIS_POINTS
+            }
+        ) {
+            "game swipe coordinates are outside basis-point bounds"
+        }
+        require(startX != endX || startY != endY) {
+            "game swipe requires distinct endpoints"
+        }
+        return GameSwipeRequest(
+            packageName,
+            startX,
+            startY,
+            endX,
+            endY,
+            duration,
+        )
+    }
+
+    private fun validateGameBackRequest(
+        request: M6ExternalActionRequest,
+    ): String {
+        val packageName = validateGameScope(
+            request,
+            GAME_BACK_CAPABILITY,
+        )
+        require(request.payloadJson == "{}") {
+            "game back payload must be empty"
         }
         return packageName
     }
@@ -112,6 +313,32 @@ class M6AndroidProductionCapabilities internal constructor(
             )
         }
 
+        fun userApprovedGameControlGrants(
+            principal: String,
+            packageName: String,
+        ): List<M6PolicyGrant> {
+            require(isCanonicalAndroidPackage(packageName)) {
+                "game package is invalid"
+            }
+            val scope = M6CapabilityScope.fromMap(
+                mapOf(APP_PACKAGE_SCOPE to packageName)
+            )
+            return listOf(
+                GAME_TAP_CAPABILITY,
+                GAME_SWIPE_CAPABILITY,
+                GAME_BACK_CAPABILITY,
+            ).map { capabilityId ->
+                M6PolicyGrant(
+                    principal = principal,
+                    capabilityId = capabilityId,
+                    scopeDigest = scope.digest,
+                    approvalRequired = false,
+                    maxLeaseNs = GAME_ACTION_LEASE_NS,
+                    maxLeaseUses = 1,
+                )
+            }
+        }
+
         fun userApprovedClipboardGrant(
             principal: String,
         ): M6PolicyGrant {
@@ -130,12 +357,25 @@ class M6AndroidProductionCapabilities internal constructor(
 
         const val APP_LAUNCH_CAPABILITY = "app.launch"
         const val CLIPBOARD_WRITE_CAPABILITY = "device.clipboard.write"
+        const val GAME_TAP_CAPABILITY = "device.game.tap"
+        const val GAME_SWIPE_CAPABILITY = "device.game.swipe"
+        const val GAME_BACK_CAPABILITY = "device.game.back"
         const val APP_PACKAGE_SCOPE = "package"
         const val CLIPBOARD_CHANNEL_SCOPE = "channel"
         const val CLIPBOARD_CHANNEL_VALUE = "system-clipboard"
 
         private const val MAX_CLIPBOARD_TEXT_UTF8_BYTES = 16 * 1024
         private const val MAX_CLIPBOARD_PAYLOAD_UTF8_BYTES = 64 * 1024
+        private const val BASIS_POINTS = 10_000
+        private const val MIN_TAP_MILLIS = 20L
+        private const val MAX_TAP_MILLIS = 1_500L
+        private const val MIN_SWIPE_MILLIS = 50L
+        private const val MAX_SWIPE_MILLIS = 3_000L
+        private const val GAME_ACTION_LEASE_NS = 10_000_000_000L
+        private val GAME_TAP_PAYLOAD =
+            Regex("^\\{\\\"duration_ms\\\":([0-9]+),\\\"x_bps\\\":([0-9]+),\\\"y_bps\\\":([0-9]+)\\}$")
+        private val GAME_SWIPE_PAYLOAD =
+            Regex("^\\{\\\"duration_ms\\\":([0-9]+),\\\"end_x_bps\\\":([0-9]+),\\\"end_y_bps\\\":([0-9]+),\\\"start_x_bps\\\":([0-9]+),\\\"start_y_bps\\\":([0-9]+)\\}$")
         private val PACKAGE_RE =
             Regex("^[A-Za-z][A-Za-z0-9_]*(?:\\.[A-Za-z][A-Za-z0-9_]*)+$")
 

@@ -172,6 +172,7 @@ data class NativeExternalCapabilityView(
     val optionalScopeKeys: List<String>,
     val approvalRequired: Boolean,
     val maxPayloadUtf8Bytes: Int,
+    val payloadSchemaJson: String = "{}",
 ) {
     init {
         require(capabilityId.isNotEmpty()) { "capabilityId must not be empty" }
@@ -182,6 +183,13 @@ data class NativeExternalCapabilityView(
             "scope keys must be unique"
         }
         require(maxPayloadUtf8Bytes > 0) { "maxPayloadUtf8Bytes must be positive" }
+        require(payloadSchemaJson.toByteArray(Charsets.UTF_8).size <= 4096) {
+            "payloadSchemaJson exceeds byte bound"
+        }
+        val payloadSchema = VnStrictJson.parseObject(payloadSchemaJson)
+        require(VnStrictJson.canonical(payloadSchema) == payloadSchemaJson) {
+            "payloadSchemaJson must be canonical strict JSON"
+        }
     }
 }
 
@@ -336,6 +344,7 @@ class NativeTypedCognitionAdapter(
                 "optional_scope_keys" to VnStrictJson.array(item.optionalScopeKeys.map(VnStrictJson::string)),
                 "approval_required" to VnStrictJson.bool(item.approvalRequired),
                 "max_payload_utf8_bytes" to VnStrictJson.int(item.maxPayloadUtf8Bytes),
+                "payload_schema" to VnStrictJson.parseObject(item.payloadSchemaJson),
             )
         })
         val output = generate(

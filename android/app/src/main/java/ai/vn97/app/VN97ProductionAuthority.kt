@@ -2,6 +2,7 @@ package ai.vn97.app
 
 import ai.vn97.platform.M6AndroidProductionCapabilities
 import ai.vn97.platform.M6PolicyGrant
+import ai.vn97.platform.VN97GameControlPolicy
 import android.content.Context
 import android.content.Intent
 
@@ -15,6 +16,17 @@ internal object VN97ProductionAuthority {
                 principal
             )
         )
+        VN97GameControlPolicy(context)
+            .activeSessionOrNull()
+            ?.let { session ->
+                addAll(
+                    M6AndroidProductionCapabilities
+                        .userApprovedGameControlGrants(
+                            principal,
+                            session.packageName,
+                        )
+                )
+            }
         val launcher = Intent(Intent.ACTION_MAIN).apply {
             addCategory(Intent.CATEGORY_LAUNCHER)
         }

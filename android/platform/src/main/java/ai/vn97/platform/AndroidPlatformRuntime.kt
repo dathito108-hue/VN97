@@ -27,9 +27,21 @@ class AndroidPlatformRuntime(
     val externalApprovals: M6ExternalApprovalHandoff =
         M6ExternalApprovalHandoff(AndroidApprovalControllerPort(approvals))
 
-    internal val permissionBroker = AndroidPermissionBroker(appContext, permissionRequirements)
-    internal val appDeviceAdapter = AndroidAppDeviceAdapter(appContext, permissionBroker)
-    private val productionCapabilities = M6AndroidProductionCapabilities(appDeviceAdapter)
+    internal val permissionBroker =
+        AndroidPermissionBroker(appContext, permissionRequirements)
+
+    val gameControlPolicy =
+        VN97GameControlPolicy(appContext)
+
+    internal val appDeviceAdapter =
+        AndroidAppDeviceAdapter(
+            appContext,
+            permissionBroker,
+            gameControlPolicy,
+        )
+
+    private val productionCapabilities =
+        M6AndroidProductionCapabilities(appDeviceAdapter)
 
     val externalIntentBinder: M6ExternalIntentBinder = productionCapabilities.intentBinder
 

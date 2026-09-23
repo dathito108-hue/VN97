@@ -14,7 +14,7 @@ class NativePlanController(val plan:NativePlan) {
     }
     fun failStep(id:Int,reason:String,retryable:Boolean=true){ val s=plan.step(id);s.failureReason=reason;s.status=if(retryable) NativeStepStatus.PENDING else NativeStepStatus.FAILED;plan.status=if(retryable) NativePlanStatus.READY else NativePlanStatus.FAILED }
 }
-data class NativeExternalCapabilityView(val capabilityId:String,val requiredScopeKeys:List<String>,val optionalScopeKeys:List<String>,val approvalRequired:Boolean,val maxPayloadUtf8Bytes:Int)
+data class NativeExternalCapabilityView(val capabilityId:String,val requiredScopeKeys:List<String>,val optionalScopeKeys:List<String>,val approvalRequired:Boolean,val maxPayloadUtf8Bytes:Int,val payloadSchemaJson:String="{}")
 data class NativeExternalIntentRequest(val planId:String,val goal:String,val stepId:Int,val objective:String,val capabilities:List<NativeExternalCapabilityView>)
 data class NativeExternalIntent(val capabilityId:String,val scope:Map<String,String>,val payloadJson:String)
 open class NativeTypedCognitionAdapter(private val result: NativeExternalIntent) { open fun proposeExternalIntent(request: NativeExternalIntentRequest): NativeExternalIntent = result }

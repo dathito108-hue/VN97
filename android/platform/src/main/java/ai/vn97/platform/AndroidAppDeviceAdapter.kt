@@ -11,11 +11,15 @@ import android.os.PersistableBundle
 internal object PlatformCapabilityIds {
     const val APP_LAUNCH = M6AndroidProductionCapabilities.APP_LAUNCH_CAPABILITY
     const val CLIPBOARD_WRITE = M6AndroidProductionCapabilities.CLIPBOARD_WRITE_CAPABILITY
+    const val GAME_TAP = M6AndroidProductionCapabilities.GAME_TAP_CAPABILITY
+    const val GAME_SWIPE = M6AndroidProductionCapabilities.GAME_SWIPE_CAPABILITY
+    const val GAME_BACK = M6AndroidProductionCapabilities.GAME_BACK_CAPABILITY
 }
 
 internal class AndroidAppDeviceAdapter(
     context: Context,
     private val permissionBroker: AndroidPermissionBroker,
+    private val gameControlPolicy: VN97GameControlPolicy,
 ) : M6AndroidActionPort {
     private val appContext = context.applicationContext
 
@@ -33,6 +37,64 @@ internal class AndroidAppDeviceAdapter(
             appContext.startActivity(intent)
         }
         return "launched:$packageName"
+    }
+
+    override fun gameTap(
+        packageName: String,
+        xBasisPoints: Int,
+        yBasisPoints: Int,
+        durationMillis: Long,
+    ): String {
+        validatePackageName(packageName)
+        permissionBroker.requireGranted(PlatformCapabilityIds.GAME_TAP)
+        gameControlPolicy.requireAuthorized(packageName)
+        check(
+            VN97GameAccessibilityController.tap(
+                packageName,
+                xBasisPoints,
+                yBasisPoints,
+                durationMillis,
+            )
+        ) {
+            "game tap was not completed"
+        }
+        return "game:tap:$packageName"
+    }
+
+    override fun gameSwipe(
+        packageName: String,
+        startXBasisPoints: Int,
+        startYBasisPoints: Int,
+        endXBasisPoints: Int,
+        endYBasisPoints: Int,
+        durationMillis: Long,
+    ): String {
+        validatePackageName(packageName)
+        permissionBroker.requireGranted(PlatformCapabilityIds.GAME_SWIPE)
+        gameControlPolicy.requireAuthorized(packageName)
+        check(
+            VN97GameAccessibilityController.swipe(
+                packageName,
+                startXBasisPoints,
+                startYBasisPoints,
+                endXBasisPoints,
+                endYBasisPoints,
+                durationMillis,
+            )
+        ) {
+            "game swipe was not completed"
+        }
+        return "game:swipe:$packageName"
+    }
+
+    override fun gameBack(packageName: String): String {
+        validatePackageName(packageName)
+        permissionBroker.requireGranted(PlatformCapabilityIds.GAME_BACK)
+        gameControlPolicy.requireAuthorized(packageName)
+        check(VN97GameAccessibilityController.back(packageName)) {
+            "game back action was not completed"
+        }
+        return "game:back:$packageName"
     }
 
     override fun writeClipboard(text: String): String {
