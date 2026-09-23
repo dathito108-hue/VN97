@@ -101,7 +101,8 @@ def test_release_cli_writes_exact_m10j_assets(tmp_path, capsys):
     )
 
     report = json.loads(capsys.readouterr().out)
-    assert report["schema"] == "VN97BOOTREL3"
+    assert report["schema"] == "VN97BOOTREL4"
+    assert report["device_evidence"] is None
     assert report["speech_enabled"] is False
     assert report["speech_validation"] is None
     assert report["publisher_key_id"] == "publisher.main"
