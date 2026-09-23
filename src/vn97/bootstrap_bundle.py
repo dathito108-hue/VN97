@@ -137,7 +137,6 @@ def build_bootstrap_bundle(
     if not isinstance(public_key, bytes) or len(public_key) != 32:
         raise ValueError("signer public_key must be exactly 32 bytes")
 
-    model.eval()
     image = build_model_image(
         model,
         tokenizer=tokenizer,
@@ -222,13 +221,18 @@ def write_bootstrap_assets(
     if not isinstance(bundle, VN97BootstrapBundle):
         raise TypeError("bundle must be VN97BootstrapBundle")
 
-    root_path = Path(root).resolve()
-    if root_path.exists() and root_path.is_symlink():
+    requested_root = Path(root)
+    if requested_root.is_symlink():
         raise VN97BootstrapBundleError(
             "bootstrap asset root must not be a symlink"
         )
-    root_path.mkdir(parents=True, exist_ok=True)
-    if not root_path.is_dir() or root_path.is_symlink():
+    requested_root.mkdir(parents=True, exist_ok=True)
+    if requested_root.is_symlink():
+        raise VN97BootstrapBundleError(
+            "bootstrap asset root must not be a symlink"
+        )
+    root_path = requested_root.resolve(strict=True)
+    if not root_path.is_dir():
         raise VN97BootstrapBundleError(
             "bootstrap asset root must be a real directory"
         )
@@ -242,7 +246,7 @@ def write_bootstrap_assets(
     try:
         for name, data in assets:
             target = root_path / name
-            if target.exists() and target.is_symlink():
+            if target.is_symlink():
                 raise VN97BootstrapBundleError(
                     f"bootstrap asset target must not be a symlink: {name}"
                 )
