@@ -28,3 +28,13 @@ java -jar "$WORK/m10a-app-state-test.jar"
     -d "$WORK/m10b-inventory-evidence-test.jar"
 
 java -jar "$WORK/m10b-inventory-evidence-test.jar"
+
+
+"$KOTLINC" \
+    "$ROOT/android/app/src/main/java/ai/vn97/app/VN97AppState.kt" \
+    "$HERE/M10CApprovalStateTest.kt" \
+    -Werror \
+    -include-runtime \
+    -d "$WORK/m10c-approval-state-test.jar"
+
+java -jar "$WORK/m10c-approval-state-test.jar"

@@ -92,6 +92,22 @@ class M6AndroidProductionCapabilities internal constructor(
     }
 
     companion object {
+        fun userApprovedClipboardGrant(
+            principal: String,
+        ): M6PolicyGrant {
+            val scope = M6CapabilityScope.fromMap(
+                mapOf(CLIPBOARD_CHANNEL_SCOPE to CLIPBOARD_CHANNEL_VALUE)
+            )
+            return M6PolicyGrant(
+                principal = principal,
+                capabilityId = CLIPBOARD_WRITE_CAPABILITY,
+                scopeDigest = scope.digest,
+                approvalRequired = true,
+                maxLeaseNs = 30_000_000_000L,
+                maxLeaseUses = 1,
+            )
+        }
+
         const val APP_LAUNCH_CAPABILITY = "app.launch"
         const val CLIPBOARD_WRITE_CAPABILITY = "device.clipboard.write"
         const val APP_PACKAGE_SCOPE = "package"

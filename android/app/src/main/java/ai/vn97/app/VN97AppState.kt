@@ -34,6 +34,7 @@ sealed interface VN97AppEvent {
     data object TrustedModelActivated : VN97AppEvent
     data object TurnStarted : VN97AppEvent
     data object ApprovalRequired : VN97AppEvent
+    data class ApprovalRejected(val user: String) : VN97AppEvent
     data class TurnCompleted(val user: String, val assistant: String) : VN97AppEvent
     data class Failed(val message: String) : VN97AppEvent
     data object ResetModel : VN97AppEvent
@@ -60,11 +61,32 @@ object VN97AppReducer {
         }
 
         VN97AppEvent.ApprovalRequired -> {
-            check(state.phase == VN97AppPhase.RUNNING)
+            check(
+                state.phase == VN97AppPhase.READY ||
+                    state.phase == VN97AppPhase.RUNNING ||
+                    state.phase == VN97AppPhase.WAITING_APPROVAL
+            )
             state.copy(
                 phase = VN97AppPhase.WAITING_APPROVAL,
                 status = "External action requires explicit approval.",
                 inputEnabled = false,
+            )
+        }
+
+        is VN97AppEvent.ApprovalRejected -> {
+            check(state.phase == VN97AppPhase.WAITING_APPROVAL)
+            require(event.user.isNotBlank()) {
+                "rejected turn user text must not be blank"
+            }
+            state.copy(
+                phase = VN97AppPhase.READY,
+                status = "External action rejected.",
+                inputEnabled = true,
+                transcript = boundedTranscript(
+                    state.transcript +
+                        "You: ${event.user}" +
+                        "System: External action rejected."
+                ),
             )
         }
 
