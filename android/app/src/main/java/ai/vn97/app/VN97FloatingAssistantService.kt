@@ -47,7 +47,11 @@ class VN97FloatingAssistantService : Service() {
         startId: Int,
     ): Int {
         if (intent?.action == ACTION_DISABLE) {
-            disable(this)
+            preferences(this)
+                .edit()
+                .putBoolean(PREF_ENABLED, false)
+                .apply()
+            removeOverlay()
             stopSelf()
             return START_NOT_STICKY
         }
