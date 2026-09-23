@@ -76,6 +76,11 @@ public:
         const std::uint32_t* input_ids,
         float* logits,
         std::size_t logits_count);
+    RuntimeStatus InferStepHidden(
+        const LanguageModelView& model,
+        const std::uint32_t* input_ids,
+        float* hidden,
+        std::size_t hidden_count);
     RuntimeStatus ModelBinding(
         bool* bound,
         std::uint8_t* model_id,
@@ -91,6 +96,12 @@ public:
 
 private:
     RuntimeSession() = default;
+    RuntimeStatus InferStepOutput(
+        const LanguageModelView& model,
+        const std::uint32_t* input_ids,
+        float* output,
+        std::size_t output_count,
+        bool hidden_only);
 
     RuntimeConfig config_;
     RecurrentBackend resolved_recurrent_backend_ = RecurrentBackend::kScalar;
@@ -176,6 +187,14 @@ int vn97_runtime_infer_step(
     float* logits,
     std::size_t logits_count);
 
+int vn97_runtime_infer_step_hidden(
+    std::uint64_t handle,
+    const vn97::LanguageModelView* language_model_view,
+    const std::uint32_t* input_ids,
+    std::size_t input_count,
+    float* hidden,
+    std::size_t hidden_count);
+
 int vn97_runtime_prefill(
     std::uint64_t handle,
     const vn97::LanguageModelView* language_model_view,
@@ -184,6 +203,15 @@ int vn97_runtime_prefill(
     std::size_t step_count,
     float* final_logits,
     std::size_t logits_count);
+
+int vn97_runtime_prefill_hidden(
+    std::uint64_t handle,
+    const vn97::LanguageModelView* language_model_view,
+    const std::uint32_t* input_ids,
+    std::size_t input_count,
+    std::size_t step_count,
+    float* final_hidden,
+    std::size_t hidden_count);
 
 int vn97_runtime_generate_greedy(
     std::uint64_t handle,

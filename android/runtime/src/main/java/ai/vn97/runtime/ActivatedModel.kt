@@ -179,7 +179,7 @@ class NativeActivatedModel private constructor(
         return output.copyOf(countOut[0])
     }
 
-    fun decodeUtf8(tokenIds: IntArray, skipControl: Boolean = true): String {
+    internal fun decodeBytes(tokenIds: IntArray, skipControl: Boolean = true): ByteArray {
         check(info.hasTokenizer) { "activated model has no VN97TK1 tokenizer" }
         require(tokenIds.all { it >= 0 }) { "token IDs must be non-negative" }
         val sizeOut = LongArray(1)
@@ -189,7 +189,7 @@ class NativeActivatedModel private constructor(
                 "VN97TK1 decoded size",
             )
         }
-        val size = checkedArrayCount(sizeOut[0], "decoded UTF-8 size")
+        val size = checkedArrayCount(sizeOut[0], "decoded byte size")
         val bytes = ByteArray(size)
         val writtenOut = LongArray(1)
         withHandle<Unit> { h ->
@@ -199,8 +199,11 @@ class NativeActivatedModel private constructor(
             )
         }
         check(writtenOut[0] == sizeOut[0]) { "native tokenizer decoded size changed" }
-        return bytes.toString(StandardCharsets.UTF_8)
+        return bytes
     }
+
+    fun decodeUtf8(tokenIds: IntArray, skipControl: Boolean = true): String =
+        decodeBytes(tokenIds, skipControl).toString(StandardCharsets.UTF_8)
 
     override fun close() {
         val old = synchronized(lock) {

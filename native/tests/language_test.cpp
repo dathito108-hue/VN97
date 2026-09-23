@@ -18,7 +18,8 @@ void ReferenceFullStep(
     const std::uint32_t* ids,
     std::size_t batch,
     std::vector<float>* state,
-    std::vector<float>* logits) {
+    std::vector<float>* logits,
+    std::vector<float>* hidden) {
     constexpr std::size_t d = TinyLanguageFixture::kModel;
     constexpr std::size_t s = TinyLanguageFixture::kState;
     constexpr std::size_t v = TinyLanguageFixture::kVocab;
@@ -119,6 +120,11 @@ void ReferenceFullStep(
             d,
             fixture.model.rms_eps,
             norm);
+        if (hidden != nullptr) {
+            for (std::size_t m = 0; m < d; ++m) {
+                (*hidden)[b * d + m] = norm[m];
+            }
+        }
 
         for (std::size_t token = 0;
              token < v;
@@ -181,12 +187,16 @@ int main() {
     std::vector<float> reference_logits(
         logits.size(),
         0.0f);
+    std::vector<float> reference_hidden(
+        2 * TinyLanguageFixture::kModel,
+        0.0f);
     ReferenceFullStep(
         fixture,
         ids,
         2,
         &reference_state,
-        &reference_logits);
+        &reference_logits,
+        &reference_hidden);
 
     for (std::size_t i = 0;
          i < logits.size();
@@ -203,6 +213,44 @@ int main() {
         assert(
             std::fabs(
                 state[i] -
+                reference_state[i]) <
+            2e-5f);
+    }
+
+    std::vector<float> hidden_state(
+        2 *
+            TinyLanguageFixture::kModel *
+            TinyLanguageFixture::kState,
+        0.0f);
+    std::vector<float> hidden(
+        2 * TinyLanguageFixture::kModel,
+        0.0f);
+    assert(
+        vn97::LanguageStepHiddenF32(
+            fixture.model,
+            ids,
+            2,
+            hidden_state.data(),
+            hidden.data(),
+            hidden.size(),
+            workspace.data(),
+            workspace.size()) ==
+        vn97::LanguageStatus::kOk);
+    for (std::size_t i = 0;
+         i < hidden.size();
+         ++i) {
+        assert(
+            std::fabs(
+                hidden[i] -
+                reference_hidden[i]) <
+            2e-5f);
+    }
+    for (std::size_t i = 0;
+         i < hidden_state.size();
+         ++i) {
+        assert(
+            std::fabs(
+                hidden_state[i] -
                 reference_state[i]) <
             2e-5f);
     }

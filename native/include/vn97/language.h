@@ -83,4 +83,26 @@ LanguageStatus LanguageStepF32(
     float* workspace,
     std::size_t workspace_count);
 
+LanguageStatus LanguageStepHiddenF32WithBackends(
+    const LanguageModelView& model,
+    const std::uint32_t* input_ids,
+    std::size_t batch,
+    float* state_io,
+    float* hidden,
+    std::size_t hidden_count,
+    float* workspace,
+    std::size_t workspace_count,
+    RecurrentBackend recurrent_backend,
+    PackedTernaryBackend packed_backend);
+
+LanguageStatus LanguageStepHiddenF32(
+    const LanguageModelView& model,
+    const std::uint32_t* input_ids,
+    std::size_t batch,
+    float* state_io,
+    float* hidden,
+    std::size_t hidden_count,
+    float* workspace,
+    std::size_t workspace_count);
+
 }  // namespace vn97

@@ -186,6 +186,35 @@ int main() {
         static_cast<int>(config.recurrent_backend),
         static_cast<int>(config.packed_backend),
     };
+    const std::array<std::uint32_t, 2> hidden_prompt = {1, 2};
+    std::uint64_t hidden_runtime = 0;
+    assert(vn97_runtime_create(&c_config, &hidden_runtime) == 0);
+    assert(vn97_runtime_activate(hidden_runtime) == 0);
+    std::array<float, 3> hidden{};
+    assert(vn97_model_runtime_prefill_hidden(
+               model_handle,
+               hidden_runtime,
+               hidden_prompt.data(),
+               hidden_prompt.size(),
+               hidden_prompt.size(),
+               hidden.data(),
+               hidden.size()) == 0);
+    for (float value : hidden) assert(std::isfinite(value));
+
+    vn97_runtime_info hidden_info{};
+    assert(vn97_runtime_info_get(hidden_runtime, &hidden_info) == 0);
+    assert(hidden_info.sequence_position == hidden_prompt.size());
+    int hidden_bound = 0;
+    std::array<std::uint8_t, 32> hidden_bound_id{};
+    assert(vn97_runtime_model_binding_get(
+               hidden_runtime,
+               &hidden_bound,
+               hidden_bound_id.data(),
+               hidden_bound_id.size()) == 0);
+    assert(hidden_bound == 1);
+    assert(hidden_bound_id == id);
+    assert(vn97_runtime_destroy(hidden_runtime) == 0);
+
     std::uint64_t runtime_handle = 0;
     assert(vn97_runtime_create(&c_config, &runtime_handle) == 0);
     assert(vn97_runtime_activate(runtime_handle) == 0);

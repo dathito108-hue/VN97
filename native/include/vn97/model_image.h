@@ -119,6 +119,14 @@ int vn97_model_runtime_infer_step(
     float* logits,
     std::size_t logits_count);
 
+int vn97_model_runtime_infer_step_hidden(
+    std::uint64_t model_handle,
+    std::uint64_t runtime_handle,
+    const std::uint32_t* input_ids,
+    std::size_t input_count,
+    float* hidden,
+    std::size_t hidden_count);
+
 int vn97_model_runtime_prefill(
     std::uint64_t model_handle,
     std::uint64_t runtime_handle,
@@ -127,6 +135,15 @@ int vn97_model_runtime_prefill(
     std::size_t step_count,
     float* final_logits,
     std::size_t logits_count);
+
+int vn97_model_runtime_prefill_hidden(
+    std::uint64_t model_handle,
+    std::uint64_t runtime_handle,
+    const std::uint32_t* input_ids,
+    std::size_t input_count,
+    std::size_t step_count,
+    float* final_hidden,
+    std::size_t hidden_count);
 
 int vn97_model_runtime_generate_greedy(
     std::uint64_t model_handle,
