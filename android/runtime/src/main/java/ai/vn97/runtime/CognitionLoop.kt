@@ -150,11 +150,11 @@ class NativeCognitionLoop(
     }
 
     fun replanTerminalPlan(
-        controller: NativePlanController,
+        previousPlan: NativePlan,
         feedback: String,
         createdNs: Long = System.currentTimeMillis() * 1_000_000L,
     ): NativePlanRevision {
-        val plan = controller.plan
+        val plan = previousPlan
         require(plan.isTerminal()) {
             "only a terminal plan can start a new autonomous generation"
         }
