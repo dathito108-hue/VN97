@@ -14,6 +14,7 @@ import ai.vn97.runtime.NativePreparedAudio
 import ai.vn97.runtime.NativePreparedVision
 import ai.vn97.runtime.VN97KnowledgeAcquisitionResult
 import ai.vn97.runtime.VN97KnowledgeAcquisitionReview
+import ai.vn97.runtime.VN97KnowledgeGapProposal
 import ai.vn97.runtime.VN97KnowledgeAcquisitionSession
 import android.os.SystemClock
 import java.io.File
@@ -61,6 +62,27 @@ class VN97AppAssistant(
         resources = assistant
         pendingResult = null
         true
+    }
+
+    fun proposeKnowledgeAcquisition(
+        goal: String,
+    ): VN97KnowledgeGapProposal = exclusive {
+        require(goal.isNotBlank()) {
+            "knowledge acquisition proposal goal must not be blank"
+        }
+        requireKnowledgeAcquisitionIdle()
+        val activeModel = checkNotNull(model) {
+            "trusted VN97 model is not active"
+        }
+        val activeResources = checkNotNull(resources) {
+            "trusted VN97 model is not active"
+        }
+        application.platformRuntime
+            .createProductionKnowledgeAcquisitionProposalEngine(
+                model = activeModel,
+                memory = activeResources.memory,
+            )
+            .propose(goal)
     }
 
     fun pendingKnowledgeReview():
