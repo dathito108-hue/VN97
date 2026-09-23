@@ -1,6 +1,9 @@
 package ai.vn97.platform
 
+import ai.vn97.runtime.NativeActivatedModel
+import ai.vn97.runtime.NativeCognitionInferenceEngine
 import ai.vn97.runtime.NativeCognitionLimits
+import ai.vn97.runtime.NativeCognitionRuntimeConfig
 import ai.vn97.runtime.NativeTypedCognitionAdapter
 import android.content.Context
 import java.io.File
@@ -78,4 +81,33 @@ class AndroidPlatformRuntime(
         ),
         cognitionLimits = cognitionLimits,
     )
+
+    /**
+     * Production assistant path rooted directly in one activated VN97 model.
+     * No generic inference/backend parameter is accepted here.
+     */
+    fun createProductionAssistantSession(
+        model: NativeActivatedModel,
+        grants: List<M6PolicyGrant>,
+        cognitionRuntimeConfig: NativeCognitionRuntimeConfig = NativeCognitionRuntimeConfig(),
+        cognitionLimits: NativeCognitionLimits = NativeCognitionLimits(),
+        sessionLimits: VN97AssistantSessionLimits = VN97AssistantSessionLimits(),
+        auditFileName: String = "m6-actions.jsonl",
+    ): VN97AssistantSession {
+        val cognition = NativeTypedCognitionAdapter(
+            NativeCognitionInferenceEngine(
+                model = model,
+                config = cognitionRuntimeConfig,
+            )
+        )
+        return VN97AssistantSession(
+            coordinator = createProductionExternalCoordinator(
+                cognition = cognition,
+                grants = grants,
+                cognitionLimits = cognitionLimits,
+                auditFileName = auditFileName,
+            ),
+            limits = sessionLimits,
+        )
+    }
 }
