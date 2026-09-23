@@ -1,6 +1,9 @@
 #pragma once
 
+#include "vn97/packed_ternary.h"
+
 #include <cstddef>
+#include <cstdint>
 
 namespace vn97 {
 
@@ -11,6 +14,17 @@ enum class ModalityStatus {
     kInvalidParameter,
     kSizeOverflow,
     kOutputTooSmall,
+    kInvalidModel,
+    kBackendUnavailable,
+    kNonFinite,
+};
+
+struct AudioProjectionView {
+    std::uint32_t frame_size = 0;
+    std::uint32_t d_model = 0;
+    float rms_eps = 0.0f;
+    PackedTernaryView projection;
+    const float* norm_weight = nullptr;
 };
 
 std::size_t AudioFrameCount(
@@ -27,6 +41,20 @@ ModalityStatus PrepareAudioFramesF32(
     std::size_t frame_size,
     std::size_t hop_size,
     float eps);
+
+ModalityStatus ValidateAudioProjection(
+    const AudioProjectionView& view);
+
+ModalityStatus ProjectAudioFramesF32(
+    const AudioProjectionView& view,
+    const float* frames,
+    std::size_t frame_value_count,
+    std::size_t frame_count,
+    float* embeddings,
+    std::size_t embedding_capacity,
+    float* workspace,
+    std::size_t workspace_count,
+    PackedTernaryBackend backend = PackedTernaryBackend::kAuto);
 
 std::size_t VisionPatchCount(
     std::size_t height,
