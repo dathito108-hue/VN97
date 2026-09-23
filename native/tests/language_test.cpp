@@ -422,6 +422,81 @@ int main() {
             2e-5f);
     }
 
+    std::vector<float> embedding_state(
+        TinyLanguageFixture::kModel *
+            TinyLanguageFixture::kState,
+        0.0f);
+    std::vector<float> embedding_logits(
+        TinyLanguageFixture::kVocab,
+        0.0f);
+    const float* effective_embedding =
+        effective.data() +
+        static_cast<std::size_t>(factorized_token) *
+            TinyLanguageFixture::kModel;
+
+    assert(
+        vn97::LanguageStepEmbeddingsF32(
+            full_equivalent,
+            effective_embedding,
+            TinyLanguageFixture::kModel,
+            1,
+            embedding_state.data(),
+            embedding_logits.data(),
+            embedding_logits.size(),
+            workspace.data(),
+            workspace.size()) ==
+        vn97::LanguageStatus::kOk);
+
+    for (std::size_t i = 0;
+         i < embedding_state.size();
+         ++i) {
+        assert(
+            std::fabs(
+                embedding_state[i] -
+                equivalent_state[i]) <
+            2e-5f);
+    }
+    for (std::size_t i = 0;
+         i < embedding_logits.size();
+         ++i) {
+        assert(
+            std::fabs(
+                embedding_logits[i] -
+                equivalent_logits[i]) <
+            2e-5f);
+    }
+
+    assert(
+        vn97::LanguageStepEmbeddingsF32(
+            full_equivalent,
+            effective_embedding,
+            TinyLanguageFixture::kModel - 1,
+            1,
+            embedding_state.data(),
+            embedding_logits.data(),
+            embedding_logits.size(),
+            workspace.data(),
+            workspace.size()) ==
+        vn97::LanguageStatus::kInvalidConfig);
+
+    auto non_finite_embedding = std::vector<float>(
+        effective_embedding,
+        effective_embedding + TinyLanguageFixture::kModel);
+    non_finite_embedding[1] =
+        std::numeric_limits<float>::quiet_NaN();
+    assert(
+        vn97::LanguageStepEmbeddingsF32(
+            full_equivalent,
+            non_finite_embedding.data(),
+            non_finite_embedding.size(),
+            1,
+            embedding_state.data(),
+            embedding_logits.data(),
+            embedding_logits.size(),
+            workspace.data(),
+            workspace.size()) ==
+        vn97::LanguageStatus::kNonFinite);
+
     fixture.model.model_id[0] = 0;
     fixture.model.model_id[31] = 0;
     assert(
