@@ -16,6 +16,18 @@ class AndroidPlatformRuntime(
     val externalApprovals: M6ExternalApprovalHandoff =
         M6ExternalApprovalHandoff(AndroidApprovalControllerPort(approvals))
 
+    fun createExternalExecutionFabric(
+        registry: M6TypedCapabilityRegistry,
+        grants: List<M6PolicyGrant>,
+        audit: M6ActionAudit = M6InMemoryActionAudit(),
+    ): M6ExternalExecutionFabric {
+        val authority = M6DenyByDefaultAuthorityGate(
+            grants = grants,
+            approvals = AndroidApprovalControllerPort(approvals),
+        )
+        return M6ExternalExecutionFabric(registry, authority, audit)
+    }
+
     internal val permissionBroker = AndroidPermissionBroker(context, permissionRequirements)
     internal val appDeviceAdapter = AndroidAppDeviceAdapter(context, permissionBroker)
 }
