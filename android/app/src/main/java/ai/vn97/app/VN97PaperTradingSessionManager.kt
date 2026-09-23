@@ -99,8 +99,16 @@ class VN97PaperTradingSessionManager(
                 "paper trading active-session bound reached"
             }
 
-            val modelId = openActivatedModel().use { model ->
-                model.info.modelId.hex()
+            val reopenForeground =
+                application.assistant.releaseForBackgroundContinuation()
+            val modelId = try {
+                openActivatedModel().use { model ->
+                    model.info.modelId.hex()
+                }
+            } finally {
+                if (reopenForeground) {
+                    runCatching { application.assistant.openIfActivated() }
+                }
             }
             val symbols = config.symbols.toList().sorted()
             val sessionId = sessionId(
@@ -142,13 +150,13 @@ class VN97PaperTradingSessionManager(
             check(!record.terminal) {
                 "terminal paper trading session cannot be paused"
             }
-            scheduler.cancel(jobId)
             val paused = record.copy(
                 state = VN97PaperTradingSessionState.PAUSED,
                 updatedWallTimeMillis = monotonicNow(record),
                 terminalReason = "",
             )
             store.save(paused)
+            scheduler.cancel(jobId)
             paused
         }
 
@@ -173,13 +181,13 @@ class VN97PaperTradingSessionManager(
         application.withSovereignExecution {
             val record = requireSession(jobId)
             if (record.terminal) return@withSovereignExecution record
-            scheduler.cancel(jobId)
             val stopped = record.copy(
                 state = VN97PaperTradingSessionState.STOPPED,
                 updatedWallTimeMillis = monotonicNow(record),
                 terminalReason = "paper session stopped by user",
             )
             store.save(stopped)
+            scheduler.cancel(jobId)
             appendTerminalMemoryBestEffort(stopped)
             stopped
         }
@@ -598,7 +606,6 @@ class VN97PaperTradingSessionManager(
                 state == VN97PaperTradingSessionState.COMPLETED ||
                 state == VN97PaperTradingSessionState.FAILED
         )
-        scheduler.cancel(record.jobId)
         val terminal = record.copy(
             state = state,
             updatedWallTimeMillis = monotonicNow(record),
@@ -609,6 +616,7 @@ class VN97PaperTradingSessionManager(
                 ),
         )
         store.save(terminal)
+        scheduler.cancel(record.jobId)
         appendTerminalMemoryBestEffort(terminal)
         return terminal
     }
