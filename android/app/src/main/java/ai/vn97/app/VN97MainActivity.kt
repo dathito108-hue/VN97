@@ -874,6 +874,7 @@ class VN97MainActivity : Activity() {
                 append("\nlast external app=")
                 append(lastExternal)
             }
+            append("\ncontrols=tap/swipe/multitouch/back")
             append(
                 "\nScreen sharing must remain user-approved for visual game perception."
             )
