@@ -48,12 +48,12 @@ class AndroidVN97CapabilityProvisioner(
     context: android.content.Context,
 ) {
     private val appContext = context.applicationContext
-    private val root = File(
+    val capabilityRoot: File = File(
         appContext.noBackupFilesDir,
         "vn97-capabilities",
     )
 
-    val stageRoot: File = File(root, "stage")
+    val stageRoot: File = File(capabilityRoot, "stage")
     val compatibilityProfile =
         ai.vn97.runtime.VN97ModelImageActivationBackend.productionProfile()
 
@@ -61,14 +61,14 @@ class AndroidVN97CapabilityProvisioner(
     val activationCoordinator: ai.vn97.runtime.VN97CapabilityActivationCoordinator
 
     init {
-        requireDirectory(root, "VN97 capability root")
+        requireDirectory(capabilityRoot, "VN97 capability root")
         requireDirectory(stageRoot, "VN97 capability stage root")
         activationBackend = ai.vn97.runtime.VN97ModelImageActivationBackend(
-            root = root,
+            root = capabilityRoot,
             validator = AndroidVN97ModelImageCandidateValidator,
         )
         activationCoordinator = ai.vn97.runtime.VN97CapabilityActivationCoordinator(
-            ai.vn97.runtime.VN97CapabilityInventoryStore(root)
+            ai.vn97.runtime.VN97CapabilityInventoryStore(capabilityRoot)
         )
     }
 

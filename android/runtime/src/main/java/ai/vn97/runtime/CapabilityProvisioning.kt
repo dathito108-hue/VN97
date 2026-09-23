@@ -9,6 +9,7 @@ data class VN97ModelProvisioningReview(
     val packageSha256: String,
     val publisherKeyId: String,
     val publisherKeySha256: String,
+    val publisherPreviouslyTrusted: Boolean,
     val sourceOrigin: String,
     val sourceLicense: String,
     val planSha256: String,
@@ -20,11 +21,12 @@ class VN97ModelImageProvisioningSession(
     private val profile: VN97CompatibilityProfile,
     private val backend: VN97CapabilityActivationBackend,
     private val coordinator: VN97CapabilityActivationCoordinator,
+    private val trustRegistry: VN97PublisherTrustRegistry,
 ) {
     private data class Pending(
         val verified: VN97VerifiedCapability,
         val plan: VN97CompatibilityPlan,
-        val trustStore: VN97CapabilityTrustStore,
+        val publisherPublicKey: ByteArray,
         val review: VN97ModelProvisioningReview,
     )
 
@@ -57,6 +59,10 @@ class VN97ModelImageProvisioningSession(
             maxVersion = 0xffff_ffffL,
             revoked = false,
         )
+        val previouslyTrusted = trustRegistry.requireCompatibleOrUnenrolled(
+            staged.signature.keyId,
+            publisherPublicKey,
+        )
         val trustStore = VN97CapabilityTrustStore(listOf(trustKey))
         val verified = VN97CapabilityTrustVerifier.verify(
             staged = staged,
@@ -79,6 +85,7 @@ class VN97ModelImageProvisioningSession(
             packageSha256 = verified.parsed.packageSha256,
             publisherKeyId = verified.publisherKeyId,
             publisherKeySha256 = publicKeyDigest,
+            publisherPreviouslyTrusted = previouslyTrusted,
             sourceOrigin = source.origin,
             sourceLicense = source.license,
             planSha256 = plan.sha256(),
@@ -86,7 +93,7 @@ class VN97ModelImageProvisioningSession(
         pending = Pending(
             verified = verified,
             plan = plan,
-            trustStore = trustStore,
+            publisherPublicKey = publisherPublicKey.copyOf(),
             review = review,
         )
         return review
@@ -107,6 +114,10 @@ class VN97ModelImageProvisioningSession(
         }
         // Reconcile any crash-left activation before a new activation attempt.
         recover()
+        val durableTrustStore = trustRegistry.enrollModelPublisher(
+            keyId = current.verified.publisherKeyId,
+            publicKey = current.publisherPublicKey,
+        )
         return try {
             coordinator.activate(
                 verified = current.verified,
@@ -114,7 +125,7 @@ class VN97ModelImageProvisioningSession(
                 profile = profile,
                 backend = backend,
                 stageRoot = stageRoot,
-                trustStore = current.trustStore,
+                trustStore = durableTrustStore,
                 adapters = emptyList(),
                 allowLossy = false,
                 allowSameVersionReplace = false,

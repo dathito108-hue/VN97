@@ -213,6 +213,7 @@ java -jar "$WORK/m10g-production-interface-integration-test.jar"
     "$ROOT/android/runtime/src/main/java/ai/vn97/runtime/CapabilityActivation.kt" \
     "$ROOT/android/runtime/src/main/java/ai/vn97/runtime/ModelImageActivationBackend.kt" \
     "$ROOT/android/runtime/src/main/java/ai/vn97/runtime/ActivatedInventoryEvidence.kt" \
+    "$ROOT/android/runtime/src/main/java/ai/vn97/runtime/PublisherTrustRegistry.kt" \
     "$ROOT/android/runtime/src/main/java/ai/vn97/runtime/CapabilityProvisioning.kt" \
     "$HERE/M10DStrictJsonStub.kt" \
     "$HERE/M10HTrustedImportActivationTest.kt" \

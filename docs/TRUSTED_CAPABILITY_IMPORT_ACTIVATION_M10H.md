@@ -33,6 +33,13 @@ For each review, M10H constructs a narrowly scoped trust policy:
 
 The public key itself is not written into VN97INV1 and no new M6 grant is created.
 
+The explicit Trust & Activate action also enrolls the exact key_id/public-key binding in the
+app-private canonical `VN97PTR1` registry. Review does not mutate that registry. Reusing the same
+key_id with different key bytes fails closed; key rotation therefore requires a distinct key ID.
+The registry has atomic replace + fsync, symlink rejection, canonical JSON validation and a fixed
+model/weights policy. This preserves publisher provenance across process restart instead of leaving
+the trust anchor only in RAM.
+
 ## Two-phase user decision
 
 `VN97ModelImageProvisioningSession.review(...)` stages and verifies bytes, checks publisher
@@ -48,7 +55,8 @@ The UI displays:
 - source origin/license;
 - compatibility plan SHA-256.
 
-Only a separate **Trust & Activate** action calls `activateReviewed()`. The session retains the
+Only a separate **Trust & Activate** action persists the publisher key in VN97PTR1 and calls
+`activateReviewed()`. The session retains the
 exact verified capability, compatibility plan and trust store from the review so the UI cannot
 silently swap identity between review and activation. The M10F coordinator revalidates staged
 bytes, trust and compatibility again immediately before activation.

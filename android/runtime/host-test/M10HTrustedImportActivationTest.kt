@@ -128,15 +128,18 @@ fun main() {
     val coordinator = VN97CapabilityActivationCoordinator(
         VN97CapabilityInventoryStore(root)
     )
+    val trustRegistry = VN97PublisherTrustRegistry(root)
     val session = VN97ModelImageProvisioningSession(
         stager = VN97CapabilityStager(stageRoot),
         stageRoot = stageRoot,
         profile = VN97ModelImageActivationBackend.productionProfile(),
         backend = backend,
         coordinator = coordinator,
+        trustRegistry = trustRegistry,
     )
 
     check(session.recover().active.isEmpty())
+    check(!root.resolve(VN97_PUBLISHER_TRUST_FILE).exists())
     val review = session.review(
         packageInput = ByteArrayInputStream(packageBytes),
         signatureBytes = signatureBytes,
@@ -146,7 +149,9 @@ fun main() {
     check(review.capabilityVersion == 1L)
     check(review.publisherKeyId == "owner")
     check(review.publisherKeySha256 == hex(sha(rawPublic)))
+    check(!review.publisherPreviouslyTrusted)
     check(coordinator.inventory().active.isEmpty())
+    check(!root.resolve(VN97_PUBLISHER_TRUST_FILE).exists())
     check(session.pendingReview() == review)
 
     val activated = session.activateReviewed()
@@ -154,6 +159,8 @@ fun main() {
     check(activated.artifactSha256 == hex(sha(payload)))
     check(coordinator.inventory().current("model.language") == activated)
     check(session.pendingReview() == null)
+    check(root.resolve(VN97_PUBLISHER_TRUST_FILE).isFile)
+    trustRegistry.requireTrustStore("owner")
     check(validatorCalls >= 2)
 
     val inventoryBytes = root.resolve(VN97_INVENTORY_FILE).readBytes()
@@ -166,6 +173,24 @@ fun main() {
             .readBytes()
             .contentEquals(payload)
     )
+
+    val secondReview = session.review(
+        packageInput = ByteArrayInputStream(packageBytes),
+        signatureBytes = signatureBytes,
+        publisherPublicKey = rawPublic,
+    )
+    check(secondReview.publisherPreviouslyTrusted)
+    session.clearReview()
+
+    val otherKey = KeyPairGenerator.getInstance("Ed25519").generateKeyPair()
+        .public.encoded.let { it.copyOfRange(it.size - 32, it.size) }
+    var conflictRejected = false
+    try {
+        trustRegistry.requireCompatibleOrUnenrolled("owner", otherKey)
+    } catch (_: VN97CapabilityTrustException) {
+        conflictRejected = true
+    }
+    check(conflictRejected)
 
     println("M10H_TRUSTED_IMPORT_ACTIVATION_PASS")
 }

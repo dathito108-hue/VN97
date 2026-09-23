@@ -16,6 +16,9 @@ class VN97AppProvisioner(
         profile = platform.compatibilityProfile,
         backend = platform.activationBackend,
         coordinator = platform.activationCoordinator,
+        trustRegistry = ai.vn97.runtime.VN97PublisherTrustRegistry(
+            platform.capabilityRoot
+        ),
     )
 
     fun recoverPending() {

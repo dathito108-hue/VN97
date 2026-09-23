@@ -461,6 +461,14 @@ class VN97MainActivity : Activity() {
             append(review.publisherKeyId)
             append("\nKey SHA-256: ")
             append(review.publisherKeySha256)
+            append("\nTrust status: ")
+            append(
+                if (review.publisherPreviouslyTrusted) {
+                    "publisher key already enrolled"
+                } else {
+                    "NEW publisher key — explicit trust will be persisted"
+                }
+            )
             append("\nPackage SHA-256: ")
             append(review.packageSha256)
             append("\nCapability: ")
