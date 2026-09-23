@@ -372,6 +372,6 @@ class VN97AppAssistant(
     companion object {
         const val APP_PRINCIPAL = "runtime.user"
         private const val MAX_LAUNCHABLE_APP_GRANTS = 512
-        private const val MAX_VISUAL_VERIFY_FIELD_CHARS = 16 * 1024
+        private const val MAX_VISUAL_VERIFY_FIELD_CHARS = 2 * 1024
     }
 }
