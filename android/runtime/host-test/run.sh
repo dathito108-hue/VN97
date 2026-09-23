@@ -165,3 +165,24 @@ java -jar "$WORK/m10e-publisher-trust-test.jar"
     -d "$WORK/m10f-transactional-activation-test.jar"
 
 java -jar "$WORK/m10f-transactional-activation-test.jar"
+
+
+"$KOTLINC" \
+    "$ROOT/android/runtime/src/main/java/ai/vn97/runtime/ModelImageActivationBackend.kt" \
+    "$HERE/M10GModelImageBackendStubs.kt" \
+    "$HERE/M10GModelImageBackendTest.kt" \
+    -Werror \
+    -include-runtime \
+    -d "$WORK/m10g-model-image-backend-test.jar"
+
+java -jar "$WORK/m10g-model-image-backend-test.jar"
+
+"$KOTLINC" \
+    "$ROOT/android/runtime/src/main/java/ai/vn97/runtime/NativeModelImageCandidateValidator.kt" \
+    "$HERE/M10GNativeCandidateStubs.kt" \
+    "$HERE/M10GNativeCandidateValidatorTest.kt" \
+    -Werror \
+    -include-runtime \
+    -d "$WORK/m10g-native-candidate-validator-test.jar"
+
+java -jar "$WORK/m10g-native-candidate-validator-test.jar"

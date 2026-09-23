@@ -169,3 +169,16 @@ java -jar "$WORK/m7y-cold-process-turn-memory-recovery-test.jar"
     -d "$WORK/m7z-assistant-continuation-contract-test.jar"
 
 java -jar "$WORK/m7z-assistant-continuation-contract-test.jar"
+
+
+"$KOTLINC" \
+    "$ROOT/android/platform/src/main/java/ai/vn97/platform/AndroidModelImageActivation.kt" \
+    "$HERE/M10GParcelFileDescriptorStub.kt" \
+    "$HERE/M10GContextStub.kt" \
+    "$HERE/M10GPlatformRuntimeStubs.kt" \
+    "$HERE/M10GAndroidModelImageActivationTest.kt" \
+    -Werror \
+    -include-runtime \
+    -d "$WORK/m10g-android-model-image-activation-test.jar"
+
+java -jar "$WORK/m10g-android-model-image-activation-test.jar"
