@@ -367,25 +367,7 @@ class VN97MainActivity : Activity() {
                     publisherKeyUri = keyValue,
                 )
                 runOnUiThread {
-                    provisioningView.text = buildString {
-                        append("Publisher: ")
-                        append(review.publisherKeyId)
-                        append("\nKey SHA-256: ")
-                        append(review.publisherKeySha256)
-                        append("\nPackage SHA-256: ")
-                        append(review.packageSha256)
-                        append("\nCapability: ")
-                        append(review.capabilityId)
-                        append(" v")
-                        append(review.capabilityVersion)
-                        append("\nSource: ")
-                        append(review.sourceOrigin)
-                        append("\nLicense: ")
-                        append(review.sourceLicense)
-                        append("\nPlan SHA-256: ")
-                        append(review.planSha256)
-                        append("\n\nReview verified. Trust & Activate is an explicit user action.")
-                    }
+                    renderProvisioningReview(review)
                     setProvisioningControlsEnabled(true)
                     activateModelButton.isEnabled = true
                 }
@@ -469,6 +451,30 @@ class VN97MainActivity : Activity() {
             append(if (publisherKeyUri == null) "missing" else "selected")
         }
         setProvisioningControlsEnabled(true)
+    }
+
+    private fun renderProvisioningReview(
+        review: ai.vn97.runtime.VN97ModelProvisioningReview,
+    ) {
+        provisioningView.text = buildString {
+            append("Publisher: ")
+            append(review.publisherKeyId)
+            append("\nKey SHA-256: ")
+            append(review.publisherKeySha256)
+            append("\nPackage SHA-256: ")
+            append(review.packageSha256)
+            append("\nCapability: ")
+            append(review.capabilityId)
+            append(" v")
+            append(review.capabilityVersion)
+            append("\nSource: ")
+            append(review.sourceOrigin)
+            append("\nLicense: ")
+            append(review.sourceLicense)
+            append("\nPlan SHA-256: ")
+            append(review.planSha256)
+            append("\n\nReview verified. Trust & Activate is an explicit user action.")
+        }
     }
 
     private fun submitTurn() {
@@ -578,7 +584,9 @@ class VN97MainActivity : Activity() {
         approveButton.isEnabled = approval != null
         rejectButton.isEnabled = approval != null
         setProvisioningControlsEnabled(true)
-        if (app.provisioner.pendingReview() != null) {
+        val pendingReview = app.provisioner.pendingReview()
+        if (pendingReview != null) {
+            renderProvisioningReview(pendingReview)
             activateModelButton.isEnabled = provisioningAllowed()
         }
 
