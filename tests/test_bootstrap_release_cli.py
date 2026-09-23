@@ -129,6 +129,23 @@ def test_release_cli_can_require_matching_device_evidence(
         tile_cols=4,
     )
     model_sha = hashlib.sha256(preview.data).hexdigest()
+    production_report = tmp_path / "production-campaign-report.json"
+    production_report.write_text(
+        json.dumps(
+            {
+                "model_image_sha256": model_sha,
+                "schema": "VN97PRODCAMP1",
+                "tokenizer_sha256": hashlib.sha256(
+                    tokenizer_path.read_bytes()
+                ).hexdigest(),
+                "unified_checkpoint_sha256": loaded.checkpoint_sha256,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ),
+        encoding="utf-8",
+    )
+
     evidence_path = tmp_path / "vn97-mobile-evidence.json"
     evidence_path.write_text(
         json.dumps(
@@ -189,6 +206,8 @@ def test_release_cli_can_require_matching_device_evidence(
             "--max-validation-loss", "100",
             "--tile-rows", "4",
             "--tile-cols", "4",
+            "--production-campaign-report", str(production_report),
+            "--require-production-campaign-report",
             "--device-evidence", str(evidence_path),
             "--require-device-evidence",
             "--max-text-prefill-p95-ms", "20",
@@ -200,6 +219,9 @@ def test_release_cli_can_require_matching_device_evidence(
     report = json.loads(capsys.readouterr().out)
     assert report["device_evidence"]["evidence_sha256"] == hashlib.sha256(
         evidence_path.read_bytes()
+    ).hexdigest()
+    assert report["production_campaign_report_sha256"] == hashlib.sha256(
+        production_report.read_bytes()
     ).hexdigest()
     assert report["device_evidence"]["model"] == "fixture-phone"
     assert report["model_image_sha256"] == model_sha
