@@ -118,7 +118,7 @@ class VN97GameAgentController(
                 maxActions = maxActions,
             )
         try {
-            check(application.assistant.reloadActivatedModel()) {
+            check(application.assistant.reloadForGameAgent()) {
                 "trusted VN97 model is not active"
             }
         } catch (exc: Throwable) {
@@ -223,7 +223,7 @@ class VN97GameAgentController(
                         previousVerification =
                             previousVerification,
                     ),
-                    maxAdvances = MAX_ADVANCES_PER_ROUND,
+                    maxAdvances = 1,
                 )
             } catch (exc: Throwable) {
                 return finish(
@@ -521,7 +521,6 @@ class VN97GameAgentController(
         private const val DEFAULT_MAX_ROUNDS = 96
         private const val MAX_ROUNDS = 512
         private const val MAX_OBJECTIVE_UTF8_BYTES = 16 * 1024
-        private const val MAX_ADVANCES_PER_ROUND = 8
         private const val VERIFY_TOKEN_BUDGET = 160
         private const val TARGET_FOREGROUND_TIMEOUT_MS = 12_000L
         private const val INITIAL_FRAME_TIMEOUT_MS = 5_000L
