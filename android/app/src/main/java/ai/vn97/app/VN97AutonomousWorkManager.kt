@@ -123,6 +123,164 @@ class VN97AutonomousWorkManager(
         store.loadOrNull(jobId)
 
     @Synchronized
+    fun pendingApprovalRequest(): VN97AutonomousApprovalRequest? {
+        val waiting = store.list()
+            .asSequence()
+            .filter {
+                it.state == VN97AutonomousGoalState.WAITING_APPROVAL
+            }
+            .maxWithOrNull(
+                compareBy<VN97AutonomousGoalRecord> {
+                    it.generation
+                }.thenBy { it.createdNs }
+            )
+            ?: run {
+                closeForegroundApprovalLocked()
+                return null
+            }
+
+        val existing = foregroundApproval
+        if (
+            existing != null &&
+            foregroundApprovalJobId == waiting.jobId
+        ) {
+            return approvalRequest(waiting, existing)
+        }
+
+        closeForegroundApprovalLocked()
+        return application.withSovereignExecution {
+            scheduler.cancel(waiting.jobId)
+            val reopen =
+                application.assistant.releaseForBackgroundContinuation()
+            var model: ai.vn97.runtime.NativeActivatedModel? = null
+            try {
+                model = openActivatedModel()
+                requireModelIdentity(waiting, model.info.modelId)
+                val session =
+                    openVN97ForegroundAssistantContinuation(
+                        context = application,
+                        platformRuntime = application.platformRuntime,
+                        jobId = waiting.jobId,
+                        model = model,
+                        grants = VN97ProductionAuthority.grants(
+                            application,
+                            waiting.principal,
+                        ),
+                        runtimeConfig = runtimeConfigFor(model),
+                        sessionLimits = VN97AssistantSessionLimits(
+                            maxCyclesPerAdvance = 4,
+                            maxExternalHandoffsPerAdvance = 1,
+                        ),
+                        auditFileName =
+                            "m13-actions-" +
+                                waiting.jobId +
+                                ".jsonl",
+                        nowNs = SystemClock.elapsedRealtimeNanos(),
+                    )
+                model = null
+                val update = session.currentUpdate
+                if (
+                    update.state ==
+                        VN97AssistantTurnState.APPROVAL_REQUIRED
+                ) {
+                    foregroundApproval = session
+                    foregroundApprovalJobId = waiting.jobId
+                    reopenForegroundAssistantAfterApproval = reopen
+                    return@withSovereignExecution approvalRequest(
+                        waiting,
+                        session,
+                    )
+                }
+
+                val committed = session.commit()
+                val updated = updateRecordFromForeground(
+                    waiting,
+                    committed,
+                    approved = null,
+                )
+                store.save(updated)
+                if (
+                    !updated.terminal &&
+                    updated.state ==
+                        VN97AutonomousGoalState.SCHEDULED
+                ) {
+                    reschedule(updated.jobId)
+                }
+                if (reopen) {
+                    application.assistant.openIfActivated()
+                }
+                null
+            } catch (exc: Throwable) {
+                model?.close()
+                if (reopen) {
+                    runCatching {
+                        application.assistant.openIfActivated()
+                    }
+                }
+                throw exc
+            }
+        }
+    }
+
+    @Synchronized
+    fun resolvePendingApproval(
+        approved: Boolean,
+    ): VN97AutonomousGoalRecord {
+        val session = checkNotNull(foregroundApproval) {
+            "no autonomous approval session is open"
+        }
+        val jobId = checkNotNull(foregroundApprovalJobId) {
+            "autonomous approval job identity is missing"
+        }
+        val record = checkNotNull(store.loadOrNull(jobId)) {
+            "autonomous approval goal does not exist"
+        }
+        check(
+            record.state ==
+                VN97AutonomousGoalState.WAITING_APPROVAL
+        ) {
+            "autonomous goal is not waiting for approval"
+        }
+
+        return application.withSovereignExecution {
+            try {
+                val resolved = session.resolveApproval(
+                    approved = approved,
+                    nowNs = SystemClock.elapsedRealtimeNanos(),
+                )
+                session.commit()
+                foregroundApproval = null
+                foregroundApprovalJobId = null
+
+                val updated = updateRecordFromForeground(
+                    record,
+                    resolved,
+                    approved = approved,
+                )
+                store.save(updated)
+
+                val result = if (
+                    !updated.terminal &&
+                    updated.state ==
+                        VN97AutonomousGoalState.SCHEDULED
+                ) {
+                    reschedule(updated.jobId)
+                } else {
+                    updated
+                }
+                reopenForegroundAssistantLocked()
+                result
+            } catch (exc: Throwable) {
+                foregroundApproval = null
+                foregroundApprovalJobId = null
+                runCatching { session.close() }
+                reopenForegroundAssistantLocked()
+                throw exc
+            }
+        }
+    }
+
+    @Synchronized
     fun reschedule(jobId: Int): VN97AutonomousGoalRecord {
         val record = checkNotNull(store.loadOrNull(jobId)) {
             "autonomous goal does not exist"
