@@ -341,12 +341,13 @@ class VN97AppAssistant(
         }
     }
 
-    private fun <T> exclusive(block: () -> T): T =
-        application.withSovereignExecution {
-            synchronized(lock) {
-                block()
-            }
+    private inline fun <T> exclusive(
+        block: () -> T,
+    ): T = application.withSovereignExecution {
+        synchronized(lock) {
+            block()
         }
+    }
 
     private fun productionGrants() =
         VN97ProductionAuthority.grants(
