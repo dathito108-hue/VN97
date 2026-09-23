@@ -109,8 +109,8 @@ The operation:
 - is disabled while a turn/approval is active;
 - runs on the app worker thread;
 - benchmarks the activated model through the same native runtime;
-- atomically publishes `vn97-mobile-evidence.json` in the app external-files
-  area;
+- fsyncs and same-directory replaces `vn97-mobile-evidence.json` in the app
+  external-files area, then verifies the published bytes;
 - reports the measured model SHA-256 and key p95 values in the UI.
 
 The turnkey release build hides this developer control.
