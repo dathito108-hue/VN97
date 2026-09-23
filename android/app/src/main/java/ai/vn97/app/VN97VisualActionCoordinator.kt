@@ -225,8 +225,8 @@ class VN97VisualActionCoordinator(
     }
 
     companion object {
-        private const val MAX_GOAL_CHARS = 16 * 1024
-        private const val MAX_OBSERVATION_CHARS = 24 * 1024
+        private const val MAX_GOAL_CHARS = 4 * 1024
+        private const val MAX_OBSERVATION_CHARS = 3 * 1024
         private const val SCREEN_VERIFY_TIMEOUT_MS = 4_000L
     }
 }
