@@ -18,6 +18,14 @@ class VN97AppKnowledgeAcquisition(
     fun pendingReview(): VN97KnowledgeAcquisitionReview? =
         application.assistant.pendingKnowledgeReview()
 
+    fun provenance(
+        packageSha256: String,
+    ): VN97AcquisitionProvenanceRecord? =
+        application.platformRuntime
+            .loadProductionKnowledgeAcquisitionProvenance(
+                packageSha256
+            )
+
     fun propose(
         goal: String,
     ): VN97KnowledgeGapProposal {
