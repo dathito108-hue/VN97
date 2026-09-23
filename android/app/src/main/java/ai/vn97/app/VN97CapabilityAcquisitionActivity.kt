@@ -1,6 +1,7 @@
 package ai.vn97.app
 
 import ai.vn97.runtime.VN97KnowledgeAcquisitionReview
+import ai.vn97.runtime.VN97KnowledgeGapProposal
 import android.app.Activity
 import android.content.Intent
 import android.net.Uri
@@ -17,6 +18,9 @@ import java.util.concurrent.Executors
 class VN97CapabilityAcquisitionActivity : Activity() {
     private lateinit var selectionView: TextView
     private lateinit var reviewView: TextView
+    private lateinit var proposalGoalView: EditText
+    private lateinit var proposalStatusView: TextView
+    private lateinit var proposeButton: Button
     private lateinit var remoteUrlView: EditText
     private lateinit var remoteStatusView: TextView
     private lateinit var prepareRemoteButton: Button
@@ -80,6 +84,42 @@ class VN97CapabilityAcquisitionActivity : Activity() {
                         "plugin authority, or permission to control the device."
                 setTextIsSelectable(true)
             },
+            fullWidth(),
+        )
+
+        root.addView(
+            TextView(this).apply {
+                text = "Bounded knowledge-gap proposal"
+                textSize = 18f
+            },
+            fullWidth(),
+        )
+        proposalGoalView = EditText(this).apply {
+            hint =
+                "User goal to assess against current VN97 memory"
+            maxLines = 4
+        }
+        root.addView(
+            proposalGoalView,
+            fullWidth(),
+        )
+        proposeButton = Button(this).apply {
+            text = "Analyze knowledge gap"
+            setOnClickListener {
+                proposeKnowledgeGap()
+            }
+        }
+        root.addView(
+            proposeButton,
+            fullWidth(),
+        )
+        proposalStatusView = TextView(this).apply {
+            text =
+                "No proposal yet. Analysis is advisory only and cannot fetch, trust, or import anything."
+            setTextIsSelectable(true)
+        }
+        root.addView(
+            proposalStatusView,
             fullWidth(),
         )
 
@@ -484,6 +524,87 @@ class VN97CapabilityAcquisitionActivity : Activity() {
             ?.take(160)
             ?: "not selected"
 
+    private fun proposeKnowledgeGap() {
+        if (busy) return
+        val goal =
+            proposalGoalView.text.toString().trim()
+        if (goal.isEmpty()) {
+            proposalStatusView.text =
+                "Enter a user goal before analysis."
+            return
+        }
+        setBusy(true)
+        proposalStatusView.text =
+            "Comparing the goal against bounded VN97MEM1 evidence with the same activated VN97…"
+        worker.execute {
+            val result = runCatching {
+                app.knowledgeAcquisition
+                    .propose(goal)
+            }
+            runOnUiThread {
+                result.onSuccess {
+                    proposal ->
+                    renderProposal(proposal)
+                }.onFailure { exc ->
+                    proposalStatusView.text =
+                        "Knowledge-gap proposal failed closed: " +
+                            (
+                                exc.message ?:
+                                    exc::class.java
+                                        .simpleName
+                            )
+                }
+                setBusy(false)
+                refreshControls()
+            }
+        }
+    }
+
+    private fun renderProposal(
+        proposal: VN97KnowledgeGapProposal,
+    ) {
+        proposalStatusView.text =
+            buildString {
+                append(
+                    "PROPOSAL ONLY — no URL, M6 request, publisher trust, or memory write was created."
+                )
+                append("\nproposal_id=")
+                append(proposal.proposalId)
+                append("\nneeded=")
+                append(proposal.needed)
+                append("\nconfidence_bps=")
+                append(
+                    proposal.confidenceBasisPoints
+                )
+                append("\nevidence_record_ids=")
+                append(
+                    proposal.evidenceRecordIds
+                        .joinToString(",")
+                )
+                append("\nrationale=")
+                append(proposal.rationale)
+                if (proposal.needed) {
+                    append("\ncapability_id=")
+                    append(
+                        proposal.capabilityId
+                    )
+                    append("\ntopic=")
+                    append(proposal.topic)
+                    append("\nsource_hint=")
+                    append(
+                        proposal.sourceHint
+                    )
+                    append(
+                        "\nChoose an exact source URL yourself; M16C approval is still mandatory."
+                    )
+                } else {
+                    append(
+                        "\nVN97 did not identify a bounded external knowledge need for this goal."
+                    )
+                }
+            }
+    }
+
     private fun prepareRemoteFetch() {
         if (busy) return
         val url =
@@ -676,6 +797,14 @@ class VN97CapabilityAcquisitionActivity : Activity() {
             runCatching {
                 app.remoteCapabilityFetch.pending() != null
             }.getOrDefault(false)
+        proposeButton.isEnabled =
+            !busy &&
+                !remotePending &&
+                !hasReview
+        proposalGoalView.isEnabled =
+            !busy &&
+                !remotePending &&
+                !hasReview
         choosePackageButton.isEnabled = !busy
         chooseSignatureButton.isEnabled = !busy
         choosePublisherKeyButton.isEnabled = !busy
