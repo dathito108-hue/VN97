@@ -76,8 +76,8 @@ class AtomicCompositeContinuityStore(
             previous.epoch + 1L
         }
         val slot = if (previous?.slot == "a") "b" else "a"
-        val runtimeSha = sha256Hex(snapshot.checkpoint)
-        val plannerSha = sha256Hex(plannerBytes)
+        val runtimeSha = continuitySha256Hex(snapshot.checkpoint)
+        val plannerSha = continuitySha256Hex(plannerBytes)
         runtimeStore(slot).save(snapshot.checkpoint)
         plannerStore(slot).save(plannerBytes)
         val manifest = NativeContinuityManifest(
@@ -99,8 +99,8 @@ class AtomicCompositeContinuityStore(
         val manifest = ContinuityManifestCodec.decode(manifestBytes)
         val runtime = runtimeStore(manifest.slot).loadOrNull() ?: fail("committed runtime slot is missing")
         val plannerBytes = plannerStore(manifest.slot).loadOrNull() ?: fail("committed planner slot is missing")
-        if (sha256Hex(runtime) != manifest.runtimeSha256) fail("runtime slot digest does not match continuity manifest")
-        if (sha256Hex(plannerBytes) != manifest.plannerSha256) fail("planner slot digest does not match continuity manifest")
+        if (continuitySha256Hex(runtime) != manifest.runtimeSha256) fail("runtime slot digest does not match continuity manifest")
+        if (continuitySha256Hex(plannerBytes) != manifest.plannerSha256) fail("planner slot digest does not match continuity manifest")
         val planner = NativePlannerCheckpoint.decode(plannerBytes)
         if (planner.plan.planId != manifest.planId) fail("planner identity does not match continuity manifest")
         return NativeCompositeContinuity(manifest, runtime, planner)
@@ -204,5 +204,5 @@ private object ContinuityManifestCodec {
     } catch (exc: Exception) { throw NativeContinuityException("continuity manifest is not UTF-8", exc) }
 }
 
-private fun sha256Hex(bytes: ByteArray) = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it.toInt() and 0xff) }
+private fun continuitySha256Hex(bytes: ByteArray) = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it.toInt() and 0xff) }
 private fun fail(message: String): Nothing = throw NativeContinuityException(message)
