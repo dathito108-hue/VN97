@@ -199,7 +199,7 @@ class VN97PaperPerformanceEvidenceStore(
             ?.filter {
                 it.isFile &&
                     !Files.isSymbolicLink(it.toPath()) &&
-                    it.name.endsWith(".vn97ppe1")
+                    EVIDENCE_FILE_RE.matches(it.name)
             }
             ?.sortedBy { it.name }
             .orEmpty()
@@ -214,10 +214,10 @@ class VN97PaperPerformanceEvidenceStore(
             decode(Files.readAllBytes(file.toPath()))
         }
         require(records.zipWithNext().all { (a, b) ->
-            b.episode == a.episode + 1 &&
+            b.episode > a.episode &&
                 b.observedNs > a.observedNs
         }) {
-            "paper performance evidence sequence is not contiguous"
+            "paper performance evidence sequence is not strictly increasing"
         }
         return records
     }
@@ -303,6 +303,8 @@ class VN97PaperPerformanceEvidenceStore(
         private const val MAX_EVIDENCE_PER_SESSION = 2_048
         private const val MAX_SESSIONS = 64
         private val SESSION_RE = Regex("^[0-9a-f]{64}$")
+        private val EVIDENCE_FILE_RE =
+            Regex("^[0-9]{8}\\.vn97ppe1$")
     }
 }
 
