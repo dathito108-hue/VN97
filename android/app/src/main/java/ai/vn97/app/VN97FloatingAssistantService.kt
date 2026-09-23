@@ -2,6 +2,8 @@ package ai.vn97.app
 
 import ai.vn97.avatar.AssistantMode
 import ai.vn97.avatar.AvatarCommand
+import ai.vn97.avatar.CognitionPresentationState
+import ai.vn97.avatar.SpeechAvatarInput
 import ai.vn97.avatar.VN97AvatarView
 import android.app.Notification
 import android.app.NotificationChannel
@@ -136,6 +138,23 @@ class VN97FloatingAssistantService : Service() {
                     )
                 )
             },
+            publishListeningLevel = { level, deltaMillis ->
+                view.publishSpeech(
+                    SpeechAvatarInput(
+                        sourceSequence = sequence++,
+                        cognitionState = CognitionPresentationState.LISTENING,
+                        inputLevel = level,
+                        energy = 0.58f,
+                    ),
+                    deltaMillis,
+                )
+            },
+            requestMicrophonePermission = {
+                openMicrophonePermissionActivity()
+            },
+            setMicrophoneForegroundActive = { active ->
+                updateForegroundMicrophone(active)
+            },
         ).also {
             it.initialize()
         }
@@ -255,6 +274,46 @@ class VN97FloatingAssistantService : Service() {
             Pair(metrics.widthPixels, metrics.heightPixels)
         }
 
+    private fun openMicrophonePermissionActivity(): Boolean =
+        try {
+            startActivity(
+                Intent(this, VN97MainActivity::class.java)
+                    .setAction(ACTION_REQUEST_MICROPHONE_PERMISSION)
+                    .addFlags(
+                        Intent.FLAG_ACTIVITY_NEW_TASK or
+                            Intent.FLAG_ACTIVITY_SINGLE_TOP
+                    )
+            )
+            true
+        } catch (_: RuntimeException) {
+            false
+        }
+
+    private fun updateForegroundMicrophone(active: Boolean): Boolean =
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                val type =
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE or
+                        if (active) {
+                            ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+                        } else {
+                            0
+                        }
+                startForeground(
+                    NOTIFICATION_ID,
+                    buildNotification(),
+                    type,
+                )
+            } else {
+                startForeground(NOTIFICATION_ID, buildNotification())
+            }
+            true
+        } catch (_: SecurityException) {
+            false
+        } catch (_: IllegalStateException) {
+            false
+        }
+
     private fun startForegroundCompat(notification: Notification) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             startForeground(
@@ -317,6 +376,8 @@ class VN97FloatingAssistantService : Service() {
 
     companion object {
         const val ACTION_DISABLE = "ai.vn97.app.action.DISABLE_FLOATING_ASSISTANT"
+        const val ACTION_REQUEST_MICROPHONE_PERMISSION =
+            "ai.vn97.app.action.REQUEST_MICROPHONE_PERMISSION"
 
         private const val PREFS = "vn97-floating-assistant"
         private const val PREF_ENABLED = "enabled"
