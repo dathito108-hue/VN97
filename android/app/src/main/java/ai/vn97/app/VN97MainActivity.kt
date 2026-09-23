@@ -1399,6 +1399,7 @@ class VN97MainActivity : Activity() {
                         state.phase == VN97AppPhase.READY &&
                             state.inputEnabled &&
                             !autonomousApprovalActive
+                    refreshVisualButtons()
                 }.onFailure { exc ->
                     autonomousStatusView.text =
                         "Autonomous status unavailable: " +
@@ -1412,6 +1413,11 @@ class VN97MainActivity : Activity() {
                     autonomousRejectButton.visibility = View.GONE
                     autonomousApproveButton.isEnabled = false
                     autonomousRejectButton.isEnabled = false
+                    sendButton.isEnabled = state.inputEnabled
+                    autonomousButton.isEnabled =
+                        state.phase == VN97AppPhase.READY &&
+                            state.inputEnabled
+                    refreshVisualButtons()
                 }
             }
         }
