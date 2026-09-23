@@ -65,6 +65,7 @@ class VN97MainActivity : Activity() {
     private var pendingFloatingAssistantEnable = false
     private var pendingCameraCapture = false
     private var latestCancellableAutonomousJobId: Int? = null
+    private var autonomousApprovalActive = false
 
     private val worker = Executors.newSingleThreadExecutor()
     private var state = VN97AppState()
@@ -1217,6 +1218,11 @@ class VN97MainActivity : Activity() {
     }
 
     private fun startAutonomousGoal() {
+        if (autonomousApprovalActive) {
+            statusView.text =
+                "Resolve the pending autonomous approval first."
+            return
+        }
         if (
             state.phase != VN97AppPhase.READY ||
             !state.inputEnabled
@@ -1358,6 +1364,8 @@ class VN97MainActivity : Activity() {
                     autonomousButton.isEnabled =
                         state.phase == VN97AppPhase.READY &&
                             state.inputEnabled
+                    autonomousApprovalActive =
+                        autonomousApproval != null
                     if (autonomousApproval == null) {
                         autonomousApprovalView.text = ""
                         autonomousApprovalView.visibility = View.GONE
@@ -1384,12 +1392,20 @@ class VN97MainActivity : Activity() {
                         autonomousApproveButton.isEnabled = true
                         autonomousRejectButton.isEnabled = true
                     }
+                    sendButton.isEnabled =
+                        state.inputEnabled &&
+                            !autonomousApprovalActive
+                    autonomousButton.isEnabled =
+                        state.phase == VN97AppPhase.READY &&
+                            state.inputEnabled &&
+                            !autonomousApprovalActive
                 }.onFailure { exc ->
                     autonomousStatusView.text =
                         "Autonomous status unavailable: " +
                             exc::class.java.simpleName
                     latestCancellableAutonomousJobId = null
                     cancelAutonomousButton.isEnabled = false
+                    autonomousApprovalActive = false
                     autonomousApprovalView.text = ""
                     autonomousApprovalView.visibility = View.GONE
                     autonomousApproveButton.visibility = View.GONE
@@ -1439,6 +1455,11 @@ class VN97MainActivity : Activity() {
     }
 
     private fun submitTurn() {
+        if (autonomousApprovalActive) {
+            statusView.text =
+                "Resolve the pending autonomous approval first."
+            return
+        }
         if (!state.inputEnabled) return
         val message = inputView.text.toString()
         if (message.isBlank()) return
@@ -1541,10 +1562,13 @@ class VN97MainActivity : Activity() {
         state = next
         statusView.text = state.status
         inputView.isEnabled = state.inputEnabled
-        sendButton.isEnabled = state.inputEnabled
+        sendButton.isEnabled =
+            state.inputEnabled &&
+                !autonomousApprovalActive
         autonomousButton.isEnabled =
             state.phase == VN97AppPhase.READY &&
-                state.inputEnabled
+                state.inputEnabled &&
+                !autonomousApprovalActive
         transcriptView.text = state.transcript.joinToString("\n\n")
 
         val approval = if (state.phase == VN97AppPhase.WAITING_APPROVAL) {
