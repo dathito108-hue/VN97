@@ -134,6 +134,45 @@ fun main() {
             NativeStepStatus.WAITING_EXTERNAL
     )
 
+    val gameIntentInference = ScriptedInference(
+        listOf(
+            """{"capability_id":"device.game.tap","scope":{"package":"com.example.game"},"payload":{"duration_ms":80,"x_bps":5000,"y_bps":5000}}"""
+        )
+    )
+    val gameIntentAdapter =
+        NativeTypedCognitionAdapter(gameIntentInference)
+    val gameIntent = gameIntentAdapter.proposeExternalIntent(
+        NativeExternalIntentRequest(
+            planId = "aa".repeat(32),
+            goal = "play the current game",
+            stepId = 1,
+            objective = "tap the visible primary control",
+            capabilities = listOf(
+                NativeExternalCapabilityView(
+                    capabilityId = "device.game.tap",
+                    requiredScopeKeys = listOf("package"),
+                    optionalScopeKeys = emptyList(),
+                    approvalRequired = false,
+                    maxPayloadUtf8Bytes = 96,
+                    payloadSchemaJson =
+                        "{\"duration_ms\":80,\"x_bps\":5000,\"y_bps\":5000}",
+                )
+            ),
+        )
+    )
+    check(gameIntent.capabilityId == "device.game.tap")
+    check(gameIntent.scope == mapOf("package" to "com.example.game"))
+    check(
+        gameIntent.payloadJson ==
+            "{\"duration_ms\":80,\"x_bps\":5000,\"y_bps\":5000}"
+    )
+    val gameIntentRequestJson =
+        gameIntentInference.calls.single().second
+    check(
+        "\"payload_schema\":{\"duration_ms\":80,\"x_bps\":5000,\"y_bps\":5000}" in
+            gameIntentRequestJson
+    )
+
     val invalidInference = ScriptedInference(
         listOf(
             """{"steps":[{"kind":"REASON","objective":"no final response","dependencies":[],"requires_verification":false,"min_confidence":0.0}]}"""
