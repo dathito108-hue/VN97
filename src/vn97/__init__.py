@@ -145,6 +145,21 @@ from .cognition_adapter import (
     VN97InferenceLimits,
 )
 from .config import VN97Config
+from .deployment_checkpoint import (
+    HEADER_SIZE as DEPLOYMENT_CHECKPOINT_HEADER_SIZE,
+    MAGIC as DEPLOYMENT_CHECKPOINT_MAGIC,
+    MAX_CHECKPOINT_BYTES as MAX_DEPLOYMENT_CHECKPOINT_BYTES,
+    VERSION as DEPLOYMENT_CHECKPOINT_VERSION,
+    VN97DeploymentCheckpointError,
+    VN97DeploymentCheckpointFormatError,
+    VN97DeploymentCheckpointIntegrityError,
+    VN97LoadedDeploymentCheckpoint,
+    build_bootstrap_bundle_from_checkpoint,
+    build_deployment_checkpoint,
+    load_deployment_checkpoint,
+    load_deployment_checkpoint_file,
+    save_deployment_checkpoint,
+)
 from .embedding import FactorizedEmbedding, FactorizedLMHead
 from .external_intent import (
     ApprovalPrompt,
@@ -249,6 +264,19 @@ __all__ = [
     "VN97BootstrapSigner",
     "build_bootstrap_bundle",
     "write_bootstrap_assets",
+    "DEPLOYMENT_CHECKPOINT_HEADER_SIZE",
+    "DEPLOYMENT_CHECKPOINT_MAGIC",
+    "MAX_DEPLOYMENT_CHECKPOINT_BYTES",
+    "DEPLOYMENT_CHECKPOINT_VERSION",
+    "VN97DeploymentCheckpointError",
+    "VN97DeploymentCheckpointFormatError",
+    "VN97DeploymentCheckpointIntegrityError",
+    "VN97LoadedDeploymentCheckpoint",
+    "build_bootstrap_bundle_from_checkpoint",
+    "build_deployment_checkpoint",
+    "load_deployment_checkpoint",
+    "load_deployment_checkpoint_file",
+    "save_deployment_checkpoint",
     "ActivationConflictError",
     "ActivationRecoveryRequired",
     "BackendStatus",
