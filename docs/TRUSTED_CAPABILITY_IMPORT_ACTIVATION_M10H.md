@@ -77,14 +77,21 @@ resources and reopens from the newly authoritative VN97INV1 entry.
 
 ## Verification
 
-The isolated host gate exercises the real M10D/M10E/M10F/M10G production sources with a generated
-Ed25519 keypair:
+M10H adds a checkout-level regression wired into the existing runtime host-test runner:
 
 `M10H_TRUSTED_IMPORT_ACTIVATION_PASS`
 
-It proves that Review leaves inventory empty, Trust & Activate commits VN97INV1, the committed
-artifact is content-addressed, the inventory is readable by the same M10B evidence parser, and the
-model-image candidate validator is invoked.
+That regression is designed to exercise the real M10D/M10E/M10F/M10G production sources with a
+generated Ed25519 keypair and assert that Review leaves inventory empty, Trust & Activate commits
+VN97INV1, the artifact is content-addressed, the M10B evidence parser can read the resulting
+inventory, and the model-image candidate validator is invoked.
+
+In the implementation session, the container could not resolve GitHub for a checkout, so that
+checkout-level regression was **not** reported as executed. Two isolated `kotlinc -Werror` gates
+were actually run against the new orchestration/app contracts:
+
+- `M10H_PROVISIONING_CONTRACT_PASS`
+- `M10H_APP_PROVISIONING_SYNTAX_PASS`
 
 Full Android document-picker UI, JNI validation against a real VN97MI1 image and APK/device
 instrumentation remain Android build/device gates.
