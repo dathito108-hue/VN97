@@ -1,6 +1,10 @@
 package ai.vn97.app
 
 import ai.vn97.platform.AndroidVN97CapabilityProvisioner
+import ai.vn97.runtime.VN97ImprovementCandidateLedger
+import ai.vn97.runtime.VN97ImprovementCandidateRecord
+import ai.vn97.runtime.VN97ImprovementCandidateSpec
+import ai.vn97.runtime.VN97ModelImageActivationBackend
 import ai.vn97.runtime.VN97ModelImageProvisioningSession
 import ai.vn97.runtime.VN97ModelProvisioningReview
 import android.net.Uri
@@ -22,6 +26,14 @@ class VN97AppProvisioner(
         ),
     )
 
+    private val improvementLedger =
+        VN97ImprovementCandidateLedger(
+            java.io.File(
+                platform.capabilityRoot,
+                "self-improvement",
+            )
+        )
+
     fun recoverPending() {
         session.recover()
     }
@@ -31,6 +43,102 @@ class VN97AppProvisioner(
 
     fun clearReview() {
         session.clearReview()
+    }
+
+    fun pendingImprovementCandidate():
+        VN97ImprovementCandidateRecord? {
+        val review =
+            session.pendingReview()
+                ?: return null
+        return improvementLedger
+            .reviewedForPackageOrNull(
+                review.packageSha256
+            )
+    }
+
+    fun reviewSelfImprovement(
+        packageUri: Uri,
+        signatureUri: Uri,
+        publisherKeyUri: Uri,
+        objective: String,
+    ): Pair<
+        VN97ModelProvisioningReview,
+        VN97ImprovementCandidateRecord
+    > {
+        require(objective.isNotBlank()) {
+            "self-improvement objective must not be blank"
+        }
+        val review = review(
+            packageUri = packageUri,
+            signatureUri = signatureUri,
+            publisherKeyUri = publisherKeyUri,
+        )
+        return try {
+            val baseline =
+                checkNotNull(
+                    platform.currentModelActivation()
+                ) {
+                    "self-improvement requires an active canonical model baseline"
+                }
+            check(
+                baseline.capabilityId ==
+                    VN97ModelImageActivationBackend
+                        .CAPABILITY_ID
+            ) {
+                "active baseline is not canonical model.language"
+            }
+            val spec =
+                VN97ImprovementCandidateSpec(
+                    baselineActivationId =
+                        baseline.activationId,
+                    baselineArtifactSha256 =
+                        baseline.artifactSha256,
+                    baselinePackageSha256 =
+                        baseline.packageSha256,
+                    baselineCapabilityVersion =
+                        baseline.capabilityVersion,
+                    candidatePackageSha256 =
+                        review.packageSha256,
+                    candidateCapabilityVersion =
+                        review.capabilityVersion,
+                    candidatePublisherKeyId =
+                        review.publisherKeyId,
+                    candidatePublisherKeySha256 =
+                        review.publisherKeySha256,
+                    candidatePlanSha256 =
+                        review.planSha256,
+                    sourceOrigin =
+                        review.sourceOrigin,
+                    sourceLicense =
+                        review.sourceLicense,
+                    objective = objective,
+                )
+            review to
+                improvementLedger
+                    .registerReviewed(spec)
+        } catch (exc: Throwable) {
+            session.clearReview()
+            throw exc
+        }
+    }
+
+    fun rejectImprovementCandidate(
+        reason: String =
+            "rejected by user before evaluation",
+    ): VN97ImprovementCandidateRecord {
+        val current =
+            checkNotNull(
+                pendingImprovementCandidate()
+            ) {
+                "no controlled self-improvement candidate is pending"
+            }
+        return improvementLedger.reject(
+            candidateId =
+                current.candidateId,
+            reason = reason,
+        ).also {
+            session.clearReview()
+        }
     }
 
     fun review(
@@ -72,7 +180,20 @@ class VN97AppProvisioner(
             publisherPublicKey = parsePublisherKey(publisherKeyBytes),
         )
 
-    fun activateReviewed() = session.activateReviewed()
+    fun activateReviewed() =
+        session.pendingReview()
+            ?.let { review ->
+                check(
+                    improvementLedger
+                        .reviewedForPackageOrNull(
+                            review.packageSha256
+                        ) == null
+                ) {
+                    "controlled self-improvement candidate cannot use normal activation before evaluation and promotion gates"
+                }
+                session.activateReviewed()
+            }
+            ?: session.activateReviewed()
 
     private fun readBounded(
         uri: Uri,

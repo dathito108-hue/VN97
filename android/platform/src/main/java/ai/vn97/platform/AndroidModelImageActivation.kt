@@ -75,6 +75,15 @@ class AndroidVN97CapabilityProvisioner(
     fun createStager(): ai.vn97.runtime.VN97CapabilityStager =
         ai.vn97.runtime.VN97CapabilityStager(stageRoot)
 
+    fun currentModelActivation():
+        ai.vn97.runtime.VN97CapabilityInventoryItem? =
+        ai.vn97.runtime.VN97CapabilityInventoryStore(
+            capabilityRoot
+        ).load().current(
+            ai.vn97.runtime.VN97ModelImageActivationBackend
+                .CAPABILITY_ID
+        )
+
     private fun requireDirectory(file: File, label: String) {
         if (!file.exists()) {
             check(file.mkdirs()) { "failed to create $label" }
