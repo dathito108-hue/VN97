@@ -10,10 +10,11 @@ from vn97 import (
     VN97TokenizerPackage,
     build_model_image,
 )
-from vn97.modality import AudioFrameAdapter
+from vn97.modality import AudioFrameAdapter, VisionPatchAdapter
 from vn97.model_image import (
     ENTRY_SIZE,
     FLAG_AUDIO_PROJECTION,
+    FLAG_VISION_PROJECTION,
     FLAG_FACTORIZED,
     FLAG_TOKENIZER,
     GLOBAL_LAYER,
@@ -22,6 +23,8 @@ from vn97.model_image import (
     SECTION_A_LOG,
     SECTION_AUDIO_NORM,
     SECTION_AUDIO_PROJECTION,
+    SECTION_VISION_NORM,
+    SECTION_VISION_PROJECTION,
     SECTION_B_PROJ,
     SECTION_C_PROJ,
     SECTION_DT_BIAS,
@@ -148,6 +151,34 @@ def test_audio_projection_is_signed_inside_the_same_vn97_image():
     )
     audio_offset = entries[1][2]
     assert image.data[audio_offset : audio_offset + 8] == b"VN97T2\0\0"
+
+
+def test_vision_projection_is_signed_inside_same_vn97_image():
+    model = _model()
+    vision = VisionPatchAdapter(
+        model.config.d_model,
+        ternary_threshold=model.config.ternary_threshold,
+        rms_eps=model.config.rms_eps,
+    ).eval()
+    image = build_model_image(
+        model,
+        vision_adapter=vision,
+        tile_rows=8,
+        tile_cols=8,
+    )
+    flags = struct.unpack_from("<I", image.data, 16)[0]
+    assert flags == FLAG_VISION_PROJECTION
+    entries = _entries(image.data)
+    assert (entries[1][0], entries[1][1]) == (
+        SECTION_VISION_PROJECTION,
+        GLOBAL_LAYER,
+    )
+    assert (entries[2][0], entries[2][1]) == (
+        SECTION_VISION_NORM,
+        GLOBAL_LAYER,
+    )
+    offset = entries[1][2]
+    assert image.data[offset : offset + 8] == b"VN97T2\0\0"
 
 
 def test_audio_export_rejects_quantization_semantic_mismatch():

@@ -57,6 +57,9 @@ data class NativeActivatedModelInfo(
     val hasTokenizer: Boolean,
     val hasAudioProjection: Boolean,
     val audioFrameSize: Int,
+    val hasVisionProjection: Boolean,
+    val visionChannels: Int,
+    val visionPatchSize: Int,
     val imageBytes: Long,
 )
 
@@ -126,7 +129,7 @@ class NativeActivatedModel private constructor(
         }
 
         private fun readInfo(handle: Long): NativeActivatedModelInfo {
-            val ints = IntArray(9)
+            val ints = IntArray(12)
             val longs = LongArray(1)
             val modelId = ByteArray(32)
             checkModelStatus(
@@ -143,6 +146,12 @@ class NativeActivatedModel private constructor(
             ) {
                 "native model audio projection metadata is invalid"
             }
+            require(
+                (ints[9] == 0 && ints[10] == 0 && ints[11] == 0) ||
+                    (ints[9] != 0 && ints[10] == 3 && ints[11] == 16)
+            ) {
+                "native model vision projection metadata is invalid"
+            }
             return NativeActivatedModelInfo(
                 modelId = modelId,
                 vocabSize = ints[0],
@@ -154,6 +163,9 @@ class NativeActivatedModel private constructor(
                 hasTokenizer = ints[6] != 0,
                 hasAudioProjection = ints[7] != 0,
                 audioFrameSize = ints[8],
+                hasVisionProjection = ints[9] != 0,
+                visionChannels = ints[10],
+                visionPatchSize = ints[11],
                 imageBytes = longs[0],
             )
         }

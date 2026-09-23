@@ -110,6 +110,7 @@ def estimate_vn97_mobile_footprint(
     *,
     tokenizer_nbytes: int | None = None,
     audio_frame_size: int | None = None,
+    vision_input_features: int | None = None,
     tile_rows: int = 16,
     tile_cols: int = 16,
     batch_size: int = 1,
@@ -133,6 +134,11 @@ def estimate_vn97_mobile_footprint(
     if audio_frame_size is not None:
         if type(audio_frame_size) is not int or audio_frame_size <= 0:
             raise ValueError("audio_frame_size must be a positive integer or None")
+    if vision_input_features is not None:
+        if type(vision_input_features) is not int or vision_input_features <= 0:
+            raise ValueError(
+                "vision_input_features must be a positive integer or None"
+            )
 
     d_model = int(config.d_model)
     d_state = int(config.d_state)
@@ -170,6 +176,10 @@ def estimate_vn97_mobile_footprint(
 
     if audio_frame_size is not None:
         add_packed(d_model, audio_frame_size)
+        add_f32(d_model)
+
+    if vision_input_features is not None:
+        add_packed(d_model, vision_input_features)
         add_f32(d_model)
 
     for _ in range(config.n_layers):

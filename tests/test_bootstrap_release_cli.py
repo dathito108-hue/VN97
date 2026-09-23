@@ -103,7 +103,7 @@ def test_release_cli_writes_exact_m10j_assets(tmp_path, capsys):
     )
 
     report = json.loads(capsys.readouterr().out)
-    assert report["schema"] == "VN97BOOTREL4"
+    assert report["schema"] == "VN97BOOTREL5"
     assert report["device_evidence"] is None
     assert report["speech_enabled"] is False
     assert report["speech_validation"] is None
@@ -349,7 +349,7 @@ def test_release_cli_requires_and_reports_speech_quality_for_speech_checkpoint(
     ) == 0
 
     report = json.loads(capsys.readouterr().out)
-    assert report["schema"] == "VN97BOOTREL4"
+    assert report["schema"] == "VN97BOOTREL5"
     assert report["speech_enabled"] is True
     assert report["speech_validation"]["examples"] == 1
     assert report["speech_validation"]["target_tokens"] > 0

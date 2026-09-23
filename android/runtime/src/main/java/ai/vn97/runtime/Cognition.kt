@@ -231,6 +231,55 @@ class NativeCognitionInferenceEngine(
         return transcript
     }
 
+    fun perceiveVision(
+        prepared: NativePreparedVision,
+        maxNewTokens: Int = 512,
+    ): String {
+        require(model.info.hasVisionProjection) {
+            "activated VN97 model has no signed vision projection"
+        }
+        require(maxNewTokens > 0) {
+            "maxNewTokens must be positive"
+        }
+
+        val result = withFreshSession { session ->
+            val logits = session.prefillVision(
+                model = model,
+                prepared = prepared,
+                visionPrefixToken = 5,
+            )
+            session.generateFromCurrentLogits(
+                model = model,
+                initialLogits = logits,
+                config = NativeGenerationConfig(
+                    maxNewTokens = maxNewTokens,
+                    eosToken = 2,
+                    addBosOnFreshSession = false,
+                    addTextControl = false,
+                    sampler = NativeSamplerConfig(
+                        temperature = 0.0f,
+                        topK = 1,
+                        topP = 1.0f,
+                        seed = 97L,
+                    ),
+                ),
+            )
+        }
+        val bytes = result.text.toByteArray(StandardCharsets.UTF_8)
+        if (bytes.size > config.inferenceLimits.maxOutputUtf8Bytes) {
+            throw NativeCognitionContractException(
+                "VN97 visual perception exceeds UTF-8 byte budget"
+            )
+        }
+        val perception = result.text.trim()
+        if (perception.isEmpty()) {
+            throw NativeCognitionInferenceException(
+                "VN97 visual perception is empty"
+            )
+        }
+        return perception
+    }
+
     override fun embedText(text: String, vectorDim: Int): FloatArray {
         require(vectorDim > 0) { "vectorDim must be positive" }
         if (vectorDim != model.info.dModel) {

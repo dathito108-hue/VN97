@@ -10,6 +10,7 @@ import ai.vn97.runtime.NativeActivatedInventoryModelLoader
 import ai.vn97.runtime.NativeActivatedModel
 import ai.vn97.runtime.NativeCognitionInferenceEngine
 import ai.vn97.runtime.NativePreparedAudio
+import ai.vn97.runtime.NativePreparedVision
 import android.os.SystemClock
 import java.io.File
 
@@ -87,6 +88,32 @@ class VN97AppAssistant(
 
     fun hasProductionVoice(): Boolean = synchronized(lock) {
         model?.info?.hasAudioProjection == true
+    }
+
+    fun hasProductionVision(): Boolean = synchronized(lock) {
+        model?.info?.hasVisionProjection == true
+    }
+
+    fun perceiveVision(
+        preparedVision: NativePreparedVision,
+    ): String = synchronized(lock) {
+        check(pendingResult == null) {
+            "cannot run perception while approval is pending"
+        }
+        val activeResources = checkNotNull(resources) {
+            "trusted VN97 model is not active"
+        }
+        check(!activeResources.session.hasActiveTurn) {
+            "cannot run perception while an assistant turn is active"
+        }
+        val activeModel = checkNotNull(model) {
+            "trusted VN97 model is not active"
+        }
+        check(activeModel.info.hasVisionProjection) {
+            "activated VN97 model has no production vision weights"
+        }
+        NativeCognitionInferenceEngine(activeModel)
+            .perceiveVision(preparedVision)
     }
 
     fun runVoiceTurn(

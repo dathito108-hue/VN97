@@ -57,7 +57,7 @@ object NativeModelImageCandidateValidator {
         handle: Long,
         expectedModelId: ByteArray,
     ): NativeActivatedModelInfo {
-        val ints = IntArray(9)
+        val ints = IntArray(12)
         val longs = LongArray(1)
         val modelId = ByteArray(32)
         checkModelStatus(
@@ -83,6 +83,12 @@ object NativeModelImageCandidateValidator {
         require(longs[0] > 0L) {
             "native VN97MI1 candidate image length must be positive"
         }
+        require(
+            (ints[9] == 0 && ints[10] == 0 && ints[11] == 0) ||
+                (ints[9] != 0 && ints[10] == 3 && ints[11] == 16)
+        ) {
+            "native VN97MI1 candidate vision metadata is invalid"
+        }
         return NativeActivatedModelInfo(
             modelId = modelId,
             vocabSize = ints[0],
@@ -94,6 +100,9 @@ object NativeModelImageCandidateValidator {
             hasTokenizer = ints[6] != 0,
             hasAudioProjection = ints[7] != 0,
             audioFrameSize = ints[8],
+            hasVisionProjection = ints[9] != 0,
+            visionChannels = ints[10],
+            visionPatchSize = ints[11],
             imageBytes = longs[0],
         )
     }

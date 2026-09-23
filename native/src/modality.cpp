@@ -235,6 +235,120 @@ ModalityStatus ProjectAudioFramesF32(
     return ModalityStatus::kOk;
 }
 
+ModalityStatus ValidateVisionProjection(
+    const VisionProjectionView& view) {
+    if (
+        view.channels == 0 ||
+        view.patch_size == 0 ||
+        view.input_features == 0 ||
+        view.d_model == 0 ||
+        !ValidEps(view.rms_eps) ||
+        view.norm_weight == nullptr
+    ) {
+        return ModalityStatus::kInvalidModel;
+    }
+    if (
+        MulOverflows(view.patch_size, view.patch_size) ||
+        MulOverflows(
+            view.channels,
+            static_cast<std::size_t>(view.patch_size) * view.patch_size)
+    ) {
+        return ModalityStatus::kSizeOverflow;
+    }
+    const std::size_t patch_values =
+        static_cast<std::size_t>(view.channels) *
+        view.patch_size *
+        view.patch_size;
+    if (patch_values > std::numeric_limits<std::size_t>::max() - 2u) {
+        return ModalityStatus::kSizeOverflow;
+    }
+    if (
+        view.input_features != patch_values + 2u ||
+        !MatrixShape(
+            view.projection,
+            view.d_model,
+            view.input_features)
+    ) {
+        return ModalityStatus::kInvalidModel;
+    }
+    if (!FiniteArray(view.norm_weight, view.d_model)) {
+        return ModalityStatus::kNonFinite;
+    }
+    return ModalityStatus::kOk;
+}
+
+ModalityStatus ProjectVisionPatchesF32(
+    const VisionProjectionView& view,
+    const float* patches,
+    std::size_t patch_value_count,
+    std::size_t patch_count,
+    float* embeddings,
+    std::size_t embedding_capacity,
+    float* workspace,
+    std::size_t workspace_count,
+    PackedTernaryBackend backend) {
+    if (
+        patches == nullptr ||
+        embeddings == nullptr ||
+        workspace == nullptr
+    ) {
+        return ModalityStatus::kNullArgument;
+    }
+    const auto model_status = ValidateVisionProjection(view);
+    if (model_status != ModalityStatus::kOk) return model_status;
+    if (patch_count == 0) return ModalityStatus::kInvalidShape;
+
+    if (
+        MulOverflows(patch_count, view.input_features) ||
+        MulOverflows(patch_count, view.d_model)
+    ) {
+        return ModalityStatus::kSizeOverflow;
+    }
+    const std::size_t required_input =
+        patch_count * view.input_features;
+    const std::size_t required_output =
+        patch_count * view.d_model;
+    if (
+        patch_value_count != required_input ||
+        embedding_capacity < required_output ||
+        workspace_count < view.d_model
+    ) {
+        return ModalityStatus::kOutputTooSmall;
+    }
+    if (!FiniteArray(patches, required_input)) {
+        return ModalityStatus::kNonFinite;
+    }
+
+    const auto resolved = ResolvePackedTernaryBackend(backend);
+    if (!PackedTernaryBackendAvailable(resolved)) {
+        return ModalityStatus::kBackendUnavailable;
+    }
+
+    for (std::size_t patch = 0; patch < patch_count; ++patch) {
+        const float* input =
+            patches + patch * view.input_features;
+        const auto status = PackedTernaryMatVecF32WithBackend(
+            view.projection,
+            input,
+            nullptr,
+            workspace,
+            resolved);
+        if (status == PackedTernaryStatus::kBackendUnavailable) {
+            return ModalityStatus::kBackendUnavailable;
+        }
+        if (status != PackedTernaryStatus::kOk) {
+            return ModalityStatus::kInvalidModel;
+        }
+        RmsNorm(
+            workspace,
+            view.norm_weight,
+            view.d_model,
+            view.rms_eps,
+            embeddings + patch * view.d_model);
+    }
+    return ModalityStatus::kOk;
+}
+
 std::size_t VisionPatchCount(
     std::size_t height,
     std::size_t width,
