@@ -373,6 +373,74 @@ class AndroidPlatformRuntime(
         )
 
     /**
+     * Create a bounded read-only HTTPS market-data source. The endpoint is trusted
+     * application/user configuration, never model-generated authority. The source
+     * performs GET only, rejects redirects/non-HTTPS endpoints, bounds response
+     * bytes/timeouts, and decodes only the strict VN97MKTFEED1 format.
+     */
+    fun createProductionReadOnlyMarketDataSource(
+        endpoint: String,
+        sourceId: String,
+        allowedSymbols: Set<String>,
+        maxResponseBytes: Int = 128 * 1024,
+        maxObservationAgeNs: Long = 30_000_000_000L,
+        maxQuoteAgeNs: Long =
+            VN97MarketSnapshot.DEFAULT_MAX_QUOTE_AGE_NS,
+        connectTimeoutMs: Int = 5_000,
+        readTimeoutMs: Int = 5_000,
+    ): VN97MarketDataSource =
+        VN97HttpsMarketDataSource(
+            endpoint = endpoint,
+            policy = VN97MarketDataPolicy(
+                sourceId = sourceId,
+                allowedSymbols = allowedSymbols,
+                maxResponseBytes = maxResponseBytes,
+                maxObservationAgeNs = maxObservationAgeNs,
+                maxQuoteAgeNs = maxQuoteAgeNs,
+                connectTimeoutMs = connectTimeoutMs,
+                readTimeoutMs = readTimeoutMs,
+            ),
+        )
+
+    /**
+     * Bind repeated fresh market snapshots to the same canonical VN97 M15B paper
+     * agent. Each call to runNext consumes one bounded episode attempt and cannot
+     * replay the prior snapshot.
+     */
+    fun createProductionPaperTradingEpisodeRunner(
+        model: NativeActivatedModel,
+        account: VN97PaperTradingAccount,
+        userGoal: String,
+        marketDataSource: VN97MarketDataSource,
+        memory: NativeMemoryRetriever? = null,
+        cognitionRuntimeConfig: NativeCognitionRuntimeConfig =
+            NativeCognitionRuntimeConfig(),
+        agentLimits: VN97PaperTradingAgentLimits =
+            VN97PaperTradingAgentLimits(),
+        episodeLimits: VN97PaperTradingEpisodeLimits =
+            VN97PaperTradingEpisodeLimits(),
+    ): VN97PaperTradingEpisodeRunner<VN97PaperTradingAgentResult> {
+        val agent = createProductionPaperTradingAgent(
+            model = model,
+            account = account,
+            memory = memory,
+            cognitionRuntimeConfig = cognitionRuntimeConfig,
+            limits = agentLimits,
+        )
+        return VN97PaperTradingEpisodeRunner(
+            source = marketDataSource,
+            evaluator = { snapshot, nowNs ->
+                agent.evaluate(
+                    userGoal = userGoal,
+                    snapshot = snapshot,
+                    nowNs = nowNs,
+                )
+            },
+            limits = episodeLimits,
+        )
+    }
+
+    /**
      * Open the M15A deterministic paper-trading account in app-private no-backup
      * storage. This is simulation only: no broker credential, network order route,
      * or live-money capability is created here.

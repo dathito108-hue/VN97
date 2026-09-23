@@ -1,0 +1,315 @@
+package ai.vn97.platform
+
+import java.io.ByteArrayOutputStream
+import java.net.HttpURLConnection
+import java.net.URI
+import java.nio.ByteBuffer
+import java.nio.charset.CodingErrorAction
+import java.nio.charset.StandardCharsets
+import javax.net.ssl.HttpsURLConnection
+
+data class VN97MarketDataPolicy(
+    val sourceId: String,
+    val allowedSymbols: Set<String>,
+    val maxResponseBytes: Int = 128 * 1024,
+    val maxObservationAgeNs: Long = 30_000_000_000L,
+    val maxQuoteAgeNs: Long = VN97MarketSnapshot.DEFAULT_MAX_QUOTE_AGE_NS,
+    val connectTimeoutMs: Int = 5_000,
+    val readTimeoutMs: Int = 5_000,
+) {
+    init {
+        require(MARKET_SOURCE_ID_RE.matches(sourceId)) {
+            "market-data source id is invalid"
+        }
+        require(allowedSymbols.size in 1..VN97MarketSnapshot.MAX_QUOTES) {
+            "market-data symbol allowlist size is outside bounds"
+        }
+        require(allowedSymbols.all(MARKET_SYMBOL_RE::matches)) {
+            "market-data symbol allowlist contains an invalid symbol"
+        }
+        require(maxResponseBytes in 1_024..512 * 1_024) {
+            "market-data response byte bound is invalid"
+        }
+        require(maxObservationAgeNs in 1L..MAX_OBSERVATION_AGE_NS) {
+            "market-data observation age is outside bounds"
+        }
+        require(maxQuoteAgeNs in 1L..VN97MarketSnapshot.MAX_QUOTE_AGE_NS) {
+            "market-data quote age is outside bounds"
+        }
+        require(connectTimeoutMs in 250..30_000) {
+            "market-data connect timeout is outside bounds"
+        }
+        require(readTimeoutMs in 250..30_000) {
+            "market-data read timeout is outside bounds"
+        }
+    }
+
+    companion object {
+        const val MAX_OBSERVATION_AGE_NS = 300_000_000_000L
+    }
+}
+
+fun interface VN97MarketDataSource {
+    fun fetch(nowNs: Long): VN97MarketSnapshot
+}
+
+fun interface VN97MarketDataTransport {
+    fun get(
+        endpoint: URI,
+        maxResponseBytes: Int,
+        connectTimeoutMs: Int,
+        readTimeoutMs: Int,
+    ): ByteArray
+}
+
+class VN97HttpsMarketDataTransport : VN97MarketDataTransport {
+    override fun get(
+        endpoint: URI,
+        maxResponseBytes: Int,
+        connectTimeoutMs: Int,
+        readTimeoutMs: Int,
+    ): ByteArray {
+        requireHttpsEndpoint(endpoint)
+        val connection = endpoint.toURL().openConnection() as? HttpsURLConnection
+            ?: throw IllegalArgumentException(
+                "market-data endpoint did not open as HTTPS"
+            )
+        try {
+            connection.requestMethod = "GET"
+            connection.instanceFollowRedirects = false
+            connection.useCaches = false
+            connection.doInput = true
+            connection.doOutput = false
+            connection.connectTimeout = connectTimeoutMs
+            connection.readTimeout = readTimeoutMs
+            connection.setRequestProperty(
+                "Accept",
+                "text/plain, application/vnd.vn97.market",
+            )
+            connection.setRequestProperty("Cache-Control", "no-cache")
+
+            val status = connection.responseCode
+            require(status == HttpURLConnection.HTTP_OK) {
+                "market-data HTTPS status is not 200"
+            }
+            val contentEncoding = connection.contentEncoding
+            require(
+                contentEncoding == null ||
+                    contentEncoding.equals("identity", ignoreCase = true)
+            ) {
+                "market-data content encoding is unsupported"
+            }
+            val announcedLength = connection.contentLengthLong
+            require(
+                announcedLength < 0L ||
+                    announcedLength <= maxResponseBytes.toLong()
+            ) {
+                "market-data response exceeds byte bound"
+            }
+
+            return connection.inputStream.use { input ->
+                val output = ByteArrayOutputStream(
+                    minOf(
+                        maxResponseBytes,
+                        if (announcedLength in 1L..Int.MAX_VALUE.toLong()) {
+                            announcedLength.toInt()
+                        } else {
+                            8 * 1024
+                        },
+                    )
+                )
+                val buffer = ByteArray(8 * 1024)
+                var total = 0
+                while (true) {
+                    val read = input.read(buffer)
+                    if (read < 0) break
+                    total = Math.addExact(total, read)
+                    require(total <= maxResponseBytes) {
+                        "market-data response exceeds byte bound"
+                    }
+                    output.write(buffer, 0, read)
+                }
+                output.toByteArray()
+            }
+        } finally {
+            connection.disconnect()
+        }
+    }
+}
+
+class VN97HttpsMarketDataSource(
+    endpoint: String,
+    private val policy: VN97MarketDataPolicy,
+    private val transport: VN97MarketDataTransport =
+        VN97HttpsMarketDataTransport(),
+) : VN97MarketDataSource {
+    private val endpointUri = URI(endpoint).also(::requireHttpsEndpoint)
+
+    override fun fetch(nowNs: Long): VN97MarketSnapshot {
+        require(nowNs >= 0L) {
+            "market-data fetch time must be non-negative"
+        }
+        val bytes = transport.get(
+            endpoint = endpointUri,
+            maxResponseBytes = policy.maxResponseBytes,
+            connectTimeoutMs = policy.connectTimeoutMs,
+            readTimeoutMs = policy.readTimeoutMs,
+        )
+        require(bytes.size <= policy.maxResponseBytes) {
+            "market-data transport violated response byte bound"
+        }
+        return VN97MarketFeedCodec.decode(
+            bytes = bytes,
+            policy = policy,
+            nowNs = nowNs,
+        )
+    }
+}
+
+object VN97MarketFeedCodec {
+    private const val MAGIC = "VN97MKTFEED1"
+    private const val SOURCE_PREFIX = "source="
+    private const val OBSERVED_PREFIX = "observed_ns="
+    private const val QUOTE_PREFIX = "Q|"
+
+    fun decode(
+        bytes: ByteArray,
+        policy: VN97MarketDataPolicy,
+        nowNs: Long,
+    ): VN97MarketSnapshot {
+        require(nowNs >= 0L) {
+            "market-data decode time must be non-negative"
+        }
+        require(bytes.isNotEmpty()) {
+            "market-data response is empty"
+        }
+        require(bytes.size <= policy.maxResponseBytes) {
+            "market-data response exceeds byte bound"
+        }
+        val text = decodeUtf8Strict(bytes)
+        require(0.toChar() !in text) {
+            "market-data response contains NUL"
+        }
+        val rawLines = text.split(10.toChar())
+        val withoutFinalEmpty =
+            if (rawLines.lastOrNull().isNullOrEmpty()) {
+                rawLines.dropLast(1)
+            } else {
+                rawLines
+            }
+        val lines = withoutFinalEmpty.map { raw ->
+            if (raw.endsWith(13.toChar())) {
+                raw.dropLast(1)
+            } else {
+                require(13.toChar() !in raw) {
+                    "market-data response contains bare carriage return"
+                }
+                raw
+            }
+        }
+        require(lines.size in 4..(3 + VN97MarketSnapshot.MAX_QUOTES)) {
+            "market-data line count is outside bounds"
+        }
+        require(lines.none { it.isEmpty() }) {
+            "market-data response contains blank lines"
+        }
+        require(lines[0] == MAGIC) {
+            "market-data feed magic is invalid"
+        }
+        require(lines[1].startsWith(SOURCE_PREFIX)) {
+            "market-data source header is missing"
+        }
+        val sourceId = lines[1].removePrefix(SOURCE_PREFIX)
+        require(sourceId == policy.sourceId) {
+            "market-data source does not match configured source"
+        }
+        require(lines[2].startsWith(OBSERVED_PREFIX)) {
+            "market-data observation header is missing"
+        }
+        val observedNs =
+            lines[2].removePrefix(OBSERVED_PREFIX).toUnsignedLongStrict(
+                "market-data observation time is invalid"
+            )
+        require(observedNs <= nowNs) {
+            "market-data observation cannot be in the future"
+        }
+        require(nowNs - observedNs <= policy.maxObservationAgeNs) {
+            "market-data observation is stale"
+        }
+
+        val quotes = lines.drop(3).map { line ->
+            require(line.startsWith(QUOTE_PREFIX)) {
+                "market-data quote line is invalid"
+            }
+            val fields = line.split('|')
+            require(fields.size == 5 && fields[0] == "Q") {
+                "market-data quote field count is invalid"
+            }
+            val symbol = fields[1]
+            require(symbol in policy.allowedSymbols) {
+                "market-data quote symbol is not allowlisted"
+            }
+            VN97MarketQuote(
+                symbol = symbol,
+                bidPriceMicros = fields[2].toUnsignedLongStrict(
+                    "market-data bid is invalid"
+                ),
+                askPriceMicros = fields[3].toUnsignedLongStrict(
+                    "market-data ask is invalid"
+                ),
+                timestampNs = fields[4].toUnsignedLongStrict(
+                    "market-data quote timestamp is invalid"
+                ),
+            )
+        }
+        require(quotes.isNotEmpty()) {
+            "market-data response contains no quotes"
+        }
+
+        return VN97MarketSnapshot.create(
+            sourceId = sourceId,
+            observedNs = observedNs,
+            quotes = quotes,
+            maxQuoteAgeNs = policy.maxQuoteAgeNs,
+        )
+    }
+
+    private fun decodeUtf8Strict(bytes: ByteArray): String =
+        StandardCharsets.UTF_8.newDecoder()
+            .onMalformedInput(CodingErrorAction.REPORT)
+            .onUnmappableCharacter(CodingErrorAction.REPORT)
+            .decode(ByteBuffer.wrap(bytes))
+            .toString()
+}
+
+private fun requireHttpsEndpoint(endpoint: URI) {
+    require(endpoint.toASCIIString().length in 1..2_048) {
+        "market-data endpoint length is outside bounds"
+    }
+    require(endpoint.scheme?.equals("https", ignoreCase = true) == true) {
+        "market-data endpoint must use HTTPS"
+    }
+    require(!endpoint.host.isNullOrBlank()) {
+        "market-data endpoint host is missing"
+    }
+    require(endpoint.rawUserInfo == null) {
+        "market-data endpoint must not contain user info"
+    }
+    require(endpoint.rawFragment == null) {
+        "market-data endpoint must not contain a fragment"
+    }
+    require(endpoint.port == -1 || endpoint.port in 1..65_535) {
+        "market-data endpoint port is invalid"
+    }
+}
+
+private fun String.toUnsignedLongStrict(message: String): Long {
+    require(isNotEmpty() && all { it in '0'..'9' }) { message }
+    return toLongOrNull() ?: throw IllegalArgumentException(message)
+}
+
+private val MARKET_SOURCE_ID_RE =
+    Regex("^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$")
+
+private val MARKET_SYMBOL_RE =
+    Regex("^[A-Z][A-Z0-9._-]{0,23}$")
