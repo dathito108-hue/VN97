@@ -15,8 +15,8 @@ Chat SFT record:
 
 `{"messages":[{"role":"system|user|assistant","content":"..."}, ...]}`
 
-Inputs are bounded by byte count and example count. No internet/download connector exists in the
-trainer.
+Inputs are opened with O_NOFOLLOW-style descriptor reads and bounded by byte count, example count,
+and a hard training-window count. No internet/download connector exists in the trainer.
 
 ## Tokenizer
 
@@ -50,6 +50,9 @@ Padding labels use ignore index -100.
 No Transformer/LLaMA teacher, backend or hidden inference dependency is used.
 
 ## Outputs
+
+Tokenizer/report files use fsynced same-directory atomic replace; VN97CK1 uses the M10L safe
+checkpoint writer.
 
 The CLI writes:
 
