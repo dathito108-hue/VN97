@@ -176,6 +176,11 @@ foreground chat/voice/vision and background autonomous work. This prevents a
 JobService wake from racing foreground VN97 memory/action work in the same
 process.
 
+Before a background wake opens the production memory-backed assistant, any idle
+foreground assistant resources are closed. If they were previously open, they
+are reopened after the wake. This forces foreground VN97MEM1 state to observe
+the background write rather than retaining a stale in-memory memory index.
+
 ## Power-aware bounded wakes
 
 M13A maps the existing M7C compute mode to assistant cycles per wake:
@@ -210,6 +215,10 @@ ledger record.
 ## External authority
 
 Background autonomy never bypasses M6.
+
+If an EXTERNAL boundary cannot even obtain an exact M6 policy grant, M13A records
+the autonomous goal as PAUSED/blocked. It does not label that state SCHEDULED,
+because M7Z intentionally will not reschedule WAITING_EXTERNAL.
 
 If the planner reaches an EXTERNAL step:
 
