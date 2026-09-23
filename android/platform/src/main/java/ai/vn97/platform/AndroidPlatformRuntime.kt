@@ -350,6 +350,41 @@ class AndroidPlatformRuntime(
         )
     }
 
+    /**
+     * Open the M15A deterministic paper-trading account in app-private no-backup
+     * storage. This is simulation only: no broker credential, network order route,
+     * or live-money capability is created here.
+     */
+    fun openProductionPaperTradingAccount(
+        fileName: String = "paper-trading.vn97trd1",
+        startingCashMicros: Long = 100_000_000_000L,
+        riskPolicy: VN97PaperTradingRiskPolicy =
+            VN97PaperTradingRiskPolicy(),
+    ): VN97PaperTradingAccount {
+        require(isSafeMemoryFileName(fileName)) {
+            "paper trading fileName must be one bounded app-private file component"
+        }
+        val root = File(appContext.noBackupFilesDir, "vn97-trading")
+        if (root.exists()) {
+            require(root.isDirectory && !Files.isSymbolicLink(root.toPath())) {
+                "VN97 trading root must be a non-symlink directory"
+            }
+        } else {
+            check(root.mkdirs()) { "failed to create VN97 trading root" }
+        }
+        val file = File(root, fileName)
+        if (file.exists()) {
+            require(file.isFile && !Files.isSymbolicLink(file.toPath())) {
+                "VN97 paper trading target must be a non-symlink regular file"
+            }
+        }
+        return VN97PaperTradingAccount.openOrCreate(
+            file = file,
+            startingCashMicros = startingCashMicros,
+            riskPolicy = riskPolicy,
+        )
+    }
+
     /** Open the canonical native VN97MEM1 store from app-private no-backup storage. */
     fun openOrCreateProductionMemory(
         model: NativeActivatedModel,
