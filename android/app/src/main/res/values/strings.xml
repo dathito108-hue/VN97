@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="vn97_game_accessibility_label">VN97 Game Control</string>
+    <string name="vn97_game_accessibility_description">Allows user-authorized VN97 game sessions to perform bounded taps and swipes only in the selected foreground game.</string>
+</resources>
