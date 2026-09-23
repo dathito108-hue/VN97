@@ -23,9 +23,14 @@ KOTLINC="${KOTLINC:-kotlinc}"
     "$ROOT/native/src/model_image.cpp" \
     "$ROOT/native/src/sampler.cpp" \
     "$ROOT/native/src/generation.cpp" \
+    "$ROOT/native/src/memory.cpp" \
+    "$ROOT/native/src/memory_crypto.cpp" \
+    "$ROOT/native/src/memory_index.cpp" \
+    "$ROOT/native/src/memory_store.cpp" \
     "$ROOT/android/runtime/src/main/cpp/vn97_jni.cpp" \
     "$ROOT/android/runtime/src/main/cpp/vn97_model_jni.cpp" \
     "$ROOT/android/runtime/src/main/cpp/vn97_generation_jni.cpp" \
+    "$ROOT/android/runtime/src/main/cpp/vn97_memory_jni.cpp" \
     -pthread \
     -o "$WORK/libvn97_jni.so"
 
@@ -109,3 +114,12 @@ java -Djava.library.path="$WORK" -jar "$WORK/m7m-host-test.jar"
     -d "$WORK/m7n-host-test.jar"
 
 java -Djava.library.path="$WORK" -jar "$WORK/m7n-host-test.jar"
+
+"$KOTLINC" \
+    "$ROOT"/android/runtime/src/main/java/ai/vn97/runtime/*.kt \
+    "$HERE/M7UNativeMemoryBridgeHostTest.kt" \
+    -Werror \
+    -include-runtime \
+    -d "$WORK/m7u-native-memory-bridge-test.jar"
+
+java -Djava.library.path="$WORK" -jar "$WORK/m7u-native-memory-bridge-test.jar"

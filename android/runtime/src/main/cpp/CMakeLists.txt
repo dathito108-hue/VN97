@@ -13,8 +13,20 @@ add_subdirectory(
     "${CMAKE_BINARY_DIR}/vn97-native"
 )
 
-add_library(vn97_jni SHARED vn97_jni.cpp vn97_model_jni.cpp vn97_generation_jni.cpp)
+add_library(
+    vn97_jni SHARED
+    vn97_jni.cpp
+    vn97_model_jni.cpp
+    vn97_generation_jni.cpp
+    vn97_memory_jni.cpp
+)
 target_compile_features(vn97_jni PRIVATE cxx_std_17)
 target_compile_options(vn97_jni PRIVATE -Wall -Wextra -Werror)
 target_include_directories(vn97_jni PRIVATE "${VN97_ROOT}/native/include")
-target_link_libraries(vn97_jni PRIVATE vn97_runtime vn97_model_image vn97_generation)
+target_link_libraries(
+    vn97_jni PRIVATE
+    vn97_runtime
+    vn97_model_image
+    vn97_generation
+    vn97_memory
+)
