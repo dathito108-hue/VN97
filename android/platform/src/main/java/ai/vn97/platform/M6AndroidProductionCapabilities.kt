@@ -5,7 +5,36 @@ import java.nio.charset.StandardCharsets
 internal interface M6AndroidActionPort {
     fun launchPackage(packageName: String): String
     fun writeClipboard(text: String): String
+    fun tap(
+        packageName: String,
+        xNormalized: Int,
+        yNormalized: Int,
+    ): String
+
+    fun swipe(
+        packageName: String,
+        fromXNormalized: Int,
+        fromYNormalized: Int,
+        toXNormalized: Int,
+        toYNormalized: Int,
+        durationMs: Long,
+    ): String
 }
+
+private data class M6TapRequest(
+    val packageName: String,
+    val x: Int,
+    val y: Int,
+)
+
+private data class M6SwipeRequest(
+    val packageName: String,
+    val fromX: Int,
+    val fromY: Int,
+    val toX: Int,
+    val toY: Int,
+    val durationMs: Long,
+)
 
 class M6AndroidProductionCapabilities internal constructor(
     private val actions: M6AndroidActionPort,
@@ -25,6 +54,22 @@ class M6AndroidProductionCapabilities internal constructor(
             approvalRequired = true,
             maxPayloadUtf8Bytes = MAX_CLIPBOARD_PAYLOAD_UTF8_BYTES,
             maxLeaseNs = 30_000_000_000L,
+            maxLeaseUses = 1,
+        ),
+        M6CapabilityDescriptor(
+            capabilityId = DEVICE_TAP_CAPABILITY,
+            requiredScopeKeys = setOf(APP_PACKAGE_SCOPE),
+            approvalRequired = true,
+            maxPayloadUtf8Bytes = MAX_TAP_PAYLOAD_UTF8_BYTES,
+            maxLeaseNs = GAME_GESTURE_LEASE_NS,
+            maxLeaseUses = 1,
+        ),
+        M6CapabilityDescriptor(
+            capabilityId = DEVICE_SWIPE_CAPABILITY,
+            requiredScopeKeys = setOf(APP_PACKAGE_SCOPE),
+            approvalRequired = true,
+            maxPayloadUtf8Bytes = MAX_SWIPE_PAYLOAD_UTF8_BYTES,
+            maxLeaseNs = GAME_GESTURE_LEASE_NS,
             maxLeaseUses = 1,
         ),
     )
@@ -54,6 +99,39 @@ class M6AndroidProductionCapabilities internal constructor(
                     )
                 },
                 M6PayloadValidator(::validateClipboardWriteRequest),
+            )
+            registry.register(
+                descriptors[2],
+                M6CapabilityHandler { action ->
+                    val request = validateTapRequest(action.request)
+                    M6ActionOutcome(
+                        success = true,
+                        result = actions.tap(
+                            packageName = request.packageName,
+                            xNormalized = request.x,
+                            yNormalized = request.y,
+                        ),
+                    )
+                },
+                M6PayloadValidator(::validateTapRequest),
+            )
+            registry.register(
+                descriptors[3],
+                M6CapabilityHandler { action ->
+                    val request = validateSwipeRequest(action.request)
+                    M6ActionOutcome(
+                        success = true,
+                        result = actions.swipe(
+                            packageName = request.packageName,
+                            fromXNormalized = request.fromX,
+                            fromYNormalized = request.fromY,
+                            toXNormalized = request.toX,
+                            toYNormalized = request.toY,
+                            durationMs = request.durationMs,
+                        ),
+                    )
+                },
+                M6PayloadValidator(::validateSwipeRequest),
             )
             registry.seal()
         }
@@ -89,6 +167,77 @@ class M6AndroidProductionCapabilities internal constructor(
             "clipboard text exceeds byte bound"
         }
         return text
+    }
+
+    private fun validateTapRequest(
+        request: M6ExternalActionRequest,
+    ): M6TapRequest {
+        require(request.capabilityId == DEVICE_TAP_CAPABILITY) {
+            "tap handler received wrong capability"
+        }
+        val packageName = validateGamePackageScope(request)
+        val match = TAP_PAYLOAD_RE.matchEntire(request.payloadJson)
+            ?: throw IllegalArgumentException(
+                "tap payload must be canonical {\"x\":N,\"y\":N}"
+            )
+        val x = match.groupValues[1].toInt()
+        val y = match.groupValues[2].toInt()
+        requireNormalized(x, "x")
+        requireNormalized(y, "y")
+        return M6TapRequest(packageName, x, y)
+    }
+
+    private fun validateSwipeRequest(
+        request: M6ExternalActionRequest,
+    ): M6SwipeRequest {
+        require(request.capabilityId == DEVICE_SWIPE_CAPABILITY) {
+            "swipe handler received wrong capability"
+        }
+        val packageName = validateGamePackageScope(request)
+        val match = SWIPE_PAYLOAD_RE.matchEntire(request.payloadJson)
+            ?: throw IllegalArgumentException(
+                "swipe payload must use the canonical game gesture schema"
+            )
+        val duration = match.groupValues[1].toLong()
+        val fromX = match.groupValues[2].toInt()
+        val fromY = match.groupValues[3].toInt()
+        val toX = match.groupValues[4].toInt()
+        val toY = match.groupValues[5].toInt()
+        require(duration in MIN_SWIPE_DURATION_MS..MAX_SWIPE_DURATION_MS) {
+            "swipe duration is outside the bounded range"
+        }
+        requireNormalized(fromX, "from_x")
+        requireNormalized(fromY, "from_y")
+        requireNormalized(toX, "to_x")
+        requireNormalized(toY, "to_y")
+        return M6SwipeRequest(
+            packageName = packageName,
+            fromX = fromX,
+            fromY = fromY,
+            toX = toX,
+            toY = toY,
+            durationMs = duration,
+        )
+    }
+
+    private fun validateGamePackageScope(
+        request: M6ExternalActionRequest,
+    ): String {
+        val scope = request.scope.asMap()
+        require(scope.keys == setOf(APP_PACKAGE_SCOPE)) {
+            "game gesture scope must contain only package"
+        }
+        val packageName = checkNotNull(scope[APP_PACKAGE_SCOPE])
+        require(isCanonicalAndroidPackage(packageName)) {
+            "game gesture package is invalid"
+        }
+        return packageName
+    }
+
+    private fun requireNormalized(value: Int, label: String) {
+        require(value in 0..NORMALIZED_COORD_MAX) {
+            "$label must be in 0..$NORMALIZED_COORD_MAX"
+        }
     }
 
     companion object {
@@ -128,14 +277,77 @@ class M6AndroidProductionCapabilities internal constructor(
             )
         }
 
+        fun gameSessionTapGrant(
+            principal: String,
+            packageName: String,
+        ): M6PolicyGrant =
+            gameSessionGestureGrant(
+                principal,
+                packageName,
+                DEVICE_TAP_CAPABILITY,
+            )
+
+        fun gameSessionSwipeGrant(
+            principal: String,
+            packageName: String,
+        ): M6PolicyGrant =
+            gameSessionGestureGrant(
+                principal,
+                packageName,
+                DEVICE_SWIPE_CAPABILITY,
+            )
+
+        private fun gameSessionGestureGrant(
+            principal: String,
+            packageName: String,
+            capabilityId: String,
+        ): M6PolicyGrant {
+            require(isCanonicalAndroidPackage(packageName)) {
+                "game gesture package is invalid"
+            }
+            val scope = M6CapabilityScope.fromMap(
+                mapOf(APP_PACKAGE_SCOPE to packageName)
+            )
+            return M6PolicyGrant(
+                principal = principal,
+                capabilityId = capabilityId,
+                scopeDigest = scope.digest,
+                approvalRequired = false,
+                maxLeaseNs = GAME_GESTURE_LEASE_NS,
+                maxLeaseUses = 1,
+            )
+        }
+
         const val APP_LAUNCH_CAPABILITY = "app.launch"
         const val CLIPBOARD_WRITE_CAPABILITY = "device.clipboard.write"
+        const val DEVICE_TAP_CAPABILITY = "device.tap"
+        const val DEVICE_SWIPE_CAPABILITY = "device.swipe"
         const val APP_PACKAGE_SCOPE = "package"
         const val CLIPBOARD_CHANNEL_SCOPE = "channel"
         const val CLIPBOARD_CHANNEL_VALUE = "system-clipboard"
 
         private const val MAX_CLIPBOARD_TEXT_UTF8_BYTES = 16 * 1024
         private const val MAX_CLIPBOARD_PAYLOAD_UTF8_BYTES = 64 * 1024
+        private const val MAX_TAP_PAYLOAD_UTF8_BYTES = 32
+        private const val MAX_SWIPE_PAYLOAD_UTF8_BYTES = 128
+        private const val GAME_GESTURE_LEASE_NS = 5_000_000_000L
+        private const val NORMALIZED_COORD_MAX = 1000
+        private const val MIN_SWIPE_DURATION_MS = 80L
+        private const val MAX_SWIPE_DURATION_MS = 2_000L
+
+        private val TAP_PAYLOAD_RE =
+            Regex(
+                "^\\{\\\"x\\\":(0|[1-9][0-9]{0,3})," +
+                    "\\\"y\\\":(0|[1-9][0-9]{0,3})\\}$"
+            )
+        private val SWIPE_PAYLOAD_RE =
+            Regex(
+                "^\\{\\\"duration_ms\\\":(0|[1-9][0-9]{0,3})," +
+                    "\\\"from_x\\\":(0|[1-9][0-9]{0,3})," +
+                    "\\\"from_y\\\":(0|[1-9][0-9]{0,3})," +
+                    "\\\"to_x\\\":(0|[1-9][0-9]{0,3})," +
+                    "\\\"to_y\\\":(0|[1-9][0-9]{0,3})\\}$"
+            )
         private val PACKAGE_RE =
             Regex("^[A-Za-z][A-Za-z0-9_]*(?:\\.[A-Za-z][A-Za-z0-9_]*)+$")
 
