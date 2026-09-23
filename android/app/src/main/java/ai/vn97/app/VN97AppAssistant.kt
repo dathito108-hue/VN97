@@ -3,6 +3,8 @@ package ai.vn97.app
 import ai.vn97.platform.M6AndroidProductionCapabilities
 import ai.vn97.platform.VN97AssistantTurnState
 import ai.vn97.platform.VN97AssistantTurnUpdate
+import ai.vn97.platform.VN97MobileEvidenceConfig
+import ai.vn97.platform.VN97MobileEvidenceRecord
 import ai.vn97.platform.VN97ProductionAssistantResources
 import ai.vn97.runtime.NativeActivatedInventoryModelLoader
 import ai.vn97.runtime.NativeActivatedModel
@@ -113,6 +115,27 @@ class VN97AppAssistant(
         runTurn(
             userMessage = transcript,
             maxAdvances = maxAdvances,
+        )
+    }
+
+    fun collectMobileEvidence(
+        config: VN97MobileEvidenceConfig = VN97MobileEvidenceConfig(),
+    ): VN97MobileEvidenceRecord = synchronized(lock) {
+        check(pendingResult == null) {
+            "cannot benchmark while approval is pending"
+        }
+        val activeResources = checkNotNull(resources) {
+            "trusted VN97 model is not active"
+        }
+        check(!activeResources.session.hasActiveTurn) {
+            "cannot benchmark while an assistant turn is active"
+        }
+        val activeModel = checkNotNull(model) {
+            "trusted VN97 model is not active"
+        }
+        application.platformRuntime.collectProductionMobileEvidence(
+            model = activeModel,
+            config = config,
         )
     }
 
