@@ -57,7 +57,7 @@ object NativeModelImageCandidateValidator {
         handle: Long,
         expectedModelId: ByteArray,
     ): NativeActivatedModelInfo {
-        val ints = IntArray(9)
+        val ints = IntArray(12)
         val longs = LongArray(1)
         val modelId = ByteArray(32)
         checkModelStatus(
@@ -94,6 +94,9 @@ object NativeModelImageCandidateValidator {
             hasTokenizer = ints[6] != 0,
             hasAudioProjection = ints[7] != 0,
             audioFrameSize = ints[8],
+            hasVisionProjection = ints[9] != 0,
+            visionChannels = ints[10],
+            visionPatchSize = ints[11],
             imageBytes = longs[0],
         )
     }
