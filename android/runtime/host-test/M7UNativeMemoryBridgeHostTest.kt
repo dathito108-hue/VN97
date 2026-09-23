@@ -78,6 +78,14 @@ fun main() {
     )
     check(semanticId == 1L && episodicId == 2L)
     check(created.stats().recordCount == 2L)
+    val direct = created.record(semanticId)
+    check(direct.recordId == semanticId)
+    check(direct.kind == NativeMemoryKind.SEMANTIC)
+    check(direct.timestampNs == 10L)
+    check(direct.parentId == 0L)
+    check(direct.importance == 0.9f)
+    check(direct.source == "unit:α")
+    check(direct.content == "semantic fact ✓")
 
     var locked = false
     try {
