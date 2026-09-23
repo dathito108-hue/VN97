@@ -48,6 +48,7 @@ data class NativeExternalCapabilityView(
     val optionalScopeKeys: List<String>,
     val approvalRequired: Boolean,
     val maxPayloadUtf8Bytes: Int,
+    val payloadSchemaJson: String = "{}",
 )
 
 data class NativeExternalIntentRequest(
