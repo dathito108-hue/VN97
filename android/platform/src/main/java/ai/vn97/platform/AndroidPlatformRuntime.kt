@@ -4,9 +4,13 @@ import ai.vn97.runtime.NativeActivatedModel
 import ai.vn97.runtime.NativeCognitionInferenceEngine
 import ai.vn97.runtime.NativeCognitionLimits
 import ai.vn97.runtime.NativeCognitionRuntimeConfig
+import ai.vn97.runtime.NativeMemoryKind
+import ai.vn97.runtime.NativeMemoryQuery
 import ai.vn97.runtime.NativeMemoryRetriever
 import ai.vn97.runtime.NativeMemoryStore
+import ai.vn97.runtime.VN97KnowledgeAcquisitionProposalEngine
 import ai.vn97.runtime.VN97KnowledgeAcquisitionSession
+import ai.vn97.runtime.VN97KnowledgeProposalEvidence
 import ai.vn97.runtime.NativeTypedCognitionAdapter
 import android.content.Context
 import java.io.File
@@ -506,6 +510,68 @@ class AndroidPlatformRuntime(
             file = file,
             startingCashMicros = startingCashMicros,
             riskPolicy = riskPolicy,
+        )
+    }
+
+    /**
+     * Create the M16D advisory-only knowledge-gap proposal path.
+     *
+     * The same activated VN97 model embeds/reasons over a bounded recall from
+     * the caller's already-open canonical VN97MEM1. The result is only a
+     * proposal. It cannot fetch, trust, activate or write memory.
+     */
+    fun createProductionKnowledgeAcquisitionProposalEngine(
+        model: NativeActivatedModel,
+        memory: NativeMemoryStore,
+        cognitionRuntimeConfig: NativeCognitionRuntimeConfig =
+            NativeCognitionRuntimeConfig(),
+    ): VN97KnowledgeAcquisitionProposalEngine {
+        require(memory.vectorDim == model.info.dModel) {
+            "knowledge proposal VN97MEM1 dimension does not match activated model"
+        }
+        val inference = NativeCognitionInferenceEngine(
+            model = model,
+            config = cognitionRuntimeConfig,
+        )
+        return VN97KnowledgeAcquisitionProposalEngine(
+            recall = { goal ->
+                val vector = inference.embedText(
+                    "VN97 knowledge gap evidence for: $goal",
+                    memory.vectorDim,
+                )
+                memory.retrieve(
+                    query = NativeMemoryQuery(
+                        vector = vector,
+                        topK =
+                            VN97KnowledgeAcquisitionProposalEngine
+                                .MAX_EVIDENCE,
+                        kinds = listOf(
+                            NativeMemoryKind.SEMANTIC,
+                            NativeMemoryKind.EPISODIC,
+                        ),
+                        semanticWeight = 0.80,
+                        recencyWeight = 0.05,
+                        importanceWeight = 0.15,
+                        recencyHalfLifeNs =
+                            2_592_000_000_000_000L,
+                    ),
+                    topK =
+                        VN97KnowledgeAcquisitionProposalEngine
+                            .MAX_EVIDENCE,
+                ).map { item ->
+                    VN97KnowledgeProposalEvidence.bounded(
+                        recordId = item.recordId,
+                        source = item.source,
+                        content = item.content,
+                    )
+                }
+            },
+            generator = { prompt ->
+                inference.generateText(
+                    prompt = prompt,
+                    maxNewTokens = 384,
+                ).trim()
+            },
         )
     }
 
