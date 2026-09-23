@@ -91,6 +91,12 @@ from .bootstrap_bundle import (
     build_bootstrap_bundle,
     write_bootstrap_assets,
 )
+from .campaign import (
+    VN97CampaignCandidate,
+    VN97CampaignError,
+    VN97CampaignObservation,
+    select_best_campaign_candidate,
+)
 from .capability_trust import (
     AdapterSpec,
     CapabilityTrustError,
@@ -321,6 +327,10 @@ __all__ = [
     "InventoryCorruptionError",
     "InventoryEvent",
     "InventorySnapshot",
+    "VN97CampaignCandidate",
+    "VN97CampaignError",
+    "VN97CampaignObservation",
+    "select_best_campaign_candidate",
     "AdapterSpec",
     "CapabilityTrustError",
     "CapabilityTrustStore",
