@@ -177,6 +177,15 @@ from .deployment_checkpoint import (
     save_deployment_checkpoint,
 )
 from .embedding import FactorizedEmbedding, FactorizedLMHead
+from .device_evidence_campaign import (
+    VN97AdbClient,
+    VN97CollectedEvidence,
+    VN97EvidenceAssets,
+    VN97PhysicalEvidenceCampaignError,
+    VN97PhysicalEvidenceConfig,
+    VN97PhysicalEvidencePolicy,
+    collect_physical_device_evidence,
+)
 from .device_evidence import (
     VN97DeviceEvidence,
     VN97DeviceEvidenceCriteria,
