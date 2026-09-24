@@ -225,39 +225,29 @@ fun main() {
                     .MAX_DETAIL_BYTES
         )
 
-        val target =
+        val targets =
             root.listFiles()
-                ?.firstOrNull {
+                ?.filter {
                     it.name.endsWith(
                         ".vn97health1"
                     )
                 }
-                ?: error(
-                    "health evidence missing"
-                )
-        Files.write(
-            target.toPath(),
-            byteArrayOf(0x41),
-            StandardOpenOption.APPEND,
-        )
+                .orEmpty()
+        check(targets.isNotEmpty())
+        targets.forEach { target ->
+            Files.write(
+                target.toPath(),
+                byteArrayOf(0x41),
+                StandardOpenOption.APPEND,
+            )
+        }
         expectM18CFailure(
             "tampered health evidence"
         ) {
-            val key =
-                if (
-                    target.name ==
-                        root.listFiles()
-                            ?.firstOrNull()
-                            ?.name
-                ) {
-                    "97"
-                } else {
-                    "123"
-                }
             store.loadOrNull(
                 VN97ExecutionHealthDomain
                     .CONTINUATION_JOB,
-                key,
+                "97",
             )
         }
 
