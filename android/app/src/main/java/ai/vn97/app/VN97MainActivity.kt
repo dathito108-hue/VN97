@@ -677,6 +677,9 @@ class VN97MainActivity : Activity() {
         refreshGameControlStatus()
         refreshVisualButtons()
         refreshAutonomousStatus()
+        if (!app.assistant.isOpen()) {
+            attachTrustedModel()
+        }
     }
 
     override fun onNewIntent(intent: Intent?) {
@@ -1327,6 +1330,11 @@ class VN97MainActivity : Activity() {
                             .EXECUTION_ENTRY
                     )
                     .requireActivationReady()
+                app.runtimeResources
+                    .requireRunnable(
+                        VN97RuntimeExecutionClass
+                            .INTERACTIVE
+                    )
                 var active = app.assistant.openIfActivated()
                 var bundled = false
                 if (!active) {
