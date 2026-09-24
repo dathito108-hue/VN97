@@ -5,6 +5,7 @@ on:
     branches:
       - m10i-reproducible-apk-cold-start
       - m10j-turnkey-bootstrap
+      - m19b-production-bootstrap-qualification
   workflow_dispatch:
 
 permissions:
@@ -18,18 +19,27 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Validate M19B release candidate contracts
+        shell: bash
+        run: |
+          python -m compileall -q             src/vn97/release_candidate.py             src/vn97/release_candidate_cli.py
+          python tests/host_m19b_release_candidate.py
+
       - name: Set up JDK 17
+        if: github.ref_name != 'm19b-production-bootstrap-qualification'
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
 
       - name: Set up Gradle 9.6.0
+        if: github.ref_name != 'm19b-production-bootstrap-qualification'
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "9.6.0"
 
       - name: Install pinned Android packages
+        if: github.ref_name != 'm19b-production-bootstrap-qualification'
         shell: bash
         env:
           ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
@@ -46,11 +56,13 @@ jobs:
           "$SDKMANAGER"             --sdk_root="$ANDROID_SDK_ROOT"             --channel=3             "platforms;android-37.0"             "build-tools;36.0.0"             "ndk;28.2.13676358"             "cmake;3.22.1"
 
       - name: Build VN97 debug APK
+        if: github.ref_name != 'm19b-production-bootstrap-qualification'
         shell: bash
         run: |
           gradle -p android             --no-daemon             --stacktrace             :app:assembleDebug
 
       - name: Verify APK
+        if: github.ref_name != 'm19b-production-bootstrap-qualification'
         shell: bash
         run: |
           APK="android/app/build/outputs/apk/debug/app-debug.apk"
@@ -59,6 +71,7 @@ jobs:
           ls -lh "$APK"
 
       - name: Upload APK
+        if: github.ref_name != 'm19b-production-bootstrap-qualification'
         uses: actions/upload-artifact@v4
         with:
           name: VN97-debug-apk
