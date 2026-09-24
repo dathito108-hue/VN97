@@ -15,6 +15,20 @@ data class VN97ModelProvisioningReview(
     val planSha256: String,
 )
 
+private fun requireProvisioningSha(
+    value: String,
+    label: String,
+) {
+    require(
+        value.length == 64 &&
+            value.all {
+                it in "0123456789abcdef"
+            }
+    ) {
+        "$label must be lowercase SHA-256 hex"
+    }
+}
+
 class VN97ModelImageProvisioningSession(
     private val stager: VN97CapabilityStager,
     private val stageRoot: java.io.File,
@@ -108,16 +122,66 @@ class VN97ModelImageProvisioningSession(
     }
 
     @Synchronized
-    fun activateReviewed(): VN97CapabilityInventoryItem {
+    fun activateReviewed(): VN97CapabilityInventoryItem =
+        activatePendingControlled(
+            expectedPackageSha256 = null,
+            expectedPlanSha256 = null,
+        )
+
+    @Synchronized
+    fun activateReviewedControlled(
+        expectedPackageSha256: String,
+        expectedPlanSha256: String,
+    ): VN97CapabilityInventoryItem {
+        requireProvisioningSha(
+            expectedPackageSha256,
+            "expectedPackageSha256",
+        )
+        requireProvisioningSha(
+            expectedPlanSha256,
+            "expectedPlanSha256",
+        )
+        return activatePendingControlled(
+            expectedPackageSha256 =
+                expectedPackageSha256,
+            expectedPlanSha256 =
+                expectedPlanSha256,
+        )
+    }
+
+    private fun activatePendingControlled(
+        expectedPackageSha256: String?,
+        expectedPlanSha256: String?,
+    ): VN97CapabilityInventoryItem {
         val current = checkNotNull(pending) {
             "no provisioning review is pending"
         }
+        if (expectedPackageSha256 != null) {
+            check(
+                current.review.packageSha256 ==
+                    expectedPackageSha256
+            ) {
+                "controlled activation package identity changed"
+            }
+        }
+        if (expectedPlanSha256 != null) {
+            check(
+                current.review.planSha256 ==
+                    expectedPlanSha256
+            ) {
+                "controlled activation plan identity changed"
+            }
+        }
+
         // Reconcile any crash-left activation before a new activation attempt.
         recover()
-        val durableTrustStore = trustRegistry.enrollModelPublisher(
-            keyId = current.verified.publisherKeyId,
-            publicKey = current.publisherPublicKey,
-        )
+        val durableTrustStore =
+            trustRegistry.enrollModelPublisher(
+                keyId =
+                    current.verified.publisherKeyId,
+                publicKey =
+                    current.publisherPublicKey,
+            )
         return try {
             coordinator.activate(
                 verified = current.verified,
