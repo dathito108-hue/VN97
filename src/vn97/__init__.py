@@ -188,9 +188,11 @@ from .device_evidence import (
 )
 from .release_candidate import (
     MAX_MANIFEST_BYTES as MAX_RELEASE_CANDIDATE_MANIFEST_BYTES,
+    VN97LoadedReleaseCandidate,
     VN97ReleaseCandidateDeviceEvidence,
     VN97ReleaseCandidateError,
     VN97ReleaseCandidateManifest,
+    load_release_candidate_directory,
     parse_release_candidate_manifest,
 )
 from .evaluation import (
