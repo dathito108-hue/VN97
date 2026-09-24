@@ -51,6 +51,16 @@ The subset should contain both Vietnamese and English assistant-style examples p
 reasoning/planning/structured-output samples. It must not reuse validation or release
 records in training.
 
+## Corpus intake prerequisite
+
+Before the canonical run, prepare and seal the public pilot sources through
+`docs/P2_PUBLIC_CORPUS_INTAKE_V1.md`:
+
+`reviewed raw datasets -> vn97-p2-corpus-intake -> VN97CORPUSDEF1
+-> vn97-corpus-seal -> VN97CORPUS1`.
+
+P2 training never consumes the raw public files directly.
+
 ## Canonical run
 
 Given a sealed P1 corpus directory, use the fixed P2 runner:
