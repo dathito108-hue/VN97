@@ -615,6 +615,10 @@ def _options_object(
 @dataclass(frozen=True)
 class VN97ProductionRunManifest:
     repository_commit: str
+    python_version: str
+    torch_version: str
+    platform_system: str
+    platform_machine: str
     campaign_definition: VN97RunFile
     language_training: tuple[VN97RunFile, ...]
     language_validation: tuple[VN97RunFile, ...]
@@ -645,6 +649,36 @@ class VN97ProductionRunManifest:
             length=40,
             label="repository commit",
         )
+        for value, label in (
+            (
+                self.python_version,
+                "Python version",
+            ),
+            (
+                self.torch_version,
+                "Torch version",
+            ),
+            (
+                self.platform_system,
+                "platform system",
+            ),
+            (
+                self.platform_machine,
+                "platform machine",
+            ),
+        ):
+            if (
+                not isinstance(value, str)
+                or not value
+                or len(value) > 128
+                or any(
+                    ord(ch) < 0x20
+                    for ch in value
+                )
+            ):
+                raise VN97ProductionRunManifestError(
+                    f"{label} is invalid"
+                )
         for group, label in (
             (
                 self.language_training,
@@ -849,6 +883,16 @@ class VN97ProductionRunManifest:
                     self.speech_validation
                     .canonical_object(),
             },
+            "environment": {
+                "platform_machine":
+                    self.platform_machine,
+                "platform_system":
+                    self.platform_system,
+                "python_version":
+                    self.python_version,
+                "torch_version":
+                    self.torch_version,
+            },
             "intake": {
                 "device_evidence_dir":
                     self.device_evidence_dir,
@@ -1021,6 +1065,7 @@ def parse_production_run_manifest(
     if (
         set(root)
         != {
+            "environment",
             "inputs",
             "intake",
             "language",
@@ -1033,6 +1078,21 @@ def parse_production_run_manifest(
     ):
         raise VN97ProductionRunManifestError(
             "VN97RUN1 schema/keys mismatch"
+        )
+
+    environment = root["environment"]
+    if (
+        not isinstance(environment, dict)
+        or set(environment)
+        != {
+            "platform_machine",
+            "platform_system",
+            "python_version",
+            "torch_version",
+        }
+    ):
+        raise VN97ProductionRunManifestError(
+            "VN97RUN1 environment keys mismatch"
         )
 
     inputs = root["inputs"]
@@ -1100,6 +1160,22 @@ def parse_production_run_manifest(
             length=40,
             label="repository commit",
         ),
+        python_version=
+            environment[
+                "python_version"
+            ],
+        torch_version=
+            environment[
+                "torch_version"
+            ],
+        platform_system=
+            environment[
+                "platform_system"
+            ],
+        platform_machine=
+            environment[
+                "platform_machine"
+            ],
         campaign_definition=_file_from_raw(
             inputs[
                 "campaign_definition"
