@@ -1,0 +1,39 @@
+name: VN97 Kaggle Source Pack
+
+on:
+  push:
+    branches:
+      - ops-kaggle-source-pack-20260924
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Build source-only pack
+        run: |
+          set -euo pipefail
+          MAIN_SHA=39566edad5e3ec19ea3704beccf67d7a3e3bd35d
+          mkdir -p pack/VN97
+          git archive "$MAIN_SHA" | tar -x -C pack/VN97
+          (
+            cd pack
+            find VN97 -type f -print0 | sort -z | xargs -0 sha256sum > SOURCE_SHA256SUMS
+          )
+
+      - name: Upload source-only pack
+        uses: actions/upload-artifact@v4
+        with:
+          name: VN97-Kaggle-Source-39566edad5e3
+          path: pack
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 6
