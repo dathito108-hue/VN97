@@ -22,6 +22,7 @@ if SPEC is None or SPEC.loader is None:
         "could not load release_attestation.py"
     )
 MODULE = importlib.util.module_from_spec(SPEC)
+sys.modules[SPEC.name] = MODULE
 SPEC.loader.exec_module(MODULE)
 
 Attestation = MODULE.VN97ApkAttestation
