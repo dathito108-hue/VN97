@@ -106,24 +106,94 @@ class NativeActivatedModel private constructor(
     private val lock = Any()
 
     companion object {
-        internal fun open(artifact: TrustedActivatedModelArtifact): NativeActivatedModel {
+        internal fun open(
+            artifact: TrustedActivatedModelArtifact,
+        ): NativeActivatedModel =
+            openDescriptor(
+                fd = artifact.fd,
+                offset = artifact.offset,
+                length = artifact.length,
+                expectedModelId =
+                    artifact.artifactSha256,
+                operation =
+                    "activated model open",
+            )
+
+        internal fun openForEvaluation(
+            fd: Int,
+            offset: Long,
+            length: Long,
+            expectedModelId: ByteArray,
+        ): NativeActivatedModel {
+            require(fd >= 0) {
+                "evaluation model fd must be non-negative"
+            }
+            require(offset >= 0L) {
+                "evaluation model offset must be non-negative"
+            }
+            require(length > 0L) {
+                "evaluation model length must be positive"
+            }
+            require(expectedModelId.size == 32) {
+                "evaluation model SHA-256 must be exactly 32 bytes"
+            }
+            require(
+                expectedModelId.any {
+                    it.toInt() != 0
+                }
+            ) {
+                "evaluation model SHA-256 must be nonzero"
+            }
+            return openDescriptor(
+                fd = fd,
+                offset = offset,
+                length = length,
+                expectedModelId =
+                    expectedModelId.copyOf(),
+                operation =
+                    "evaluation model open",
+            )
+        }
+
+        private fun openDescriptor(
+            fd: Int,
+            offset: Long,
+            length: Long,
+            expectedModelId: ByteArray,
+            operation: String,
+        ): NativeActivatedModel {
             val out = LongArray(1)
             checkModelStatus(
                 NativeRuntimeBindings.nativeModelOpen(
-                    artifact.fd,
-                    artifact.offset,
-                    artifact.length,
-                    artifact.artifactSha256,
+                    fd,
+                    offset,
+                    length,
+                    expectedModelId,
                     out,
                 ),
-                "activated model open",
+                operation,
             )
-            check(out[0] != 0L) { "native model loader returned a zero handle" }
+            check(out[0] != 0L) {
+                "native model loader returned a zero handle"
+            }
             val handle = out[0]
             return try {
-                NativeActivatedModel(handle, readInfo(handle))
+                NativeActivatedModel(
+                    handle,
+                    readInfo(handle),
+                ).also { opened ->
+                    require(
+                        opened.info.modelId
+                            .contentEquals(
+                                expectedModelId
+                            )
+                    ) {
+                        "native model identity changed after open"
+                    }
+                }
             } catch (exc: Throwable) {
-                NativeRuntimeBindings.nativeModelDestroy(handle)
+                NativeRuntimeBindings
+                    .nativeModelDestroy(handle)
                 throw exc
             }
         }
