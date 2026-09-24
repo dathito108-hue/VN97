@@ -7,6 +7,11 @@ import ai.vn97.platform.M6ReceiptStatus
 import ai.vn97.platform.VN97GameAccessibilityController
 import ai.vn97.platform.VN97GameEpisodeMemory
 import ai.vn97.platform.VN97GameEpisodeTerminal
+import ai.vn97.platform.VN97ExecutionHealthDomain
+import ai.vn97.platform.VN97ExecutionHealthLease
+import ai.vn97.platform.VN97ExecutionHealthState
+import ai.vn97.platform.VN97ExecutionHealthStore
+import ai.vn97.platform.VN97ExecutionWatchdog
 import ai.vn97.runtime.NativeActivatedInventoryModelLoader
 import ai.vn97.runtime.NativeCognitionBoundary
 import ai.vn97.runtime.NativeCognitionInferenceEngine
@@ -49,6 +54,16 @@ data class VN97GameAgentSnapshot(
 
 class VN97GameAgentService : Service() {
     private val executor = Executors.newSingleThreadExecutor()
+    private val healthStore by lazy(
+        LazyThreadSafetyMode.SYNCHRONIZED
+    ) {
+        VN97ExecutionHealthStore(
+            File(
+                noBackupFilesDir,
+                "vn97-execution-health",
+            )
+        )
+    }
     private val cancelled = AtomicBoolean(false)
     private val episodeActive = AtomicBoolean(false)
 
@@ -101,31 +116,132 @@ class VN97GameAgentService : Service() {
 
         cancelled.set(false)
         executor.execute {
-            val final = try {
-                runEpisode(goal)
-            } catch (exc: Throwable) {
+            var lease:
+                VN97ExecutionHealthLease? = null
+            var watchdog:
+                VN97ExecutionWatchdog? = null
+            var failure: Throwable? = null
+            var final =
                 VN97GameAgentSnapshot(
                     state =
-                        if (cancelled.get()) {
-                            VN97GameAgentState.CANCELLED
-                        } else {
-                            VN97GameAgentState.FAILED
-                        },
-                    actionCount = snapshot().actionCount,
+                        VN97GameAgentState.FAILED,
+                    actionCount =
+                        snapshot().actionCount,
                     detail =
-                        if (cancelled.get()) {
-                            "game episode cancelled"
-                        } else {
-                            "game episode failed: " +
-                                exc::class.java.simpleName
-                        },
+                        "game episode did not start",
                 )
+            try {
+                val begin =
+                    healthStore.begin(
+                        domain =
+                            VN97ExecutionHealthDomain
+                                .GAME_AGENT,
+                        key = "game-agent",
+                        nowWallTimeMillis =
+                            System
+                                .currentTimeMillis(),
+                        maxRunMillis =
+                            GAME_WATCHDOG_MILLIS,
+                    )
+                if (begin.suppressed) {
+                    final =
+                        VN97GameAgentSnapshot(
+                            state =
+                                VN97GameAgentState
+                                    .FAILED,
+                            actionCount =
+                                snapshot()
+                                    .actionCount,
+                            detail =
+                                "game agent temporarily suppressed after repeated or overlapping failures",
+                        )
+                } else {
+                    lease =
+                        checkNotNull(
+                            begin.lease
+                        )
+                    watchdog =
+                        VN97ExecutionWatchdog(
+                            store = healthStore,
+                            lease = lease,
+                            cancellation =
+                                cancelled,
+                        )
+                    final = runEpisode(goal)
+                }
+            } catch (exc: Throwable) {
+                failure = exc
+                final =
+                    VN97GameAgentSnapshot(
+                        state =
+                            if (cancelled.get()) {
+                                VN97GameAgentState
+                                    .CANCELLED
+                            } else {
+                                VN97GameAgentState
+                                    .FAILED
+                            },
+                        actionCount =
+                            snapshot().actionCount,
+                        detail =
+                            if (cancelled.get()) {
+                                "game episode cancelled"
+                            } else {
+                                "game episode failed: " +
+                                    exc::class.java
+                                        .simpleName
+                            },
+                    )
+            } finally {
+                watchdog?.close()
+                lease?.let {
+                    currentLease ->
+                    runCatching {
+                        healthStore.finish(
+                            lease =
+                                currentLease,
+                            state =
+                                when {
+                                    failure != null ->
+                                        VN97ExecutionHealthState
+                                            .FAILED
+
+                                    cancelled.get() ->
+                                        VN97ExecutionHealthState
+                                            .CANCELLED
+
+                                    final.state ==
+                                        VN97GameAgentState
+                                            .COMPLETED ->
+                                        VN97ExecutionHealthState
+                                            .SUCCEEDED
+
+                                    final.state ==
+                                        VN97GameAgentState
+                                            .CANCELLED ->
+                                        VN97ExecutionHealthState
+                                            .CANCELLED
+
+                                    else ->
+                                        VN97ExecutionHealthState
+                                            .FAILED
+                                },
+                            nowWallTimeMillis =
+                                System
+                                    .currentTimeMillis(),
+                            detail =
+                                final.detail,
+                        )
+                    }
+                }
+                publishSnapshot(final)
+                publishTerminalNotification(final)
+                episodeActive.set(false)
+                stopForeground(
+                    STOP_FOREGROUND_REMOVE
+                )
+                stopSelfResult(startId)
             }
-            publishSnapshot(final)
-            publishTerminalNotification(final)
-            episodeActive.set(false)
-            stopForeground(STOP_FOREGROUND_REMOVE)
-            stopSelfResult(startId)
         }
         return START_NOT_STICKY
     }
@@ -767,6 +883,10 @@ class VN97GameAgentService : Service() {
         private const val MAX_COGNITION_CYCLES_PER_ADVANCE = 8
         private const val MAX_EPISODE_MILLIS = 10 * 60 * 1000L
         private const val FOREGROUND_WAIT_MILLIS = 30_000L
+        private const val GAME_WATCHDOG_MILLIS =
+            MAX_EPISODE_MILLIS +
+                FOREGROUND_WAIT_MILLIS +
+                30_000L
         private const val FOREGROUND_POLL_MILLIS = 100L
 
         private val GAME_CAPABILITIES = setOf(
