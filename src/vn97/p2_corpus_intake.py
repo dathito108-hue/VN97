@@ -294,10 +294,12 @@ def assigned_split(
     source_id: str,
     messages: Sequence[dict[str, str]],
 ) -> str:
+    # Validate the declared source, but do not include it in split identity.
+    # Identical conversations mirrored by two datasets must always land in
+    # the same split so a mirror cannot create train/holdout leakage.
+    source_spec(source_id)
     digest = hashlib.sha256()
     digest.update(b"VN97P2SPLIT1\0")
-    digest.update(source_id.encode("utf-8"))
-    digest.update(b"\0")
     digest.update(
         _canonical_json(
             {"messages": list(messages)}
