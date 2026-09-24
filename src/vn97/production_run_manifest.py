@@ -759,6 +759,20 @@ class VN97ProductionRunManifest:
                     raise VN97ProductionRunManifestError(
                         "production output directories must not be nested"
                     )
+        evidence_path = Path(
+            self.device_evidence_dir
+        )
+        for output_path in output_paths:
+            if (
+                evidence_path == output_path
+                or evidence_path
+                in output_path.parents
+                or output_path
+                in evidence_path.parents
+            ):
+                raise VN97ProductionRunManifestError(
+                    "device evidence directory must not overlap a production output directory"
+                )
 
     def canonical_object(self) -> dict[str, object]:
         return {
@@ -1252,11 +1266,13 @@ def _parse_campaign_definition(
             rank is not None
             and (
                 type(rank) is not int
-                or rank <= 0
+                or not 0
+                < rank
+                < item["d_model"]
             )
         ):
             raise VN97ProductionRunManifestError(
-                "campaign candidate embedding_rank must be positive integer or null"
+                "campaign candidate embedding_rank must be in [1, d_model) or null"
             )
         lr = item["learning_rate"]
         if (
@@ -1273,8 +1289,12 @@ def _parse_campaign_definition(
             raise VN97ProductionRunManifestError(
                 "campaign candidate learning_rate must be finite positive"
             )
+        normalized = dict(item)
+        normalized[
+            "learning_rate"
+        ] = float(lr)
         identity = json.dumps(
-            item,
+            normalized,
             sort_keys=True,
             separators=(",", ":"),
             allow_nan=False,
