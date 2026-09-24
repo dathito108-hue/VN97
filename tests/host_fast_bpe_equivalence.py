@@ -43,6 +43,23 @@ def main() -> None:
         ]
     )
 
+    sample_source = [
+        "record-z",
+        "record-a",
+        "record-c",
+        "record-b",
+    ]
+    sample_a = module.select_deterministic_tokenizer_corpus(
+        sample_source,
+        max_samples=2,
+    )
+    sample_b = module.select_deterministic_tokenizer_corpus(
+        list(reversed(sample_source)),
+        max_samples=2,
+    )
+    assert set(sample_a) == set(sample_b)
+    assert len(sample_a) == 2
+
     for corpus in corpora:
         for merges in (0, 1, 2, 8, 32):
             expected = module.learn_byte_bpe(
