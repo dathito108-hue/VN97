@@ -1,1 +1,232 @@
-# M19L — Final Turnkey Release Materialization\n\nM19L is the final production materialization gate for VN97.\n\nIt does not replace M19D production release. It wraps the existing canonical\n`vn97-production-release` with one prerequisite gate and one independent post-build\nverification layer.\n\n## Canonical flow\n\n```text\nVN97RUN1\n  -> M19I preflight\n  -> training\n  -> VN97PRODCAMP1\n  -> M19J physical VN97MOBEVID1\n  -> M19F VN97INTAKE1 + VN97RC1\n  -> M19K VN97CLOSE1 / VN97READY1\n  -> M19L production materialization\n  -> signed VN97-production.apk\n  -> VN97APK1\n  -> VN97FINAL1\n```\n\n## Command\n\n```text\nvn97-production-materialize \\n  --manifest production-run.vn97run1 \\n  --workspace-root <workspace> \\n  --repository-root <VN97> \\n  --private-key <publisher-ed25519-private-key> \\n  --key-id <publisher-key-id> \\n  --capability-version <version> \\n  --source-origin <origin> \\n  --source-license <license> \\n  --validation-input <fresh-held-out-language-data> \\n  --max-validation-loss <threshold> \\n  --speech-validation-input <fresh-held-out-speech-manifest> \\n  --max-speech-validation-loss <threshold> \\n  --release-output-dir <new-release-directory> \\n  --receipt <new-vn97final1-path>\n```\n\nAndroid signing remains external through the existing environment:\n\n```text\nVN97_RELEASE_KEYSTORE\nVN97_RELEASE_STORE_PASSWORD\nVN97_RELEASE_KEY_ALIAS\nVN97_RELEASE_KEY_PASSWORD\n```\n\n## Mandatory M19K gate\n\nM19L first runs M19K in inspect-only mode with the same release inputs.\n\nIf M19K does not return `READY_TO_RELEASE`, M19L does not build or sign anything.\nThe CLI prints the canonical VN97CLOSE1 and exits 2.\n\nTherefore missing physical evidence, fresh release-validation inputs, publisher key,\nAndroid signing credentials or toolchain dependencies remain visible as their real\nproduction blockers.\n\n## Canonical release builder only\n\nAfter the READY gate M19L delegates to the existing:\n\n```text\nvn97-production-release\n```\n\nwith the exact current VN97RC1 and operator-supplied fresh release-validation/signing\ninputs.\n\nM19L also propagates the bound VN97RUN1 physical-device thresholds into the existing\nrelease builder:\n\n- minimum device runs;\n- text prefill p95;\n- decode/token p95;\n- PSS;\n- thermal status;\n- speech prefill p95 when configured;\n- energy-counter requirement/delta when configured.\n\nFinal speech model-image/state budgets are propagated from VN97RUN1 speech options when\npresent.\n\nM19L does not create another APK builder, another signer or another release path.\n\n## Canonical release directory\n\nThe M19D builder must publish exactly:\n\n```text\nVN97-production.apk\nbootstrap-release.vn97bootrel6.json\nproduction-readiness.vn97ready1\nrelease-attestation.vn97apk1\n```\n\nM19L rejects missing, extra, symlinked or malformed release artifacts.\n\n`VN97FINAL1` is deliberately a sidecar receipt and is not inserted into this four-file\nrelease directory.\n\n## Independent post-build verification\n\nAfter the canonical builder returns, M19L does not trust stdout alone.\n\nIt reopens the published release and verifies:\n\n### VN97READY1\n\n- canonical JSON;\n- status READY;\n- exact VN97RUN1 repository commit;\n- exact VN97RC1 manifest SHA;\n- exact model-image SHA;\n- exact SHA matching the M19K READY closure.\n\n### VN97APK1\n\n- canonical JSON;\n- exact APK byte count;\n- exact APK SHA-256;\n- exact VN97RC1 manifest SHA.\n\n### VN97BOOTREL6\n\n- canonical JSON;\n- schema VN97BOOTREL6;\n- exact VN97RC1 manifest binding;\n- signed source SHA equal to VN97RC1;\n- hash equal to VN97APK1 bootstrap report claim.\n\n### Embedded APK release payload\n\nM19L opens the APK ZIP directly and requires the canonical embedded assets:\n\n```text\nassets/vn97-bootstrap/model.vn97cap1\nassets/vn97-bootstrap/model.vn97sig1\nassets/vn97-bootstrap/publisher.ed25519\nassets/vn97-release/release.vn97rel1\n```\n\nIt rejects duplicate ZIP entries.\n\nIt then verifies:\n\n- VN97CAP1 source SHA points to the exact VN97RC1 manifest;\n- VN97SIG1 package/capability/version claims match VN97CAP1;\n- Ed25519 signature verifies with the embedded publisher key;\n- VN97REL1 package/signature/publisher sizes and SHA identities match embedded bytes;\n- VN97APK1 package/signature/publisher/release-manifest hashes match embedded bytes;\n- VN97BOOTREL6 package/public-key hashes match embedded bytes.\n\n### External Android verification\n\nM19L independently reruns:\n\n```text\napksigner verify --verbose --print-certs\naapt dump badging\n```\n\nand requires:\n\n- signer certificate SHA list exactly equals VN97APK1;\n- application id is `ai.vn97.app`;\n- version code/name match VN97APK1;\n- application/version also match VN97READY1.\n\n## VN97FINAL1\n\nOnly after all checks pass does M19L emit canonical `VN97FINAL1`.\n\nIt binds:\n\n- VN97RUN1 manifest SHA;\n- exact repository commit;\n- M19K closure-report SHA;\n- VN97READY1 SHA;\n- VN97RC1 manifest SHA;\n- VN97APK1 SHA;\n- VN97BOOTREL6 SHA;\n- VN97REL1 SHA;\n- final APK SHA and byte count;\n- application/version identity;\n- APK signer certificate SHA identities.\n\nStatus is always:\n\n```text\nMATERIALIZED\n```\n\nAny non-materialized condition is represented by VN97CLOSE1 or by a hard verification\nfailure. M19L never emits a partial VN97FINAL1.\n\n## Receipt immutability\n\n`--receipt` creates a new sidecar file atomically and refuses overwrite.\n\nThis differs intentionally from M19K status reports, which may be replaced as campaign\nstate advances. VN97FINAL1 represents one final immutable release materialization.\n\n## Honest boundary\n\nRepository CI cannot produce a real VN97FINAL1 production release because it does not\nhold the user's production publisher key, Android keystore, fresh held-out release data\nor physical-device evidence.\n\nCI can verify the M19L orchestration/report contracts. A real VN97FINAL1 only exists\nafter those external production prerequisites are supplied.\n\n## Architecture boundary\n\nM19L adds no model, trainer, planner, memory system, benchmark engine, signing backend\nor alternate APK path.\n\nThe architecture remains:\n\n```text\nCode 1\n  -> Code 2 hardware/mobile-aware\n  -> one VN97 production model\n  -> canonical evidence/intake/readiness\n  -> canonical signed turnkey APK\n```
+# M19L — Final Turnkey Release Materialization
+
+M19L is the final production materialization gate for VN97.
+
+It does not replace M19D production release. It wraps the existing canonical
+`vn97-production-release` with one prerequisite gate and one independent post-build
+verification layer.
+
+## Canonical flow
+
+```text
+VN97RUN1
+  -> M19I preflight
+  -> training
+  -> VN97PRODCAMP1
+  -> M19J physical VN97MOBEVID1
+  -> M19F VN97INTAKE1 + VN97RC1
+  -> M19K VN97CLOSE1 / VN97READY1
+  -> M19L production materialization
+  -> signed VN97-production.apk
+  -> VN97APK1
+  -> VN97FINAL1
+```
+
+## Command
+
+```text
+vn97-production-materialize \
+  --manifest production-run.vn97run1 \
+  --workspace-root <workspace> \
+  --repository-root <VN97> \
+  --private-key <publisher-ed25519-private-key> \
+  --key-id <publisher-key-id> \
+  --capability-version <version> \
+  --source-origin <origin> \
+  --source-license <license> \
+  --validation-input <fresh-held-out-language-data> \
+  --max-validation-loss <threshold> \
+  --speech-validation-input <fresh-held-out-speech-manifest> \
+  --max-speech-validation-loss <threshold> \
+  --release-output-dir <new-release-directory> \
+  --receipt <new-vn97final1-path>
+```
+
+Android signing remains external through the existing environment:
+
+```text
+VN97_RELEASE_KEYSTORE
+VN97_RELEASE_STORE_PASSWORD
+VN97_RELEASE_KEY_ALIAS
+VN97_RELEASE_KEY_PASSWORD
+```
+
+## Mandatory M19K gate
+
+M19L first runs M19K in inspect-only mode with the same release inputs.
+
+If M19K does not return `READY_TO_RELEASE`, M19L does not build or sign anything.
+The CLI prints the canonical VN97CLOSE1 and exits 2.
+
+Therefore missing physical evidence, fresh release-validation inputs, publisher key,
+Android signing credentials or toolchain dependencies remain visible as their real
+production blockers.
+
+## Canonical release builder only
+
+After the READY gate M19L delegates to the existing:
+
+```text
+vn97-production-release
+```
+
+with the exact current VN97RC1 and operator-supplied fresh release-validation/signing
+inputs.
+
+M19L also propagates the bound VN97RUN1 physical-device thresholds into the existing
+release builder:
+
+- minimum device runs;
+- text prefill p95;
+- decode/token p95;
+- PSS;
+- thermal status;
+- speech prefill p95 when configured;
+- energy-counter requirement/delta when configured.
+
+Final speech model-image/state budgets are propagated from VN97RUN1 speech options when
+present.
+
+M19L does not create another APK builder, another signer or another release path.
+
+## Canonical release directory
+
+The M19D builder must publish exactly:
+
+```text
+VN97-production.apk
+bootstrap-release.vn97bootrel6.json
+production-readiness.vn97ready1
+release-attestation.vn97apk1
+```
+
+M19L rejects missing, extra, symlinked or malformed release artifacts.
+
+`VN97FINAL1` is deliberately a sidecar receipt and is not inserted into this four-file
+release directory.
+
+## Independent post-build verification
+
+After the canonical builder returns, M19L does not trust stdout alone.
+
+It reopens the published release and verifies:
+
+### VN97READY1
+
+- canonical JSON;
+- status READY;
+- exact VN97RUN1 repository commit;
+- exact VN97RC1 manifest SHA;
+- exact model-image SHA;
+- exact SHA matching the M19K READY closure.
+
+### VN97APK1
+
+- canonical JSON;
+- exact APK byte count;
+- exact APK SHA-256;
+- exact VN97RC1 manifest SHA.
+
+### VN97BOOTREL6
+
+- canonical JSON;
+- schema VN97BOOTREL6;
+- exact VN97RC1 manifest binding;
+- signed source SHA equal to VN97RC1;
+- hash equal to VN97APK1 bootstrap report claim.
+
+### Embedded APK release payload
+
+M19L opens the APK ZIP directly and requires the canonical embedded assets:
+
+```text
+assets/vn97-bootstrap/model.vn97cap1
+assets/vn97-bootstrap/model.vn97sig1
+assets/vn97-bootstrap/publisher.ed25519
+assets/vn97-release/release.vn97rel1
+```
+
+It rejects duplicate ZIP entries.
+
+It then verifies:
+
+- VN97CAP1 source SHA points to the exact VN97RC1 manifest;
+- VN97SIG1 package/capability/version claims match VN97CAP1;
+- Ed25519 signature verifies with the embedded publisher key;
+- VN97REL1 package/signature/publisher sizes and SHA identities match embedded bytes;
+- VN97APK1 package/signature/publisher/release-manifest hashes match embedded bytes;
+- VN97BOOTREL6 package/public-key hashes match embedded bytes.
+
+### External Android verification
+
+M19L independently reruns:
+
+```text
+apksigner verify --verbose --print-certs
+aapt dump badging
+```
+
+and requires:
+
+- signer certificate SHA list exactly equals VN97APK1;
+- application id is `ai.vn97.app`;
+- version code/name match VN97APK1;
+- application/version also match VN97READY1.
+
+## VN97FINAL1
+
+Only after all checks pass does M19L emit canonical `VN97FINAL1`.
+
+It binds:
+
+- VN97RUN1 manifest SHA;
+- exact repository commit;
+- M19K closure-report SHA;
+- VN97READY1 SHA;
+- VN97RC1 manifest SHA;
+- VN97APK1 SHA;
+- VN97BOOTREL6 SHA;
+- VN97REL1 SHA;
+- final APK SHA and byte count;
+- application/version identity;
+- APK signer certificate SHA identities.
+
+Status is always:
+
+```text
+MATERIALIZED
+```
+
+Any non-materialized condition is represented by VN97CLOSE1 or by a hard verification
+failure. M19L never emits a partial VN97FINAL1.
+
+## Receipt immutability
+
+`--receipt` creates a new sidecar file atomically and refuses overwrite.
+
+This differs intentionally from M19K status reports, which may be replaced as campaign
+state advances. VN97FINAL1 represents one final immutable release materialization.
+
+## Honest boundary
+
+Repository CI cannot produce a real VN97FINAL1 production release because it does not
+hold the user's production publisher key, Android keystore, fresh held-out release data
+or physical-device evidence.
+
+CI can verify the M19L orchestration/report contracts. A real VN97FINAL1 only exists
+after those external production prerequisites are supplied.
+
+## Architecture boundary
+
+M19L adds no model, trainer, planner, memory system, benchmark engine, signing backend
+or alternate APK path.
+
+The architecture remains:
+
+```text
+Code 1
+  -> Code 2 hardware/mobile-aware
+  -> one VN97 production model
+  -> canonical evidence/intake/readiness
+  -> canonical signed turnkey APK
+```
