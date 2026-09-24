@@ -889,6 +889,7 @@ def _collect_one(
         )
 
     installed = False
+    primary_failure: BaseException | None = None
     try:
         install = adb.run(
             serial,
@@ -1022,9 +1023,12 @@ def _collect_one(
         raise VN97PhysicalEvidenceCampaignError(
             "timed out waiting for physical-device evidence"
         )
+    except BaseException as exc:
+        primary_failure = exc
+        raise
     finally:
         if installed:
-            adb.run(
+            cleanup = adb.run(
                 serial,
                 [
                     "uninstall",
@@ -1033,6 +1037,32 @@ def _collect_one(
                 timeout=120.0,
                 check=False,
             )
+            if cleanup.returncode != 0:
+                detail = cleanup.stderr.decode(
+                    "utf-8",
+                    errors="replace",
+                ).strip().replace("\n", " ")[:512]
+                if primary_failure is None:
+                    raise VN97PhysicalEvidenceCampaignError(
+                        "M19J could not uninstall the developer evidence harness"
+                        + (
+                            f": {detail}"
+                            if detail
+                            else ""
+                        )
+                    )
+                if hasattr(
+                    primary_failure,
+                    "add_note",
+                ):
+                    primary_failure.add_note(
+                        "M19J cleanup warning: developer evidence harness uninstall failed"
+                        + (
+                            f": {detail}"
+                            if detail
+                            else ""
+                        )
+                    )
 
 
 def _require_empty_evidence_directory(
@@ -1134,12 +1164,37 @@ def _publish_evidence_atomic(
             os.close(directory_fd)
 
         # The bootstrap workspace owns an intentionally empty evidence slot.
-        # Replace it only after every requested device passed all gates.
-        os.rmdir(root)
-        os.replace(
-            staging,
-            root,
+        # Replace it only after every requested device passed all gates. Keep a
+        # rollback handle so a failed final rename restores the empty slot.
+        backup = Path(
+            tempfile.mkdtemp(
+                prefix=".m19j-empty-evidence-slot-",
+                dir=parent,
+            )
         )
+        os.rmdir(backup)
+        os.replace(
+            root,
+            backup,
+        )
+        try:
+            os.replace(
+                staging,
+                root,
+            )
+        except BaseException:
+            if (
+                backup.exists()
+                and not root.exists()
+            ):
+                os.replace(
+                    backup,
+                    root,
+                )
+            raise
+        else:
+            if backup.exists():
+                os.rmdir(backup)
         parent_fd = os.open(
             parent,
             os.O_RDONLY |
