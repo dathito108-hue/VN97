@@ -96,9 +96,12 @@ android {
 
     sourceSets {
         getByName("release").assets.srcDir(
-            layout.buildDirectory.dir(
-                "generated/vn97-release/assets"
-            )
+            layout.buildDirectory
+                .dir(
+                    "generated/vn97-release/assets"
+                )
+                .get()
+                .asFile
         )
     }
 
