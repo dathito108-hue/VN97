@@ -263,14 +263,30 @@ private fun truncateUtf8(
     maxBytes: Int,
 ): String {
     require(maxBytes > 0)
-    var end = value.length
-    while (
-        end > 0 &&
-        value.substring(0, end)
-            .toByteArray(Charsets.UTF_8)
-            .size > maxBytes
-    ) {
-        end -= 1
+    val out = StringBuilder()
+    var index = 0
+    var usedBytes = 0
+    while (index < value.length) {
+        val codePoint =
+            Character.codePointAt(
+                value,
+                index,
+            )
+        val encoded =
+            String(
+                Character.toChars(
+                    codePoint
+                )
+            ).toByteArray(Charsets.UTF_8)
+        if (
+            usedBytes + encoded.size >
+                maxBytes
+        ) {
+            break
+        }
+        out.appendCodePoint(codePoint)
+        usedBytes += encoded.size
+        index += Character.charCount(codePoint)
     }
-    return value.substring(0, end)
+    return out.toString()
 }
