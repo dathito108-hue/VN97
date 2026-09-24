@@ -196,6 +196,14 @@ class VN97AppAssistant(
         check(pendingResult == null) {
             "cannot create autonomous goal while approval is pending"
         }
+        application.runtimeResources
+            .requireRunnable(
+                VN97RuntimeExecutionClass
+                    .BACKGROUND
+            )
+        check(openIfActivatedLocked()) {
+            "trusted VN97 model is not active"
+        }
         val activeResources = checkNotNull(resources) {
             "trusted VN97 model is not active"
         }
