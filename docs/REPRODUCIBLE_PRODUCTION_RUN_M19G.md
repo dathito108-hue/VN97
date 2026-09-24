@@ -496,3 +496,14 @@ corpus and stage outputs are explicitly bound and auditable.
 
 If output identities differ, downstream cryptographic hashes expose the
 difference instead of hiding it.
+
+
+## M19K resumable closure
+
+M19G stage semantics remain unchanged. M19K adds a higher-level resumable coordinator rather than changing `--stage all`:
+
+```text
+vn97-production-close --manifest <VN97RUN1> --workspace-root <workspace> --repository-root <repo>
+```
+
+It resumes existing M19G outputs, delegates physical evidence to M19J, delegates intake back to M19G/M19F, and finishes with the canonical M19E VN97READY1 readiness gate.
