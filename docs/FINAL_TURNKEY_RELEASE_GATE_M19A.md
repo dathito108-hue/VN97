@@ -191,3 +191,21 @@ verifies.
 
 That negative release check is evidence that the final production path cannot
 silently emit an unsigned or intelligence-empty APK.
+
+
+## M19D external asset staging
+
+M19D does not copy production bootstrap assets into the repository.
+
+For orchestrated production builds M19A consumes:
+
+`VN97_RELEASE_ASSET_ROOT`
+
+as an external Android assets root containing `vn97-bootstrap/` with the three
+signed public bootstrap files.
+
+When configured, the root must be a real non-symlink directory outside the
+repository. The source-tree bootstrap slot remains README-only.
+
+M19D then verifies the signed APK, VN97REL1 and signer-certificate identity
+before publishing `VN97-production.apk` with VN97APK1 attestation.
