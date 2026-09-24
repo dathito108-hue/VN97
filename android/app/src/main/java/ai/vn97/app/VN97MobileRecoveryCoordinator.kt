@@ -1,9 +1,14 @@
 package ai.vn97.app
 
+import ai.vn97.platform.VN97ExecutionHealthDomain
+import ai.vn97.platform.VN97ExecutionHealthState
+import ai.vn97.platform.VN97ExecutionHealthStore
+import ai.vn97.platform.VN97ExecutionWatchdog
+import java.io.File
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.locks.ReentrantLock
-import kotlin.concurrent.withLock
 
 class VN97MobileRecoveryCoordinator(
     private val application: VN97Application,
@@ -21,6 +26,16 @@ class VN97MobileRecoveryCoordinator(
                 isDaemon = true
             }
         }
+    private val healthStore by lazy(
+        LazyThreadSafetyMode.SYNCHRONIZED
+    ) {
+        VN97ExecutionHealthStore(
+            File(
+                application.noBackupFilesDir,
+                "vn97-execution-health",
+            )
+        )
+    }
 
     @Volatile
     private var latest:
@@ -34,16 +49,69 @@ class VN97MobileRecoveryCoordinator(
             return
         }
         worker.execute {
+            val cancellation =
+                AtomicBoolean(false)
+            val begin =
+                runCatching {
+                    healthStore.begin(
+                        domain =
+                            VN97ExecutionHealthDomain
+                                .MOBILE_RECOVERY,
+                        key = "process-start",
+                        nowWallTimeMillis =
+                            System
+                                .currentTimeMillis(),
+                        maxRunMillis =
+                            PROCESS_RECOVERY_WATCHDOG_MILLIS,
+                    )
+                }.getOrNull()
+            if (
+                begin == null ||
+                begin.suppressed
+            ) {
+                processStartScheduled.set(false)
+                return@execute
+            }
+            val lease =
+                checkNotNull(begin.lease)
+            val watchdog =
+                VN97ExecutionWatchdog(
+                    store = healthStore,
+                    lease = lease,
+                    cancellation = cancellation,
+                )
+            var failure:
+                RuntimeException? = null
             try {
                 recover(
                     VN97MobileRecoveryTrigger
                         .PROCESS_START
                 )
-            } catch (_: RuntimeException) {
-                // Domain failures are represented in the report.
-                // A coordinator-level runtime failure must not
-                // crash a cold-starting Android process.
+            } catch (exc: RuntimeException) {
+                failure = exc
             } finally {
+                watchdog.close()
+                runCatching {
+                    healthStore.finish(
+                        lease = lease,
+                        state =
+                            if (failure == null) {
+                                VN97ExecutionHealthState
+                                    .SUCCEEDED
+                            } else {
+                                VN97ExecutionHealthState
+                                    .FAILED
+                            },
+                        nowWallTimeMillis =
+                            System
+                                .currentTimeMillis(),
+                        detail =
+                            failure
+                                ?.javaClass
+                                ?.simpleName
+                                .orEmpty(),
+                    )
+                }
                 processStartScheduled.set(false)
             }
         }
@@ -55,11 +123,30 @@ class VN97MobileRecoveryCoordinator(
 
     fun recover(
         trigger: VN97MobileRecoveryTrigger,
-    ): VN97MobileRecoveryReport =
-        recoveryLock.withLock {
+    ): VN97MobileRecoveryReport {
+        val acquired =
+            try {
+                recoveryLock.tryLock(
+                    RECOVERY_LOCK_TIMEOUT_MILLIS,
+                    TimeUnit.MILLISECONDS,
+                )
+            } catch (exc: InterruptedException) {
+                Thread.currentThread()
+                    .interrupt()
+                throw IllegalStateException(
+                    "VN97 recovery lock wait interrupted",
+                    exc,
+                )
+            }
+        check(acquired) {
+            "VN97 recovery lock timed out"
+        }
+        try {
             val report =
                 application
-                    .withSovereignExecution {
+                    .withSovereignExecutionBounded(
+                        SOVEREIGN_LOCK_TIMEOUT_MILLIS
+                    ) {
                         executeVN97MobileRecovery(
                             trigger = trigger,
                         ) { domain ->
@@ -67,8 +154,11 @@ class VN97MobileRecoveryCoordinator(
                         }
                     }
             latest = report
-            report
+            return report
+        } finally {
+            recoveryLock.unlock()
         }
+    }
 
     private fun recoverDomain(
         domain: VN97MobileRecoveryDomain,
@@ -87,4 +177,14 @@ class VN97MobileRecoveryCoordinator(
                     .reconcileAfterSystemRestart()
         }
     }
+
+    companion object {
+        private const val RECOVERY_LOCK_TIMEOUT_MILLIS =
+            15_000L
+        private const val SOVEREIGN_LOCK_TIMEOUT_MILLIS =
+            15_000L
+        private const val PROCESS_RECOVERY_WATCHDOG_MILLIS =
+            60_000L
+    }
 }
+
