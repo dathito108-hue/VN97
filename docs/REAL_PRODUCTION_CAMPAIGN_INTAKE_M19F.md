@@ -271,6 +271,21 @@ vn97-production-campaign \
 Then activate the exact resulting model image in the developer APK and collect
 fresh M11C device evidence on representative physical phones.
 
+M19J now automates the physical-phone step without changing the M19F gate:
+
+```text
+vn97-device-evidence-campaign \
+  --manifest production-run.vn97run1 \
+  --workspace-root <workspace> \
+  --repository-root <VN97 checkout> \
+  --serial <physical-phone>
+```
+
+It rebuilds the exact VN97PRODCAMP1 model image, provisions it through the
+existing signed developer path, collects canonical VN97MOBEVID1 on explicit
+real phones, reapplies the M19F criteria, and publishes the evidence directory
+only after the whole requested device set passes.
+
 Only after those real operations should `vn97-production-intake` be run.
 
 M19G can now freeze this entire production configuration in one `VN97RUN1`

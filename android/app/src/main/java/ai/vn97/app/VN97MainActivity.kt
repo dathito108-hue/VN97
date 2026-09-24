@@ -6,6 +6,7 @@ import ai.vn97.avatar.AvatarGesture
 import ai.vn97.avatar.VN97AvatarView
 import ai.vn97.platform.VN97AssistantTurnState
 import ai.vn97.platform.VN97GameAccessibilityController
+import ai.vn97.platform.VN97MobileEvidenceConfig
 import android.Manifest
 import android.app.Activity
 import android.content.Intent
@@ -25,9 +26,11 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import java.io.File
+import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
+import java.nio.file.LinkOption
 import java.nio.file.StandardCopyOption
 import java.util.concurrent.Executors
 
@@ -660,6 +663,7 @@ class VN97MainActivity : Activity() {
         ) {
             requestMicrophonePermissionIfNeeded()
         }
+        handleM19JDeveloperEvidenceIntent(intent)
     }
 
     override fun onResume() {
@@ -691,6 +695,7 @@ class VN97MainActivity : Activity() {
         ) {
             requestMicrophonePermissionIfNeeded()
         }
+        handleM19JDeveloperEvidenceIntent(intent)
     }
 
     override fun onRequestPermissionsResult(
@@ -1607,6 +1612,290 @@ class VN97MainActivity : Activity() {
         }
     }
 
+    private fun handleM19JDeveloperEvidenceIntent(
+        request: Intent?,
+    ) {
+        if (
+            request?.action !=
+                ACTION_M19J_COLLECT_MOBILE_EVIDENCE
+        ) {
+            return
+        }
+        if (BuildConfig.VN97_TURNKEY_REQUIRED) {
+            statusView.text =
+                "M19J developer evidence action is disabled in turnkey builds."
+            return
+        }
+
+        val warmupRuns =
+            request.getIntExtra(
+                EXTRA_M19J_WARMUP_RUNS,
+                1,
+            )
+        val measuredRuns =
+            request.getIntExtra(
+                EXTRA_M19J_MEASURED_RUNS,
+                5,
+            )
+        val decodeTokens =
+            request.getIntExtra(
+                EXTRA_M19J_DECODE_TOKENS,
+                16,
+            )
+        val speechFrames =
+            request.getIntExtra(
+                EXTRA_M19J_SPEECH_FRAMES,
+                8,
+            )
+        if (
+            warmupRuns !in 0..10 ||
+            measuredRuns !in 3..100 ||
+            decodeTokens !in 1..256 ||
+            speechFrames !in 1..256
+        ) {
+            statusView.text =
+                "M19J developer evidence parameters are outside safe bounds."
+            return
+        }
+
+        mobileEvidenceButton.isEnabled = false
+        sendButton.isEnabled = false
+        statusView.text =
+            "M19J provisioning exact VN97MI1 and collecting physical-device evidence…"
+
+        worker.execute {
+            val stagingRoot =
+                File(
+                    filesDir,
+                    M19J_STAGING_DIRECTORY,
+                )
+            val evidenceTarget =
+                File(
+                    stagingRoot,
+                    M19J_EVIDENCE_FILE,
+                )
+            val errorTarget =
+                File(
+                    stagingRoot,
+                    M19J_ERROR_FILE,
+                )
+            try {
+                val packageFile =
+                    requireM19JStagedFile(
+                        stagingRoot,
+                        "model.vn97cap1",
+                        512L * 1024L * 1024L,
+                    )
+                val signatureFile =
+                    requireM19JStagedFile(
+                        stagingRoot,
+                        "model.vn97sig1",
+                        16L * 1024L,
+                    )
+                val publisherFile =
+                    requireM19JStagedFile(
+                        stagingRoot,
+                        "publisher.ed25519",
+                        256L,
+                    )
+                evidenceTarget.delete()
+                errorTarget.delete()
+
+                val signature =
+                    signatureFile.readBytes()
+                val publisher =
+                    publisherFile.readBytes()
+                FileInputStream(packageFile).use {
+                    packageInput ->
+                    app.provisioner.review(
+                        packageInput =
+                            packageInput,
+                        signatureBytes =
+                            signature,
+                        publisherKeyBytes =
+                            publisher,
+                    )
+                }
+                app.provisioner.activateReviewed()
+                check(
+                    app.assistant
+                        .reloadActivatedModel()
+                ) {
+                    "M19J activated model could not be reopened"
+                }
+
+                val evidence =
+                    app.assistant
+                        .collectMobileEvidence(
+                            VN97MobileEvidenceConfig(
+                                warmupRuns =
+                                    warmupRuns,
+                                measuredRuns =
+                                    measuredRuns,
+                                decodeTokens =
+                                    decodeTokens,
+                                speechFrames =
+                                    speechFrames,
+                            )
+                        )
+                val bytes =
+                    evidence
+                        .toCanonicalJson()
+                        .toByteArray(
+                            StandardCharsets.UTF_8
+                        )
+                publishM19JBytes(
+                    evidenceTarget,
+                    bytes,
+                )
+                runOnUiThread {
+                    statusView.text =
+                        "M19J physical evidence ready. Model SHA-256: " +
+                            evidence.modelImageSha256
+                    mobileEvidenceButton.isEnabled =
+                        true
+                    sendButton.isEnabled =
+                        state.inputEnabled
+                }
+            } catch (exc: Throwable) {
+                runCatching {
+                    val detail =
+                        (
+                            exc::class.java
+                                .simpleName +
+                                ":" +
+                                (
+                                    exc.message
+                                        ?: "unknown"
+                                )
+                        )
+                            .replace(
+                                Regex("[\\u0000-\\u001f\\u007f]"),
+                                " ",
+                            )
+                            .take(1024)
+                            .toByteArray(
+                                StandardCharsets.UTF_8
+                            )
+                    publishM19JBytes(
+                        errorTarget,
+                        detail,
+                    )
+                }
+                runOnUiThread {
+                    statusView.text =
+                        "M19J evidence failed: " +
+                            exc::class.java.simpleName
+                    mobileEvidenceButton.isEnabled =
+                        true
+                    sendButton.isEnabled =
+                        state.inputEnabled
+                }
+            }
+        }
+    }
+
+    private fun requireM19JStagedFile(
+        root: File,
+        name: String,
+        maxBytes: Long,
+    ): File {
+        val rootPath =
+            root.toPath()
+        check(
+            Files.isDirectory(
+                rootPath,
+                LinkOption.NOFOLLOW_LINKS,
+            ) &&
+                !Files.isSymbolicLink(
+                    rootPath
+                )
+        ) {
+            "M19J staging root must be a real directory"
+        }
+        val file =
+            File(
+                root,
+                name,
+            )
+        val path =
+            file.toPath()
+        check(
+            Files.isRegularFile(
+                path,
+                LinkOption.NOFOLLOW_LINKS,
+            ) &&
+                !Files.isSymbolicLink(
+                    path
+                )
+        ) {
+            "M19J staged asset must be a regular file: $name"
+        }
+        val size =
+            Files.size(path)
+        check(
+            size in 1L..maxBytes
+        ) {
+            "M19J staged asset size is outside bounds: $name"
+        }
+        return file
+    }
+
+    private fun publishM19JBytes(
+        target: File,
+        bytes: ByteArray,
+    ) {
+        val parent =
+            checkNotNull(
+                target.parentFile
+            )
+        check(
+            Files.isDirectory(
+                parent.toPath(),
+                LinkOption.NOFOLLOW_LINKS,
+            ) &&
+                !Files.isSymbolicLink(
+                    parent.toPath()
+                )
+        ) {
+            "M19J output parent must be a real directory"
+        }
+        val temp =
+            File(
+                parent,
+                "." +
+                    target.name +
+                    ".tmp",
+            )
+        try {
+            FileOutputStream(
+                temp,
+                false,
+            ).use {
+                output ->
+                output.write(bytes)
+                output.flush()
+                output.fd.sync()
+            }
+            Files.move(
+                temp.toPath(),
+                target.toPath(),
+                StandardCopyOption.REPLACE_EXISTING,
+            )
+            if (
+                !target
+                    .readBytes()
+                    .contentEquals(bytes)
+            ) {
+                throw IllegalStateException(
+                    "M19J output post-write verification failed"
+                )
+            }
+        } finally {
+            temp.delete()
+        }
+    }
+
     private fun collectMobileEvidence() {
         if (BuildConfig.VN97_TURNKEY_REQUIRED) return
         if (
@@ -2088,6 +2377,23 @@ class VN97MainActivity : Activity() {
     }
 
     companion object {
+        const val ACTION_M19J_COLLECT_MOBILE_EVIDENCE =
+            "ai.vn97.app.action.M19J_COLLECT_MOBILE_EVIDENCE"
+        const val EXTRA_M19J_WARMUP_RUNS =
+            "ai.vn97.app.extra.M19J_WARMUP_RUNS"
+        const val EXTRA_M19J_MEASURED_RUNS =
+            "ai.vn97.app.extra.M19J_MEASURED_RUNS"
+        const val EXTRA_M19J_DECODE_TOKENS =
+            "ai.vn97.app.extra.M19J_DECODE_TOKENS"
+        const val EXTRA_M19J_SPEECH_FRAMES =
+            "ai.vn97.app.extra.M19J_SPEECH_FRAMES"
+        const val M19J_STAGING_DIRECTORY =
+            "m19j-evidence"
+        const val M19J_EVIDENCE_FILE =
+            "vn97-mobile-evidence.json"
+        const val M19J_ERROR_FILE =
+            "vn97-mobile-evidence.error.txt"
+
         private const val REQUEST_PACKAGE = 4101
         private const val REQUEST_SIGNATURE = 4102
         private const val REQUEST_PUBLISHER_KEY = 4103
