@@ -64,6 +64,9 @@ Manifest = RUN.VN97ProductionRunManifest
 parse_manifest = (
     RUN.parse_production_run_manifest
 )
+parse_receipt = (
+    RUN.parse_production_run_receipt
+)
 verify_inputs = (
     RUN.verify_production_run_inputs
 )
@@ -433,10 +436,22 @@ def main() -> None:
                 str(receipt),
             ]
         ) == 0
-        verify_receipt = json.loads(
-            receipt.read_text(
-                encoding="utf-8"
+        receipt_bytes = (
+            receipt.read_bytes()
+        )
+        parsed_receipt = (
+            parse_receipt(
+                receipt_bytes
             )
+        )
+        verify_receipt = json.loads(
+            receipt_bytes.decode(
+                "utf-8"
+            )
+        )
+        assert (
+            parsed_receipt.stage
+            == "verify"
         )
         assert (
             verify_receipt["schema"]
@@ -463,6 +478,11 @@ def main() -> None:
             verify_receipt[
                 "environment_ready"
             ]
+            is expected_environment_ready
+        )
+        assert (
+            parsed_receipt
+            .environment_ready
             is expected_environment_ready
         )
 
