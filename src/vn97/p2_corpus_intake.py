@@ -317,6 +317,8 @@ def assigned_split(
 @dataclass(frozen=True)
 class VN97P2PreparedSource:
     spec: VN97P2SourceSpec
+    raw_sha256: str
+    raw_bytes: int
     input_records: int
     accepted_records: int
     rejected_records: int
@@ -326,6 +328,20 @@ class VN97P2PreparedSource:
     ]
 
     def __post_init__(self) -> None:
+        if (
+            len(self.raw_sha256) != 64
+            or any(
+                ch not in "0123456789abcdef"
+                for ch in self.raw_sha256
+            )
+        ):
+            raise VN97P2CorpusIntakeError(
+                "raw source SHA-256 is invalid"
+            )
+        if self.raw_bytes <= 0:
+            raise VN97P2CorpusIntakeError(
+                "raw source byte count must be positive"
+            )
         if self.input_records <= 0:
             raise VN97P2CorpusIntakeError(
                 "input_records must be positive"
@@ -349,6 +365,9 @@ class VN97P2PreparedSource:
 def prepare_source(
     source_id: str,
     records: Iterable[object],
+    *,
+    raw_sha256: str,
+    raw_bytes: int,
 ) -> VN97P2PreparedSource:
     spec = source_spec(source_id)
     accepted: list[
@@ -426,6 +445,8 @@ def prepare_source(
 
     return VN97P2PreparedSource(
         spec=spec,
+        raw_sha256=raw_sha256,
+        raw_bytes=raw_bytes,
         input_records=input_records,
         accepted_records=len(accepted),
         rejected_records=rejected,
@@ -472,6 +493,8 @@ def source_summary(
                 "input_records": item.input_records,
                 "license": item.spec.license,
                 "max_records": item.spec.max_records,
+                "raw_bytes": item.raw_bytes,
+                "raw_sha256": item.raw_sha256,
                 "origin": item.spec.origin,
                 "rejected_records": item.rejected_records,
                 "source_id": item.spec.source_id,
