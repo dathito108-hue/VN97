@@ -5,6 +5,7 @@ on:
     branches:
       - m10i-reproducible-apk-cold-start
       - m10j-turnkey-bootstrap
+      - m17b-held-out-candidate-evaluation
   workflow_dispatch:
 
 permissions:
@@ -23,6 +24,15 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
+
+      - name: Run M17B held-out evaluation host contracts
+        shell: bash
+        run: |
+          if command -v kotlinc >/dev/null 2>&1; then
+            bash android/runtime/host-test/run-m17b.sh
+          else
+            echo "kotlinc unavailable on runner; APK compilation remains the integration gate."
+          fi
 
       - name: Set up Gradle 9.6.0
         uses: gradle/actions/setup-gradle@v4
