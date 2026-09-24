@@ -271,6 +271,20 @@ def verify_corpus_artifact(
         evidence_dir / "p2-corpus-bundle.vn97p2bundle1.json",
         label="VN97P2BUNDLE1",
     )
+    if set(bundle) != {
+        "bundle_id",
+        "corpus_manifest_id",
+        "corpus_manifest_sha256",
+        "definition_sha256",
+        "fetch_receipt_sha256",
+        "repository_commit",
+        "schema",
+        "source_summary_sha256",
+        "splits",
+    }:
+        raise VN97P2PilotHandoffError(
+            "corpus bundle fields are invalid"
+        )
     if bundle.get("schema") != "VN97P2BUNDLE1":
         raise VN97P2PilotHandoffError(
             "corpus bundle schema must be VN97P2BUNDLE1"
@@ -297,14 +311,35 @@ def verify_corpus_artifact(
         corpus_dir / "corpus.vn97corpus1.json",
         label="VN97CORPUS1",
     )
-    if manifest.get("schema") != "VN97CORPUS1":
+    if (
+        set(manifest) != {
+            "manifest_id",
+            "profile_id",
+            "schema",
+            "sources",
+            "splits",
+        }
+        or manifest.get("schema") != "VN97CORPUS1"
+        or manifest.get("profile_id")
+        != "vn97-production-intelligence-v1"
+        or not isinstance(manifest.get("splits"), dict)
+    ):
         raise VN97P2PilotHandoffError(
-            "corpus manifest schema must be VN97CORPUS1"
+            "corpus manifest fields/profile are invalid"
         )
     manifest_id = _require_sha256(
         manifest.get("manifest_id"),
         label="corpus manifest ID",
     )
+    manifest_body = dict(manifest)
+    manifest_body.pop("manifest_id", None)
+    expected_manifest_id = _sha256_bytes(
+        b"VN97CORPUS1\0" + _canonical_json(manifest_body)
+    )
+    if manifest_id != expected_manifest_id:
+        raise VN97P2PilotHandoffError(
+            "corpus manifest identity mismatch"
+        )
     manifest_sha256 = _sha256_bytes(manifest_bytes)
     if bundle.get("corpus_manifest_id") != manifest_id:
         raise VN97P2PilotHandoffError(
@@ -314,6 +349,55 @@ def verify_corpus_artifact(
         raise VN97P2PilotHandoffError(
             "bundle/corpus manifest SHA-256 mismatch"
         )
+
+    manifest_splits = manifest["splits"]
+    bundle_splits = bundle.get("splits")
+    if (
+        set(manifest_splits) != {"training", "validation", "release"}
+        or not isinstance(bundle_splits, dict)
+        or set(bundle_splits) != {"training", "validation", "release"}
+    ):
+        raise VN97P2PilotHandoffError(
+            "corpus split maps are invalid"
+        )
+    for split in ("training", "validation", "release"):
+        spec = manifest_splits[split]
+        bundle_spec = bundle_splits[split]
+        if (
+            not isinstance(spec, dict)
+            or set(spec) != {"bytes", "mode", "records", "sha256"}
+            or spec.get("mode") != "chat"
+            or not isinstance(bundle_spec, dict)
+            or set(bundle_spec) != {"bytes", "records", "sha256"}
+        ):
+            raise VN97P2PilotHandoffError(
+                f"{split} split metadata is invalid"
+            )
+        actual_sha, actual_bytes = _sha256_file(
+            corpus_dir / f"{split}.jsonl"
+        )
+        actual_records = sum(
+            1
+            for line in (
+                corpus_dir / f"{split}.jsonl"
+            ).read_bytes().splitlines()
+            if line.strip()
+        )
+        expected_sha = _require_sha256(
+            spec.get("sha256"),
+            label=f"{split} manifest SHA-256",
+        )
+        if (
+            spec.get("bytes") != actual_bytes
+            or spec.get("records") != actual_records
+            or expected_sha != actual_sha
+            or bundle_spec.get("bytes") != actual_bytes
+            or bundle_spec.get("records") != actual_records
+            or bundle_spec.get("sha256") != actual_sha
+        ):
+            raise VN97P2PilotHandoffError(
+                f"{split} split identity mismatch"
+            )
 
     return VN97VerifiedP2CorpusArtifact(
         corpus_commit=expected_corpus_commit,
