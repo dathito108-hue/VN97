@@ -33,7 +33,7 @@ The pinned revision is authoritative. The fetch receipt records the exact downlo
 SHA-256 because this small regular Git object does not expose an independent content
 hash in the dataset lock.
 
-Expected JSONL record count: 2,417.
+Expected JSONL record count: 2,009.
 
 ### Databricks Dolly 15k
 

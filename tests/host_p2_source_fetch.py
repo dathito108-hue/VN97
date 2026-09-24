@@ -72,6 +72,7 @@ def main() -> None:
     assert definition.sources[0].revision == (
         "321a852edc7e9d36e8456fb7d7df583b520645a9"
     )
+    assert definition.sources[0].expected_records == 2009
     assert definition.sources[1].expected_sha256 == (
         "2df9083338b4abd6bceb5635764dab5d833b393b55759dffb0959b6fcbf794ec"
     )
