@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import hashlib
 import json
+import math
 from pathlib import Path
 
 
@@ -267,6 +268,31 @@ class VN97P3CampaignReceipt:
             raise ValueError(
                 "P3 model image size is outside bounds"
             )
+        for value, label in (
+            (self.validation_mean_loss, "validation mean loss"),
+            (self.release_mean_loss, "release mean loss"),
+        ):
+            if not math.isfinite(value) or value < 0.0:
+                raise ValueError(
+                    f"{label} must be finite and non-negative"
+                )
+        for value, label in (
+            (
+                self.validation_top1_accuracy,
+                "validation top-1 accuracy",
+            ),
+            (
+                self.release_top1_accuracy,
+                "release top-1 accuracy",
+            ),
+        ):
+            if (
+                not math.isfinite(value)
+                or not 0.0 <= value <= 1.0
+            ):
+                raise ValueError(
+                    f"{label} must be finite in [0, 1]"
+                )
 
     def canonical_object(self) -> dict[str, object]:
         return {
