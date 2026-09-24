@@ -274,6 +274,10 @@ def prepare_corpus(
     source_objects: list[VN97CorpusSource] = []
     global_fp_to_split: dict[str, str] = {}
 
+    ordered_sources = sorted(
+        source_rows,
+        key=lambda row: (row[3], row[0]),
+    )
     for (
         source_id,
         origin,
@@ -282,7 +286,7 @@ def prepare_corpus(
         mode,
         raw_bytes,
         records,
-    ) in source_rows:
+    ) in ordered_sources:
         if source_id in seen_source_ids:
             raise VN97ProductionCorpusError(
                 "production corpus source IDs must be unique"
