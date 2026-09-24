@@ -262,6 +262,141 @@ class VN97ApkAttestation:
         ).encode("utf-8")
 
 
+
+
+def parse_apk_attestation(data: bytes) -> VN97ApkAttestation:
+    if not 0 < len(data) <= 64 * 1024:
+        raise VN97ApkAttestationError(
+            "VN97APK1 byte size is outside bounds"
+        )
+    duplicates: list[str] = []
+
+    def hook(
+        pairs: list[tuple[str, object]],
+    ) -> dict[str, object]:
+        result: dict[str, object] = {}
+        for key, value in pairs:
+            if key in result:
+                duplicates.append(key)
+            result[key] = value
+        return result
+
+    try:
+        text = data.decode(
+            "utf-8",
+            errors="strict",
+        )
+        root = json.loads(
+            text,
+            object_pairs_hook=hook,
+            parse_constant=lambda raw: (
+                _ for _ in ()
+            ).throw(ValueError(raw)),
+        )
+    except (
+        UnicodeDecodeError,
+        json.JSONDecodeError,
+        ValueError,
+    ) as exc:
+        raise VN97ApkAttestationError(
+            "VN97APK1 must be strict UTF-8 JSON"
+        ) from exc
+    if duplicates or not isinstance(root, dict):
+        raise VN97ApkAttestationError(
+            "VN97APK1 must be one object without duplicate keys"
+        )
+    canonical = json.dumps(
+        root,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
+    if canonical != data:
+        raise VN97ApkAttestationError(
+            "VN97APK1 must use canonical JSON"
+        )
+    expected = {
+        "apk_bytes",
+        "apk_sha256",
+        "application_id",
+        "bootstrap_package_sha256",
+        "bootstrap_publisher_sha256",
+        "bootstrap_release_report_sha256",
+        "bootstrap_signature_sha256",
+        "release_candidate_manifest_sha256",
+        "release_manifest_sha256",
+        "schema",
+        "signer_certificate_sha256",
+        "version_code",
+        "version_name",
+    }
+    if set(root) != expected or root["schema"] != SCHEMA:
+        raise VN97ApkAttestationError(
+            "VN97APK1 schema/keys mismatch"
+        )
+    raw_certificates = root[
+        "signer_certificate_sha256"
+    ]
+    if (
+        not isinstance(raw_certificates, list)
+        or not all(
+            isinstance(value, str)
+            for value in raw_certificates
+        )
+    ):
+        raise VN97ApkAttestationError(
+            "VN97APK1 signer certificate list is invalid"
+        )
+    try:
+        return VN97ApkAttestation(
+            application_id=root["application_id"],
+            version_code=root["version_code"],
+            version_name=root["version_name"],
+            apk_bytes=root["apk_bytes"],
+            apk_sha256=root["apk_sha256"],
+            signer_certificate_sha256=
+                tuple(raw_certificates),
+            release_candidate_manifest_sha256=
+                root[
+                    "release_candidate_manifest_sha256"
+                ],
+            bootstrap_release_report_sha256=
+                root[
+                    "bootstrap_release_report_sha256"
+                ],
+            bootstrap_package_sha256=
+                root[
+                    "bootstrap_package_sha256"
+                ],
+            bootstrap_signature_sha256=
+                root[
+                    "bootstrap_signature_sha256"
+                ],
+            bootstrap_publisher_sha256=
+                root[
+                    "bootstrap_publisher_sha256"
+                ],
+            release_manifest_sha256=
+                root[
+                    "release_manifest_sha256"
+                ],
+        )
+    except (
+        TypeError,
+        ValueError,
+        VN97ApkAttestationError,
+    ) as exc:
+        if isinstance(
+            exc,
+            VN97ApkAttestationError,
+        ):
+            raise
+        raise VN97ApkAttestationError(
+            str(exc)
+        ) from exc
+
+
 def verify_apk_payload(
     apk_path: Path,
     *,
