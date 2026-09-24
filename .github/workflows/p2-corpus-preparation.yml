@@ -39,52 +39,76 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: pip
-
-      - name: Install CPU training runtime
-        run: |
-          set -euo pipefail
-          python -m pip install --disable-pip-version-check --upgrade pip
-          python -m pip install --disable-pip-version-check             --index-url https://download.pytorch.org/whl/cpu             "torch>=2.2"
-          python -m pip install --disable-pip-version-check --no-deps -e .
 
       - name: Fetch pinned public sources
         run: |
           set -euo pipefail
-          vn97-p2-source-fetch             --output-dir p2-raw             --approve-source-license vi-dialogue-hoanghai2110             --approve-source-license databricks-dolly-15k             --approve-source-license openai-gsm8k-train
+          python tools/p2_corpus_tool.py source-fetch \
+            --output-dir p2-raw \
+            --approve-source-license vi-dialogue-hoanghai2110 \
+            --approve-source-license databricks-dolly-15k \
+            --approve-source-license openai-gsm8k-train
 
       - name: Normalize and split P2 sources
         run: |
           set -euo pipefail
-          vn97-p2-corpus-intake             --vi-dialogue p2-raw/hypermamba_data.jsonl             --dolly p2-raw/databricks-dolly-15k.jsonl             --gsm8k p2-raw/gsm8k-train.jsonl             --output-dir p2-intake             --approve-source-license vi-dialogue-hoanghai2110             --approve-source-license databricks-dolly-15k             --approve-source-license openai-gsm8k-train
+          python tools/p2_corpus_tool.py corpus-intake \
+            --vi-dialogue p2-raw/hypermamba_data.jsonl \
+            --dolly p2-raw/databricks-dolly-15k.jsonl \
+            --gsm8k p2-raw/gsm8k-train.jsonl \
+            --output-dir p2-intake \
+            --approve-source-license vi-dialogue-hoanghai2110 \
+            --approve-source-license databricks-dolly-15k \
+            --approve-source-license openai-gsm8k-train
 
       - name: Seal VN97CORPUS1
         run: |
           set -euo pipefail
-          vn97-corpus-seal             --definition p2-intake/corpus-definition.vn97corpusdef1.json             --output-dir production-corpus-pilot
+          python tools/p2_corpus_tool.py corpus-seal \
+            --definition p2-intake/corpus-definition.vn97corpusdef1.json \
+            --output-dir production-corpus-pilot
 
       - name: Verify full corpus provenance chain
         env:
           VN97_REPOSITORY_COMMIT: ${{ github.sha }}
         run: |
           set -euo pipefail
-          vn97-p2-corpus-bundle             --fetch-receipt p2-raw/source-fetch.vn97p2fetch1.json             --source-summary p2-intake/p2-source-summary.vn97p2src1.json             --definition p2-intake/corpus-definition.vn97corpusdef1.json             --corpus-dir production-corpus-pilot             --repository-commit "$VN97_REPOSITORY_COMMIT"             --output p2-corpus-bundle.vn97p2bundle1.json
+          python tools/p2_corpus_tool.py corpus-bundle \
+            --fetch-receipt p2-raw/source-fetch.vn97p2fetch1.json \
+            --source-summary p2-intake/p2-source-summary.vn97p2src1.json \
+            --definition p2-intake/corpus-definition.vn97corpusdef1.json \
+            --corpus-dir production-corpus-pilot \
+            --repository-commit "$VN97_REPOSITORY_COMMIT" \
+            --output p2-corpus-bundle.vn97p2bundle1.json
 
       - name: Assemble immutable corpus artifact
         run: |
           set -euo pipefail
-          mkdir -p             p2-corpus-artifact/corpus             p2-corpus-artifact/evidence
-          cp production-corpus-pilot/corpus.vn97corpus1.json             p2-corpus-artifact/corpus/
-          cp production-corpus-pilot/training.jsonl             p2-corpus-artifact/corpus/
-          cp production-corpus-pilot/validation.jsonl             p2-corpus-artifact/corpus/
-          cp production-corpus-pilot/release.jsonl             p2-corpus-artifact/corpus/
-          cp p2-raw/source-fetch.vn97p2fetch1.json             p2-corpus-artifact/evidence/
-          cp p2-intake/p2-source-summary.vn97p2src1.json             p2-corpus-artifact/evidence/
-          cp p2-intake/corpus-definition.vn97corpusdef1.json             p2-corpus-artifact/evidence/
-          cp p2-corpus-bundle.vn97p2bundle1.json             p2-corpus-artifact/evidence/
+          mkdir -p \
+            p2-corpus-artifact/corpus \
+            p2-corpus-artifact/evidence
+          cp production-corpus-pilot/corpus.vn97corpus1.json \
+            p2-corpus-artifact/corpus/
+          cp production-corpus-pilot/training.jsonl \
+            p2-corpus-artifact/corpus/
+          cp production-corpus-pilot/validation.jsonl \
+            p2-corpus-artifact/corpus/
+          cp production-corpus-pilot/release.jsonl \
+            p2-corpus-artifact/corpus/
+          cp p2-raw/source-fetch.vn97p2fetch1.json \
+            p2-corpus-artifact/evidence/
+          cp p2-intake/p2-source-summary.vn97p2src1.json \
+            p2-corpus-artifact/evidence/
+          cp p2-intake/corpus-definition.vn97corpusdef1.json \
+            p2-corpus-artifact/evidence/
+          cp p2-corpus-bundle.vn97p2bundle1.json \
+            p2-corpus-artifact/evidence/
           (
             cd p2-corpus-artifact
-            find corpus evidence -type f -print0               | sort -z               | xargs -0 sha256sum               > SHA256SUMS
+            find corpus evidence -type f -print0 \
+              | sort -z \
+              | xargs -0 sha256sum \
+              > SHA256SUMS
           )
 
       - name: Upload sealed P2 corpus
