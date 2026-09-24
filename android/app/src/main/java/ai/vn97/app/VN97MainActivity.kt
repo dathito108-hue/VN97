@@ -1351,14 +1351,33 @@ class VN97MainActivity : Activity() {
                 }
                 runOnUiThread {
                     if (active) {
-                        var next = VN97AppReducer.reduce(
-                            state,
-                            VN97AppEvent.TrustedModelActivated,
-                        )
-                        if (app.assistant.pendingApproval() != null) {
+                        var next =
+                            if (
+                                state.phase ==
+                                    VN97AppPhase
+                                        .MODEL_REQUIRED ||
+                                state.phase ==
+                                    VN97AppPhase.ERROR
+                            ) {
+                                VN97AppReducer.reduce(
+                                    state,
+                                    VN97AppEvent
+                                        .TrustedModelActivated,
+                                )
+                            } else {
+                                state
+                            }
+                        if (
+                            next.phase ==
+                                VN97AppPhase.READY &&
+                            app.assistant
+                                .pendingApproval() !=
+                                null
+                        ) {
                             next = VN97AppReducer.reduce(
                                 next,
-                                VN97AppEvent.ApprovalRequired,
+                                VN97AppEvent
+                                    .ApprovalRequired,
                             )
                         }
                         render(next)
