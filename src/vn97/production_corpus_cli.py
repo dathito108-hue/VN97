@@ -11,10 +11,10 @@ from .production_corpus import (
     VN97ProductionCorpusError,
     prepare_corpus,
 )
-from .training_cli import (
-    _atomic_write,
-    _load_records,
-    _read_bounded_regular_file,
+from .corpus_io import (
+    atomic_write as _atomic_write,
+    load_records as _load_records,
+    read_bounded_regular_file as _read_bounded_regular_file,
 )
 
 
