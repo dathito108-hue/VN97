@@ -250,6 +250,24 @@ def main() -> None:
         assert expected in text
 
     with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        release_dir = root / "release"
+        outside_receipt = root / "final.vn97final1"
+        MAT._require_receipt_outside_release_directory(
+            release_dir,
+            outside_receipt,
+        )
+        expect_failure(
+            "receipt inside release directory",
+            lambda:
+                MAT._require_receipt_outside_release_directory(
+                    release_dir,
+                    release_dir /
+                    "VN97FINAL1",
+                ),
+        )
+
+    with tempfile.TemporaryDirectory() as tmp:
         target = (
             Path(tmp)
             / "final.vn97final1"
