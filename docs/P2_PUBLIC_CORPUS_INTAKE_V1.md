@@ -62,6 +62,17 @@ record cap is applied.
 The resulting P1 `vn97-corpus-seal` pass performs an independent exact cross-split
 leakage check again.
 
+## Pinned source acquisition prerequisite
+
+Do not download mutable `main` / `master` dataset heads manually for P2.
+
+First run the pinned acquisition contract in
+`docs/P2_PINNED_SOURCE_ACQUISITION.md`:
+
+`VN97P2FETCHDEF1 -> vn97-p2-source-fetch -> VN97P2FETCH1`.
+
+The fetched raw file identities are then consumed by this intake stage.
+
 ## Intake command
 
 Download/review the three source files locally, then run:
