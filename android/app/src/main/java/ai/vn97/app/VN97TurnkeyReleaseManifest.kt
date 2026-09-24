@@ -152,7 +152,7 @@ internal data class VN97TurnkeyReleaseManifest(
             ) {
                 "turnkey release manifest fields mismatch"
             }
-            val versionName =
+            val versionNameBytes =
                 Base64.getDecoder()
                     .decode(
                         checkNotNull(
@@ -161,9 +161,21 @@ internal data class VN97TurnkeyReleaseManifest(
                             ]
                         )
                     )
-                    .toString(
-                        StandardCharsets.UTF_8
+            val versionName =
+                StandardCharsets.UTF_8
+                    .newDecoder()
+                    .onMalformedInput(
+                        CodingErrorAction.REPORT
                     )
+                    .onUnmappableCharacter(
+                        CodingErrorAction.REPORT
+                    )
+                    .decode(
+                        java.nio.ByteBuffer.wrap(
+                            versionNameBytes
+                        )
+                    )
+                    .toString()
             return VN97TurnkeyReleaseManifest(
                 applicationId =
                     checkNotNull(
