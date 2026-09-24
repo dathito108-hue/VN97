@@ -71,6 +71,12 @@ class VN97Application :
         VN97MobileRecoveryCoordinator(this)
     }
 
+    val runtimeResources: VN97RuntimeResourceCoordinator by lazy(
+        LazyThreadSafetyMode.SYNCHRONIZED
+    ) {
+        VN97RuntimeResourceCoordinator(this)
+    }
+
     val bundledBootstrap: VN97BundledBootstrap by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         VN97BundledBootstrap(this, provisioner)
     }
@@ -79,6 +85,24 @@ class VN97Application :
         super.onCreate()
         mobileRecovery
             .scheduleProcessStartRecovery()
+    }
+
+    override fun onTrimMemory(
+        level: Int,
+    ) {
+        super.onTrimMemory(level)
+        runCatching {
+            runtimeResources
+                .onTrimMemory(level)
+        }
+    }
+
+    override fun onLowMemory() {
+        super.onLowMemory()
+        runCatching {
+            runtimeResources
+                .onLowMemory()
+        }
     }
 
     override fun createVN97AssistantContinuationWork():
