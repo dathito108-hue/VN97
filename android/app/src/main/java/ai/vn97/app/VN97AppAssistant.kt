@@ -43,26 +43,16 @@ class VN97AppAssistant(
     private var knowledgeAcquisition:
         VN97KnowledgeAcquisitionSession? = null
 
-    fun openIfActivated(): Boolean = exclusive {
-        if (model != null && resources != null) return true
-
-        val opened = NativeActivatedInventoryModelLoader.openOrNull(
-            File(application.noBackupFilesDir, "vn97-capabilities")
-        ) ?: return false
-        val assistant = try {
-            application.platformRuntime.createProductionMemoryBackedAssistant(
-                model = opened,
-                grants = productionGrants(),
-            )
-        } catch (exc: Throwable) {
-            opened.close()
-            throw exc
+    fun openIfActivated(): Boolean =
+        exclusive {
+            openIfActivatedLocked()
         }
-        model = opened
-        resources = assistant
-        pendingResult = null
-        true
-    }
+
+    fun isOpen(): Boolean =
+        synchronized(lock) {
+            model != null &&
+                resources != null
+        }
 
     fun proposeKnowledgeAcquisition(
         goal: String,
@@ -151,14 +141,33 @@ class VN97AppAssistant(
         userMessage: String,
         maxAdvances: Int = 8,
     ): VN97AppTurnResult = exclusive {
-        require(userMessage.isNotBlank()) { "userMessage must not be blank" }
-        require(maxAdvances > 0) { "maxAdvances must be positive" }
+        require(userMessage.isNotBlank()) {
+            "userMessage must not be blank"
+        }
+        require(maxAdvances > 0) {
+            "maxAdvances must be positive"
+        }
         check(pendingResult == null) {
             "an assistant turn is already waiting for approval"
+        }
+        val resourceDecision =
+            application.runtimeResources
+                .requireRunnable(
+                    VN97RuntimeExecutionClass
+                        .INTERACTIVE
+                )
+        check(openIfActivatedLocked()) {
+            "trusted VN97 model is not active"
         }
         val session = checkNotNull(resources) {
             "trusted VN97 model is not active"
         }.session
+        val boundedAdvances =
+            minOf(
+                maxAdvances,
+                resourceDecision
+                    .maxInteractiveAdvances,
+            )
 
         val first = session.startTurn(
             userMessage = userMessage,
@@ -168,7 +177,12 @@ class VN97AppAssistant(
         rememberPending(
             VN97AppTurnResult(
                 userMessage = userMessage,
-                update = advanceYielded(session, first, maxAdvances),
+                update =
+                    advanceYielded(
+                        session,
+                        first,
+                        boundedAdvances,
+                    ),
             )
         )
     }
@@ -370,7 +384,13 @@ class VN97AppAssistant(
         check(pendingResult == null) {
             "an assistant turn is already waiting for approval"
         }
-        check(resources != null) {
+        val resourceDecision =
+            application.runtimeResources
+                .requireRunnable(
+                    VN97RuntimeExecutionClass
+                        .INTERACTIVE
+                )
+        check(openIfActivatedLocked()) {
             "trusted VN97 model is not active"
         }
         val activeModel = checkNotNull(model) {
@@ -385,7 +405,12 @@ class VN97AppAssistant(
                 .transcribeAudio(preparedAudio)
         runTurn(
             userMessage = transcript,
-            maxAdvances = maxAdvances,
+            maxAdvances =
+                minOf(
+                    maxAdvances,
+                    resourceDecision
+                        .maxInteractiveAdvances,
+                ),
         )
     }
 
@@ -394,6 +419,13 @@ class VN97AppAssistant(
     ): VN97MobileEvidenceRecord = exclusive {
         check(pendingResult == null) {
             "cannot benchmark while approval is pending"
+        }
+        application.runtimeResources
+            .requireRunnable(
+                VN97RuntimeExecutionClass.HEAVY
+            )
+        check(openIfActivatedLocked()) {
+            "trusted VN97 model is not active"
         }
         val activeResources = checkNotNull(resources) {
             "trusted VN97 model is not active"
@@ -518,6 +550,41 @@ class VN97AppAssistant(
             application,
             APP_PRINCIPAL,
         )
+
+    private fun openIfActivatedLocked(): Boolean {
+        if (
+            model != null &&
+            resources != null
+        ) {
+            return true
+        }
+
+        val opened =
+            NativeActivatedInventoryModelLoader
+                .openOrNull(
+                    File(
+                        application
+                            .noBackupFilesDir,
+                        "vn97-capabilities",
+                    )
+                )
+                ?: return false
+        val assistant =
+            try {
+                application.platformRuntime
+                    .createProductionMemoryBackedAssistant(
+                        model = opened,
+                        grants = productionGrants(),
+                    )
+            } catch (exc: Throwable) {
+                opened.close()
+                throw exc
+            }
+        model = opened
+        resources = assistant
+        pendingResult = null
+        return true
+    }
 
     private fun closeLocked() {
         knowledgeAcquisition = null
