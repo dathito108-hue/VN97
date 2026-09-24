@@ -691,3 +691,269 @@ def learn_byte_bpe(
     return VN97TokenizerPackage(
         tuple(learned)
     )
+
+
+
+def learn_byte_bpe_fast(
+    corpus: Iterable[str | bytes],
+    *,
+    max_learned_tokens: int,
+    min_pair_count: int = 2,
+) -> VN97TokenizerPackage:
+    """Learn exact VN97 byte-BPE with incremental per-sequence pair counts.
+
+    This is semantically equivalent to learn_byte_bpe but avoids rescanning
+    every sequence after every merge.
+    """
+    import heapq
+
+    if max_learned_tokens < 0:
+        raise ValueError(
+            "max_learned_tokens must be non-negative"
+        )
+    if min_pair_count < 2:
+        raise ValueError(
+            "min_pair_count must be at least 2"
+        )
+
+    token_bytes: list[bytes] = [
+        bytes((value,))
+        for value in range(BYTE_COUNT)
+    ]
+    sequences: list[list[int]] = []
+    for sample in corpus:
+        data = (
+            sample.encode("utf-8")
+            if isinstance(sample, str)
+            else bytes(sample)
+        )
+        if data:
+            sequences.append(
+                [int(value) for value in data]
+            )
+
+    if not sequences or max_learned_tokens == 0:
+        return VN97TokenizerPackage()
+
+    from collections import Counter as _Counter
+
+    per_sequence: list[
+        _Counter[tuple[int, int]]
+    ] = []
+    pair_sequences: dict[
+        tuple[int, int],
+        set[int],
+    ] = {}
+    global_counts: _Counter[
+        tuple[int, int]
+    ] = _Counter()
+
+    for sequence_index, sequence in enumerate(sequences):
+        counts: _Counter[
+            tuple[int, int]
+        ] = _Counter(
+            zip(
+                sequence,
+                sequence[1:],
+            )
+        )
+        per_sequence.append(counts)
+        for pair, count in counts.items():
+            global_counts[pair] += count
+            pair_sequences.setdefault(
+                pair,
+                set(),
+            ).add(sequence_index)
+
+    def heap_entry(
+        pair: tuple[int, int],
+        count: int,
+    ) -> tuple[
+        int,
+        bytes,
+        bytes,
+        bytes,
+        int,
+        int,
+    ]:
+        left, right = pair
+        left_bytes = token_bytes[left]
+        right_bytes = token_bytes[right]
+        return (
+            -count,
+            left_bytes + right_bytes,
+            left_bytes,
+            right_bytes,
+            left,
+            right,
+        )
+
+    heap = [
+        heap_entry(pair, count)
+        for pair, count in global_counts.items()
+        if count >= min_pair_count
+    ]
+    heapq.heapify(heap)
+
+    learned: list[bytes] = []
+    learned_set: set[bytes] = set()
+
+    while len(learned) < max_learned_tokens:
+        selected: tuple[int, int] | None = None
+        merged = b""
+
+        while heap:
+            (
+                negative_count,
+                merged_bytes,
+                _left_bytes,
+                _right_bytes,
+                left,
+                right,
+            ) = heapq.heappop(heap)
+            pair = (left, right)
+            current_count = int(
+                global_counts.get(
+                    pair,
+                    0,
+                )
+            )
+            if current_count != -negative_count:
+                continue
+            if current_count < min_pair_count:
+                continue
+            if merged_bytes in learned_set:
+                continue
+            selected = pair
+            merged = merged_bytes
+            break
+
+        if selected is None:
+            break
+
+        new_token_id = len(token_bytes)
+        token_bytes.append(merged)
+        learned.append(merged)
+        learned_set.add(merged)
+
+        affected = sorted(
+            pair_sequences.get(
+                selected,
+                (),
+            )
+        )
+        if not affected:
+            raise RuntimeError(
+                "VN97 fast BPE selected a pair without live sequences"
+            )
+
+        changed_pairs: set[
+            tuple[int, int]
+        ] = set()
+
+        for sequence_index in affected:
+            old_counts = per_sequence[
+                sequence_index
+            ]
+            for pair, count in old_counts.items():
+                global_counts[pair] -= count
+                changed_pairs.add(pair)
+                members = pair_sequences.get(
+                    pair
+                )
+                if members is not None:
+                    members.discard(
+                        sequence_index
+                    )
+                    if not members:
+                        pair_sequences.pop(
+                            pair,
+                            None,
+                        )
+
+            source = sequences[
+                sequence_index
+            ]
+            rewritten: list[int] = []
+            offset = 0
+            while offset < len(source):
+                if (
+                    offset + 1
+                    < len(source)
+                    and source[offset]
+                    == selected[0]
+                    and source[
+                        offset + 1
+                    ]
+                    == selected[1]
+                ):
+                    rewritten.append(
+                        new_token_id
+                    )
+                    offset += 2
+                else:
+                    rewritten.append(
+                        source[offset]
+                    )
+                    offset += 1
+
+            sequences[
+                sequence_index
+            ] = rewritten
+            new_counts: _Counter[
+                tuple[int, int]
+            ] = _Counter(
+                zip(
+                    rewritten,
+                    rewritten[1:],
+                )
+            )
+            per_sequence[
+                sequence_index
+            ] = new_counts
+
+            for pair, count in new_counts.items():
+                global_counts[pair] += count
+                changed_pairs.add(pair)
+                pair_sequences.setdefault(
+                    pair,
+                    set(),
+                ).add(
+                    sequence_index
+                )
+
+        for pair in changed_pairs:
+            count = int(
+                global_counts.get(
+                    pair,
+                    0,
+                )
+            )
+            if count >= min_pair_count:
+                heapq.heappush(
+                    heap,
+                    heap_entry(
+                        pair,
+                        count,
+                    ),
+                )
+
+        if (
+            len(heap)
+            > max(
+                100_000,
+                len(global_counts)
+                * 8,
+            )
+        ):
+            heap = [
+                heap_entry(pair, int(count))
+                for pair, count
+                in global_counts.items()
+                if count >= min_pair_count
+            ]
+            heapq.heapify(heap)
+
+    return VN97TokenizerPackage(
+        tuple(learned)
+    )
