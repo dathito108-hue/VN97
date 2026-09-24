@@ -273,6 +273,18 @@ fresh M11C device evidence on representative physical phones.
 
 Only after those real operations should `vn97-production-intake` be run.
 
+M19G can now freeze this entire production configuration in one `VN97RUN1`
+manifest and drive the same canonical stages through:
+
+```text
+vn97-production-run --stage train
+-> physical evidence capture
+-> vn97-production-run --stage intake
+```
+
+The M19G runner does not replace M19F; it invokes this same intake path and then
+re-opens VN97INTAKE1/VN97RC1 for identity verification.
+
 ## Honest boundary
 
 M19F completes the software handoff for a real campaign.
