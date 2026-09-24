@@ -460,6 +460,30 @@ def fixture_release(
     ).hexdigest()
     signer = "99" * 32
     package_sha = "44" * 32
+    readiness_bytes = (
+        b'{"fixture":"VN97READY1"}'
+    )
+    bootstrap_bytes = (
+        b'{"fixture":"VN97BOOTREL6"}'
+    )
+    (
+        release
+        / "production-readiness.vn97ready1"
+    ).write_bytes(
+        readiness_bytes
+    )
+    (
+        release
+        / "bootstrap-release.vn97bootrel6.json"
+    ).write_bytes(
+        bootstrap_bytes
+    )
+    readiness_sha = hashlib.sha256(
+        readiness_bytes
+    ).hexdigest()
+    bootstrap_sha = hashlib.sha256(
+        bootstrap_bytes
+    ).hexdigest()
 
     attestation = ATT.VN97ApkAttestation(
         application_id="ai.vn97.app",
@@ -473,7 +497,7 @@ def fixture_release(
         release_candidate_manifest_sha256=
             "33" * 32,
         bootstrap_release_report_sha256=
-            "55" * 32,
+            bootstrap_sha,
         bootstrap_package_sha256=
             package_sha,
         bootstrap_signature_sha256=
@@ -500,7 +524,7 @@ def fixture_release(
         closure_report_sha256=
             "22" * 32,
         readiness_report_sha256=
-            "aa" * 32,
+            readiness_sha,
         release_candidate_manifest_sha256=
             "33" * 32,
         release_attestation_sha256=
@@ -508,7 +532,7 @@ def fixture_release(
                 attestation_bytes
             ).hexdigest(),
         bootstrap_release_report_sha256=
-            "55" * 32,
+            bootstrap_sha,
         release_manifest_sha256=
             "88" * 32,
         application_id="ai.vn97.app",
@@ -599,6 +623,133 @@ def main() -> None:
         assert target.read_bytes() == (
             b"competing-acceptance-receipt"
         )
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (
+            release,
+            final_path,
+            package_sha,
+            final,
+        ) = fixture_release(
+            root,
+            repository_commit=commit,
+        )
+        fake = FakeExecutor(
+            apk_version_code=
+                final.version_code,
+            apk_version_name=
+                final.version_name,
+            package_sha256=
+                package_sha,
+        )
+        (
+            release
+            / "unexpected.txt"
+        ).write_text(
+            "unexpected",
+            encoding="utf-8",
+        )
+        expect_failure(
+            "release bundle extra entry",
+            lambda:
+                ACC.run_clean_device_acceptance(
+                    final_receipt_path=
+                        final_path,
+                    release_dir=release,
+                    repository_root=ROOT,
+                    serial="physical-001",
+                    adb_client=
+                        DEV.VN97AdbClient(
+                            "adb",
+                            executor=fake,
+                        ),
+                ),
+        )
+        assert not fake.commands
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (
+            release,
+            final_path,
+            package_sha,
+            final,
+        ) = fixture_release(
+            root,
+            repository_commit=commit,
+        )
+        fake = FakeExecutor(
+            apk_version_code=
+                final.version_code,
+            apk_version_name=
+                final.version_name,
+            package_sha256=
+                package_sha,
+        )
+        (
+            release
+            / "production-readiness.vn97ready1"
+        ).write_bytes(
+            b'{"tampered":true}'
+        )
+        expect_failure(
+            "release readiness tamper",
+            lambda:
+                ACC.run_clean_device_acceptance(
+                    final_receipt_path=
+                        final_path,
+                    release_dir=release,
+                    repository_root=ROOT,
+                    serial="physical-001",
+                    adb_client=
+                        DEV.VN97AdbClient(
+                            "adb",
+                            executor=fake,
+                        ),
+                ),
+        )
+        assert not fake.commands
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (
+            release,
+            final_path,
+            package_sha,
+            final,
+        ) = fixture_release(
+            root,
+            repository_commit=commit,
+        )
+        fake = FakeExecutor(
+            apk_version_code=
+                final.version_code,
+            apk_version_name=
+                final.version_name,
+            package_sha256=
+                package_sha,
+        )
+        expect_failure(
+            "acceptance receipt inside release directory",
+            lambda:
+                ACC.run_clean_device_acceptance(
+                    final_receipt_path=
+                        final_path,
+                    release_dir=release,
+                    repository_root=ROOT,
+                    serial="physical-001",
+                    output_path=
+                        release
+                        / "device.vn97accept1",
+                    adb_client=
+                        DEV.VN97AdbClient(
+                            "adb",
+                            executor=fake,
+                        ),
+                ),
+        )
+        assert not fake.commands
 
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
