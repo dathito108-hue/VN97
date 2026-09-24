@@ -139,7 +139,7 @@ def _load_records(
         except UnicodeDecodeError as exc:
             raise ValueError(f"training input is not UTF-8: {path}") from exc
 
-        for line_number, line in enumerate(text.splitlines(), start=1):
+        for line_number, line in enumerate(text.split("\n"), start=1):
             if not line.strip():
                 continue
             try:
