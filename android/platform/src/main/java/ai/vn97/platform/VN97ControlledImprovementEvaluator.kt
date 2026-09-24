@@ -15,9 +15,12 @@ import android.content.Context
 import android.os.ParcelFileDescriptor
 import java.io.File
 import java.io.RandomAccessFile
+import java.nio.ByteBuffer
 import java.nio.channels.FileChannel
 import java.nio.file.Files
 import java.nio.file.LinkOption
+import java.nio.file.StandardOpenOption
+import java.security.MessageDigest
 
 class VN97ControlledImprovementEvaluator(
     context: Context,
@@ -149,38 +152,50 @@ class VN97ControlledImprovementEvaluator(
             "staged candidate is not direct VN97MI1 model_image"
         }
 
+        val evaluationImage =
+            extractEvaluationImage(
+                packageFile =
+                    candidatePackage,
+                offset =
+                    section.packageOffset,
+                length =
+                    section.size,
+                expectedSha256 =
+                    section.sha256,
+            )
         val candidateMetrics =
-            ParcelFileDescriptor.open(
-                candidatePackage,
-                ParcelFileDescriptor
-                    .MODE_READ_ONLY,
-            ).use { descriptor ->
-                val packageSize =
-                    descriptor.statSize
-                check(
-                    packageSize ==
-                        candidatePackage.length() &&
-                        section.packageOffset >= 0L &&
-                        section.size > 0L &&
-                        section.packageOffset <=
-                            packageSize &&
-                        section.size <=
-                            packageSize -
-                                section.packageOffset
-                ) {
-                    "candidate VN97MI1 descriptor range is invalid"
+            try {
+                ParcelFileDescriptor.open(
+                    evaluationImage,
+                    ParcelFileDescriptor
+                        .MODE_READ_ONLY,
+                ).use { descriptor ->
+                    check(
+                        descriptor.statSize ==
+                            section.size &&
+                            evaluationImage.length() ==
+                                section.size
+                    ) {
+                        "evaluation VN97MI1 descriptor size changed"
+                    }
+                    NativeSelfImprovementEvaluator
+                        .evaluateCandidateDescriptor(
+                            fd = descriptor.fd,
+                            offset = 0L,
+                            length =
+                                section.size,
+                            artifactSha256 =
+                                section.sha256
+                                    .hexToBytes(),
+                        )
                 }
-                NativeSelfImprovementEvaluator
-                    .evaluateCandidateDescriptor(
-                        fd = descriptor.fd,
-                        offset =
-                            section.packageOffset,
-                        length =
-                            section.size,
-                        artifactSha256 =
-                            section.sha256
-                                .hexToBytes(),
-                    )
+            } finally {
+                check(
+                    evaluationImage.delete() ||
+                        !evaluationImage.exists()
+                ) {
+                    "failed to delete temporary evaluation VN97MI1"
+                }
             }
 
         val baselineAfter =
@@ -292,6 +307,130 @@ class VN97ControlledImprovementEvaluator(
             "reviewed candidate package is missing or unsafe"
         }
         return target
+    }
+
+    private fun extractEvaluationImage(
+        packageFile: File,
+        offset: Long,
+        length: Long,
+        expectedSha256: String,
+    ): File {
+        check(
+            offset >= 0L &&
+                length > 0L &&
+                offset <=
+                    packageFile.length() &&
+                length <=
+                    packageFile.length() -
+                        offset
+        ) {
+            "candidate VN97MI1 range is invalid"
+        }
+
+        val temp =
+            File.createTempFile(
+                "vn97-impeval-",
+                ".vn97mi1",
+                appContext.cacheDir,
+            )
+        try {
+            FileChannel.open(
+                packageFile.toPath(),
+                StandardOpenOption.READ,
+                LinkOption.NOFOLLOW_LINKS,
+            ).use { input ->
+                FileChannel.open(
+                    temp.toPath(),
+                    StandardOpenOption.WRITE,
+                    LinkOption.NOFOLLOW_LINKS,
+                ).use { output ->
+                    input.position(offset)
+                    var remaining = length
+                    val buffer =
+                        ByteBuffer.allocate(
+                            64 * 1024
+                        )
+                    while (remaining > 0L) {
+                        buffer.clear()
+                        buffer.limit(
+                            minOf(
+                                buffer.capacity()
+                                    .toLong(),
+                                remaining,
+                            ).toInt()
+                        )
+                        val read =
+                            input.read(buffer)
+                        check(read > 0) {
+                            "candidate VN97MI1 extraction was truncated"
+                        }
+                        remaining -=
+                            read.toLong()
+                        buffer.flip()
+                        while (
+                            buffer.hasRemaining()
+                        ) {
+                            check(
+                                output.write(
+                                    buffer
+                                ) > 0
+                            ) {
+                                "candidate VN97MI1 extraction made no write progress"
+                            }
+                        }
+                    }
+                    output.force(true)
+                }
+            }
+
+            check(
+                temp.length() == length
+            ) {
+                "temporary evaluation VN97MI1 length mismatch"
+            }
+            check(
+                hashFile(temp) ==
+                    expectedSha256
+            ) {
+                "temporary evaluation VN97MI1 SHA-256 mismatch"
+            }
+            return temp
+        } catch (exc: Throwable) {
+            temp.delete()
+            throw exc
+        }
+    }
+
+    private fun hashFile(
+        file: File,
+    ): String {
+        val digest =
+            MessageDigest.getInstance(
+                "SHA-256"
+            )
+        FileChannel.open(
+            file.toPath(),
+            StandardOpenOption.READ,
+            LinkOption.NOFOLLOW_LINKS,
+        ).use { channel ->
+            val buffer =
+                ByteBuffer.allocate(
+                    64 * 1024
+                )
+            while (true) {
+                buffer.clear()
+                val read =
+                    channel.read(buffer)
+                if (read < 0) break
+                check(read > 0) {
+                    "evaluation VN97MI1 hash read made no progress"
+                }
+                buffer.flip()
+                digest.update(buffer)
+            }
+        }
+        return digest.digest()
+            .toLowerHex()
     }
 
     private fun requireEvaluationBinding(
