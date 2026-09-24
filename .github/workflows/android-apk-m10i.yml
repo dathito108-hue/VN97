@@ -5,6 +5,7 @@ on:
     branches:
       - m10i-reproducible-apk-cold-start
       - m10j-turnkey-bootstrap
+      - m19k-production-campaign-closure
   workflow_dispatch:
 
 permissions:
@@ -18,18 +19,31 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Validate M19K production closure contracts
+        shell: bash
+        run: |
+          python -m compileall -q             src/vn97/production_closure.py             src/vn97/production_closure_cli.py             src/vn97/device_evidence_campaign.py             src/vn97/production_run_manifest.py             src/vn97/production_run_cli.py             src/vn97/production_preflight.py             tests/host_m19g_production_run.py             tests/host_m19h_production_run_sealer.py             tests/host_m19i_production_preflight.py             tests/host_m19j_device_evidence_campaign.py             tests/host_m19k_production_closure.py
+          python tests/host_m19g_production_run.py
+          python tests/host_m19h_production_run_sealer.py
+          python tests/host_m19i_production_preflight.py
+          python tests/host_m19j_device_evidence_campaign.py
+          python tests/host_m19k_production_closure.py
+
       - name: Set up JDK 17
+        if: github.ref_name != 'm19k-production-campaign-closure'
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
 
       - name: Set up Gradle 9.6.0
+        if: github.ref_name != 'm19k-production-campaign-closure'
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "9.6.0"
 
       - name: Install pinned Android packages
+        if: github.ref_name != 'm19k-production-campaign-closure'
         shell: bash
         env:
           ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
@@ -46,11 +60,13 @@ jobs:
           "$SDKMANAGER"             --sdk_root="$ANDROID_SDK_ROOT"             --channel=3             "platforms;android-37.0"             "build-tools;36.0.0"             "ndk;28.2.13676358"             "cmake;3.22.1"
 
       - name: Build VN97 debug APK
+        if: github.ref_name != 'm19k-production-campaign-closure'
         shell: bash
         run: |
           gradle -p android             --no-daemon             --stacktrace             :app:assembleDebug
 
       - name: Verify APK
+        if: github.ref_name != 'm19k-production-campaign-closure'
         shell: bash
         run: |
           APK="android/app/build/outputs/apk/debug/app-debug.apk"
@@ -59,6 +75,7 @@ jobs:
           ls -lh "$APK"
 
       - name: Upload APK
+        if: github.ref_name != 'm19k-production-campaign-closure'
         uses: actions/upload-artifact@v4
         with:
           name: VN97-debug-apk
