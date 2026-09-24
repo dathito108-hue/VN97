@@ -13,7 +13,6 @@ import subprocess
 import sys
 import tempfile
 
-from .bootstrap_release_cli import main as bootstrap_release_main
 from .capability_package import parse_capability_package
 from .capability_trust import (
     Ed25519Verifier,
@@ -30,6 +29,9 @@ from .release_attestation import (
 )
 from .release_candidate import (
     load_release_candidate_directory,
+)
+from .production_readiness import (
+    evaluate_production_readiness,
 )
 
 
@@ -269,7 +271,7 @@ def _bootstrap_args(
         "--max-recurrent-state-bytes",
         str(args.max_recurrent_state_bytes),
     ]
-    for path in args.validation_input:
+    for path in (args.validation_input or []):
         values.extend(
             [
                 "--validation-input",
@@ -416,6 +418,7 @@ def _publish_release(
     apk_path: Path,
     bootstrap_report_bytes: bytes,
     attestation_bytes: bytes,
+    readiness_report_bytes: bytes,
 ) -> None:
     if output_dir.exists() or output_dir.is_symlink():
         raise ValueError(
@@ -447,6 +450,12 @@ def _publish_release(
             "release-attestation.vn97apk1"
         ).write_bytes(
             attestation_bytes
+        )
+        (
+            staging /
+            "production-readiness.vn97ready1"
+        ).write_bytes(
+            readiness_report_bytes
         )
         for path in staging.iterdir():
             with path.open("rb") as stream:
@@ -493,33 +502,26 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--release-candidate-dir",
-        required=True,
     )
     parser.add_argument(
         "--private-key",
-        required=True,
     )
     parser.add_argument(
         "--key-id",
-        required=True,
     )
     parser.add_argument(
         "--capability-version",
         type=int,
-        required=True,
     )
     parser.add_argument(
         "--source-origin",
-        required=True,
     )
     parser.add_argument(
         "--source-license",
-        required=True,
     )
     parser.add_argument(
         "--validation-input",
         action="append",
-        required=True,
     )
     parser.add_argument(
         "--validation-format",
@@ -547,7 +549,6 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--max-validation-loss",
         type=float,
-        required=True,
     )
     parser.add_argument(
         "--min-validation-accuracy",
@@ -683,7 +684,6 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--output-dir",
-        required=True,
     )
     parser.add_argument(
         "--gradle",
@@ -691,6 +691,19 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--apksigner")
     parser.add_argument("--aapt")
+    parser.add_argument(
+        "--preflight-only",
+        action="store_true",
+        help=(
+            "emit canonical VN97READY1 readiness and stop before signing/build"
+        ),
+    )
+    parser.add_argument(
+        "--readiness-report",
+        help=(
+            "optional path to write canonical VN97READY1 during preflight"
+        ),
+    )
     return parser
 
 
@@ -699,26 +712,160 @@ def main(
 ) -> int:
     args = _parser().parse_args(argv)
 
+    repository_root_path = Path(
+        args.repository_root
+    )
+    readiness = evaluate_production_readiness(
+        repository_root=repository_root_path,
+        release_candidate_dir=(
+            None
+            if args.release_candidate_dir is None
+            else Path(args.release_candidate_dir)
+        ),
+        publisher_private_key=(
+            None
+            if args.private_key is None
+            else Path(args.private_key)
+        ),
+        validation_inputs=tuple(
+            Path(path)
+            for path in (
+                args.validation_input
+                or []
+            )
+        ),
+        speech_validation_input=(
+            None
+            if args.speech_validation_input is None
+            else Path(
+                args.speech_validation_input
+            )
+        ),
+        vision_validation_input=(
+            None
+            if args.vision_validation_input is None
+            else Path(
+                args.vision_validation_input
+            )
+        ),
+        output_dir=(
+            None
+            if args.output_dir is None
+            else Path(args.output_dir)
+        ),
+        key_id=args.key_id,
+        capability_version=
+            args.capability_version,
+        source_origin=args.source_origin,
+        source_license=args.source_license,
+        max_validation_loss=
+            args.max_validation_loss,
+        max_speech_validation_loss=
+            args.max_speech_validation_loss,
+        max_vision_validation_loss=
+            args.max_vision_validation_loss,
+        gradle=args.gradle,
+        apksigner=args.apksigner,
+        aapt=args.aapt,
+    )
+    readiness_bytes = readiness.to_bytes()
+
+    if args.readiness_report is not None:
+        report_path = Path(
+            args.readiness_report
+        )
+        if (
+            report_path.exists()
+            or report_path.is_symlink()
+        ):
+            raise ValueError(
+                "readiness report output must not already exist"
+            )
+        report_path.parent.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+        fd, temporary_report = (
+            tempfile.mkstemp(
+                prefix=".vn97ready-",
+                dir=report_path.parent,
+            )
+        )
+        try:
+            with os.fdopen(
+                fd,
+                "wb",
+                closefd=True,
+            ) as output:
+                output.write(
+                    readiness_bytes
+                )
+                output.flush()
+                os.fsync(
+                    output.fileno()
+                )
+            os.replace(
+                temporary_report,
+                report_path,
+            )
+        finally:
+            if os.path.exists(
+                temporary_report
+            ):
+                os.unlink(
+                    temporary_report
+                )
+
+    if args.preflight_only:
+        print(
+            readiness_bytes.decode(
+                "utf-8"
+            )
+        )
+        return (
+            0
+            if readiness.ready
+            else 2
+        )
+
+    if not readiness.ready:
+        codes = ",".join(
+            blocker.code
+            for blocker in
+                readiness.blockers
+        )
+        raise RuntimeError(
+            "VN97 production release is BLOCKED by VN97READY1: "
+            + codes
+        )
+
     repository_root = _real_directory(
-        Path(args.repository_root),
+        repository_root_path,
         label="VN97 repository root",
     )
-    if not (
-        repository_root /
-        "android/app/build.gradle.kts"
-    ).is_file():
-        raise ValueError(
-            "repository root is not a VN97 checkout"
-        )
+    assert (
+        args.release_candidate_dir
+        is not None
+    )
+    assert args.private_key is not None
+    assert args.key_id is not None
+    assert (
+        args.capability_version
+        is not None
+    )
+    assert args.source_origin is not None
+    assert args.source_license is not None
+    assert args.validation_input
+    assert (
+        args.max_validation_loss
+        is not None
+    )
+    assert args.output_dir is not None
 
     candidate = load_release_candidate_directory(
         args.release_candidate_dir
     )
     output_dir = Path(args.output_dir)
-    if output_dir.exists() or output_dir.is_symlink():
-        raise ValueError(
-            "release output directory must not already exist"
-        )
 
     _preflight_source_bootstrap_slot(
         repository_root
@@ -728,9 +875,21 @@ def main(
     )
     gradle = shutil.which(args.gradle)
     if gradle is None:
-        raise ValueError(
-            "Gradle executable is unavailable"
-        )
+        if (
+            os.path.sep in args.gradle
+            and os.access(
+                args.gradle,
+                os.X_OK,
+            )
+        ):
+            gradle = str(
+                Path(args.gradle)
+                .resolve(strict=True)
+            )
+        else:
+            raise ValueError(
+                "Gradle executable is unavailable"
+            )
     apksigner = _find_build_tool(
         "apksigner",
         explicit=args.apksigner,
@@ -738,6 +897,10 @@ def main(
     aapt = _find_build_tool(
         "aapt",
         explicit=args.aapt,
+    )
+
+    from .bootstrap_release_cli import (
+        main as bootstrap_release_main,
     )
 
     with tempfile.TemporaryDirectory(
@@ -946,6 +1109,8 @@ def main(
                 report_bytes,
             attestation_bytes=
                 attestation.to_bytes(),
+            readiness_report_bytes=
+                readiness_bytes,
         )
 
     print(
