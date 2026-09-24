@@ -28,9 +28,9 @@ _REQUIRED_ANDROID_ENV = (
     "VN97_RELEASE_KEY_PASSWORD",
 )
 _CHECK_NAMES = (
+    "aapt",
     "android_keystore",
     "android_signing_environment",
-    "aapt",
     "apksigner",
     "candidate",
     "gradle",
@@ -888,42 +888,55 @@ def evaluate_production_readiness(
             "Every held-out language validation input must be a safe non-empty regular file.",
         )
 
-    if (
-        loaded is not None
-        and loaded.manifest.speech_enabled
-    ):
-        if (
-            speech_validation_input is None
-            or not _safe_regular_file(
-                speech_validation_input
-            )
-        ):
+    if loaded is not None:
+        if loaded.manifest.speech_enabled:
+            if (
+                speech_validation_input is None
+                or not _safe_regular_file(
+                    speech_validation_input
+                )
+            ):
+                _block(
+                    blockers,
+                    checks,
+                    "speech_validation",
+                    "speech_validation.missing",
+                    "quality",
+                    "Speech-enabled VN97RC1 requires a fresh held-out speech validation input.",
+                )
+        elif speech_validation_input is not None:
             _block(
                 blockers,
                 checks,
                 "speech_validation",
-                "speech_validation.missing",
+                "speech_validation.unexpected",
                 "quality",
-                "Speech-enabled VN97RC1 requires a fresh held-out speech validation input.",
+                "Speech validation input is not allowed for a VN97RC1 without speech weights.",
             )
 
-    if (
-        loaded is not None
-        and loaded.manifest.vision_enabled
-    ):
-        if (
-            vision_validation_input is None
-            or not _safe_regular_file(
-                vision_validation_input
-            )
-        ):
+        if loaded.manifest.vision_enabled:
+            if (
+                vision_validation_input is None
+                or not _safe_regular_file(
+                    vision_validation_input
+                )
+            ):
+                _block(
+                    blockers,
+                    checks,
+                    "vision_validation",
+                    "vision_validation.missing",
+                    "quality",
+                    "Vision-enabled VN97RC1 requires a fresh held-out vision validation input.",
+                )
+        elif vision_validation_input is not None:
             _block(
                 blockers,
                 checks,
                 "vision_validation",
-                "vision_validation.missing",
+                "vision_validation.unexpected",
                 "quality",
-                "Vision-enabled VN97RC1 requires a fresh held-out vision validation input.",
+                "Vision validation input is not allowed for a VN97RC1 without vision weights.",
             )
 
     missing_modules = [
@@ -1098,6 +1111,11 @@ def evaluate_production_readiness(
         )
     else:
         parent = output_dir.parent
+        while (
+            not parent.exists()
+            and parent != parent.parent
+        ):
+            parent = parent.parent
         if not _safe_real_directory(parent):
             _block(
                 blockers,
@@ -1105,7 +1123,7 @@ def evaluate_production_readiness(
                 "output_directory",
                 "output_directory.parent_invalid",
                 "output",
-                "Production release output parent must already be a real non-symlink directory.",
+                "Production release output path does not have a safe real ancestor directory.",
             )
 
     ordered_checks = tuple(
