@@ -23,6 +23,7 @@ from .production_intake import (
 )
 from .production_run_manifest import (
     VN97ProductionRunManifest,
+    VN97ProductionRunReceipt,
     load_production_run_manifest,
     options_to_argv,
     verify_production_run_inputs,
@@ -31,8 +32,6 @@ from .release_candidate import (
     load_release_candidate_directory,
 )
 
-
-_EXECUTION_SCHEMA = "VN97RUNEXEC1"
 
 
 def _sha256_file(path: Path) -> str:
@@ -445,33 +444,25 @@ def _canonical_receipt(
     intake_report_sha256: str | None,
     release_candidate_manifest_sha256: str | None,
 ) -> bytes:
-    return json.dumps(
-        {
-            "device_evidence_ready":
-                device_evidence_ready,
-            "environment_ready":
-                environment_ready,
-            "intake_report_sha256":
-                intake_report_sha256,
-            "language_campaign_report_sha256":
-                language_report_sha256,
-            "manifest_sha256":
-                manifest.manifest_sha256,
-            "production_campaign_report_sha256":
-                production_report_sha256,
-            "release_candidate_manifest_sha256":
-                release_candidate_manifest_sha256,
-            "repository_commit":
-                repository_commit,
-            "schema":
-                _EXECUTION_SCHEMA,
-            "stage": stage,
-        },
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-        allow_nan=False,
-    ).encode("utf-8")
+    return VN97ProductionRunReceipt(
+        manifest_sha256=
+            manifest.manifest_sha256,
+        repository_commit=
+            repository_commit,
+        stage=stage,
+        environment_ready=
+            environment_ready,
+        device_evidence_ready=
+            device_evidence_ready,
+        language_campaign_report_sha256=
+            language_report_sha256,
+        production_campaign_report_sha256=
+            production_report_sha256,
+        intake_report_sha256=
+            intake_report_sha256,
+        release_candidate_manifest_sha256=
+            release_candidate_manifest_sha256,
+    ).to_bytes()
 
 
 def _write_receipt(
