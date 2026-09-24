@@ -1672,6 +1672,21 @@ def materialize_final_release(
         raise VN97ProductionMaterializationError(
             "release output directory must not already exist"
         )
+    if receipt_path is not None:
+        release_target = output_dir.resolve(
+            strict=False
+        )
+        receipt_target = receipt_path.resolve(
+            strict=False
+        )
+        if (
+            receipt_target == release_target
+            or release_target
+            in receipt_target.parents
+        ):
+            raise VN97ProductionMaterializationError(
+                "VN97FINAL1 receipt must stay outside the canonical four-file release directory"
+            )
 
     args = build_release_argv(
         manifest=manifest,
