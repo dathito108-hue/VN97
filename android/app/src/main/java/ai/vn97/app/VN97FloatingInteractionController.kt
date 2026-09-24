@@ -27,6 +27,7 @@ internal class VN97FloatingInteractionController(
     private val context: Context,
     private val windowManager: WindowManager,
     private val assistant: VN97AppAssistant,
+    private val beforeAssistantOpen: () -> Unit,
     private val anchorProvider: () -> WindowManager.LayoutParams?,
     private val publishMode: (AssistantMode, Float) -> Unit,
     private val publishListeningLevel: (Float, Long) -> Unit,
@@ -66,6 +67,7 @@ internal class VN97FloatingInteractionController(
         render(state)
         worker.execute {
             try {
+                beforeAssistantOpen()
                 val active = assistant.openIfActivated()
                 val hasApproval = active && assistant.pendingApproval() != null
                 val hasVoice = active && assistant.hasProductionVoice()
