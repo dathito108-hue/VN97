@@ -20,6 +20,7 @@ vn97-production-campaign = "vn97.production_campaign_cli:main"
 vn97-release-candidate = "vn97.release_candidate_cli:main"
 vn97-production-release = "vn97.production_release_cli:main"
 vn97-production-intake = "vn97.production_intake_cli:main"
+vn97-production-run = "vn97.production_run_cli:main"
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
