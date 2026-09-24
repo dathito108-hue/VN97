@@ -132,6 +132,7 @@ class VN97CorpusSource:
             "input_records": self.input_records,
             "kept_records": self.kept_records,
             "license": self.license,
+            "license_approved": True,
             "mode": self.mode,
             "origin": self.origin,
             "source_id": self.source_id,
