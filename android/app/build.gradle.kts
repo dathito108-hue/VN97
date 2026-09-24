@@ -27,6 +27,11 @@ val releaseKeyPassword =
     providers.environmentVariable(
         "VN97_RELEASE_KEY_PASSWORD"
     ).orNull
+val externalReleaseAssetRoot =
+    providers.environmentVariable(
+        "VN97_RELEASE_ASSET_ROOT"
+    ).orNull
+    ?.let { file(it) }
 
 val releaseSigningValues =
     listOf(
@@ -103,6 +108,11 @@ android {
                 .get()
                 .asFile
         )
+        if (externalReleaseAssetRoot != null) {
+            getByName("release").assets.srcDir(
+                externalReleaseAssetRoot
+            )
+        }
     }
 
     compileOptions {
@@ -118,9 +128,13 @@ android {
 }
 
 val turnkeyBootstrapDir =
-    layout.projectDirectory.dir(
-        "src/main/assets/vn97-bootstrap"
-    )
+    externalReleaseAssetRoot
+        ?.resolve("vn97-bootstrap")
+        ?: layout.projectDirectory
+            .dir(
+                "src/main/assets/vn97-bootstrap"
+            )
+            .asFile
 
 data class TurnkeyAssetRule(
     val name: String,
@@ -157,7 +171,7 @@ val verifyTurnkeyBootstrap by tasks.registering {
 
     doLast {
         val root =
-            turnkeyBootstrapDir.asFile
+            turnkeyBootstrapDir
         val rootPath = root.toPath()
         check(
             Files.isDirectory(
@@ -237,6 +251,44 @@ val verifyTurnkeyBootstrap by tasks.registering {
             }
         check(magic == "VN97CAP1") {
             "VN97 turnkey model asset is not VN97CAP1."
+        }
+    }
+}
+
+val verifyExternalReleaseAssetRoot by tasks.registering {
+    group = "verification"
+    description =
+        "Require external M19D staged assets to be safe when configured."
+
+    doLast {
+        val root =
+            externalReleaseAssetRoot
+                ?: return@doLast
+        val path =
+            root.toPath()
+                .toAbsolutePath()
+                .normalize()
+        check(
+            Files.isDirectory(
+                path,
+                LinkOption.NOFOLLOW_LINKS,
+            ) &&
+                !Files.isSymbolicLink(path)
+        ) {
+            "VN97_RELEASE_ASSET_ROOT must be a real directory."
+        }
+        val repositoryRoot =
+            rootProject.projectDir
+                .parentFile
+                .toPath()
+                .toAbsolutePath()
+                .normalize()
+        check(
+            !path.startsWith(
+                repositoryRoot
+            )
+        ) {
+            "VN97_RELEASE_ASSET_ROOT must stay outside the repository."
         }
     }
 }
@@ -367,7 +419,7 @@ val writeTurnkeyReleaseManifest by tasks.registering {
 
     doLast {
         val root =
-            turnkeyBootstrapDir.asFile
+            turnkeyBootstrapDir
         val model =
             root.resolve(
                 "model.vn97cap1"
@@ -459,6 +511,7 @@ tasks.matching {
     it.name == "preReleaseBuild"
 }.configureEach {
     dependsOn(
+        verifyExternalReleaseAssetRoot,
         verifyTurnkeyBootstrap,
         verifyReleaseSigning,
         verifyReleaseVersion,

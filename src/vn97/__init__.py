@@ -186,6 +186,13 @@ from .device_evidence import (
     parse_device_evidence,
     require_device_evidence,
 )
+from .release_attestation import (
+    VN97ApkAttestation,
+    VN97ApkAttestationError,
+    VN97ReleaseManifest,
+    parse_apk_attestation,
+    parse_release_manifest,
+)
 from .release_candidate import (
     MAX_MANIFEST_BYTES as MAX_RELEASE_CANDIDATE_MANIFEST_BYTES,
     VN97LoadedReleaseCandidate,
