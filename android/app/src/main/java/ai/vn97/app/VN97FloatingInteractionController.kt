@@ -414,6 +414,12 @@ internal class VN97FloatingInteractionController(
 
         worker.execute {
             try {
+                beforeAssistantOpen()
+                check(
+                    assistant.openIfActivated()
+                ) {
+                    "trusted VN97 model is not active"
+                }
                 val prepared =
                     NativeAudioModality.preparePcm16(utterance.pcm16)
                 val result = assistant.runVoiceTurn(prepared)
@@ -465,6 +471,12 @@ internal class VN97FloatingInteractionController(
 
         worker.execute {
             try {
+                beforeAssistantOpen()
+                check(
+                    assistant.openIfActivated()
+                ) {
+                    "trusted VN97 model is not active"
+                }
                 val result = assistant.runTurn(message)
                 mainHandler.post {
                     if (!closed) applyTurnResult(result)

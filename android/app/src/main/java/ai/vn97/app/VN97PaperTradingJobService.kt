@@ -28,6 +28,11 @@ class VN97PaperTradingJobService : JobService() {
                             .EXECUTION_ENTRY
                     )
                     .requireActivationReady()
+                app.runtimeResources
+                    .requireRunnable(
+                        VN97RuntimeExecutionClass
+                            .BACKGROUND
+                    )
                 app.paperTrading.runScheduledEpisode(
                     jobId = params.jobId,
                     expectedSessionId = sessionId,
