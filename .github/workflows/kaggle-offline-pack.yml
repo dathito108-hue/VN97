@@ -1,0 +1,68 @@
+name: VN97 Kaggle Offline Pack
+
+on:
+  push:
+    branches:
+      - ops-kaggle-offline-pack-20260924
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  build-pack:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Download sealed P3 corpus artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: VN97-P3-Corpus-1623f2c187d043918d681a7dc9e9cf025a58d26f
+          path: downloaded-corpus
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: 35992987070
+
+      - name: Assemble exact offline pack
+        run: |
+          set -euo pipefail
+          MAIN_SHA=39566edad5e3ec19ea3704beccf67d7a3e3bd35d
+          mkdir -p pack/VN97 pack/p3-corpus-artifact
+          git archive "$MAIN_SHA" | tar -x -C pack/VN97
+          cp -a downloaded-corpus/. pack/p3-corpus-artifact/
+          cat > pack/OFFLINE_START.txt <<'EOF'
+          VN97 Kaggle Offline Pack
+          =========================
+          Source commit:
+          39566edad5e3ec19ea3704beccf67d7a3e3bd35d
+
+          Expected P3 corpus:
+          77e9142054f82b78c8ca0ff108c5e5297d43292841f9fe1ea69c5dc97a7c303f
+
+          Kaggle notebook:
+          1. Upload this pack as Input.
+          2. Copy VN97 and p3-corpus-artifact to /kaggle/working.
+          3. cd /kaggle/working/VN97
+          4. python -m pip install --no-deps -e .
+          5. bash tools/kaggle_p3.sh candidate 0 /kaggle/working/p3-corpus-artifact/corpus
+
+          Internet access is not required.
+          EOF
+          (
+            cd pack
+            find VN97 p3-corpus-artifact OFFLINE_START.txt -type f -print0               | sort -z               | xargs -0 sha256sum > PACK_SHA256SUMS
+          )
+
+      - name: Upload offline Kaggle pack
+        uses: actions/upload-artifact@v4
+        with:
+          name: VN97-Kaggle-Offline-Pack-39566edad5e3
+          path: pack
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 6
