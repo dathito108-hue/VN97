@@ -455,6 +455,174 @@ def _read_regular_bytes(
         os.close(fd)
 
 
+def _sha256_file(
+    path: Path,
+) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        while True:
+            chunk = stream.read(
+                1024 * 1024
+            )
+            if not chunk:
+                break
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _verify_repository(
+    repository_root: Path,
+    *,
+    expected_commit: str,
+) -> Path:
+    try:
+        info = os.lstat(
+            repository_root
+        )
+    except OSError as exc:
+        raise VN97PhysicalEvidenceCampaignError(
+            "VN97 repository root is unavailable"
+        ) from exc
+    if (
+        stat.S_ISLNK(info.st_mode)
+        or not stat.S_ISDIR(info.st_mode)
+    ):
+        raise VN97PhysicalEvidenceCampaignError(
+            "VN97 repository root must be a real directory"
+        )
+    root = repository_root.resolve(
+        strict=True
+    )
+    try:
+        commit = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=root,
+            check=True,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        ).stdout.strip().lower()
+        dirty = subprocess.run(
+            [
+                "git",
+                "status",
+                "--porcelain",
+                "--untracked-files=no",
+            ],
+            cwd=root,
+            check=True,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        ).stdout
+    except (
+        OSError,
+        subprocess.CalledProcessError,
+    ) as exc:
+        raise VN97PhysicalEvidenceCampaignError(
+            "VN97 repository Git identity could not be verified"
+        ) from exc
+    if commit != expected_commit:
+        raise VN97PhysicalEvidenceCampaignError(
+            "VN97RUN1 repository_commit does not match M19J checkout HEAD"
+        )
+    if dirty:
+        raise VN97PhysicalEvidenceCampaignError(
+            "M19J requires a clean tracked Git worktree"
+        )
+
+    current_root = Path(
+        __file__
+    ).resolve().parent
+    bindings = (
+        "device_evidence_campaign.py",
+        "device_evidence.py",
+        "production_intake.py",
+        "production_run_manifest.py",
+        "bootstrap_bundle.py",
+    )
+    for name in bindings:
+        current = (
+            current_root /
+            name
+        )
+        bound = (
+            root /
+            "src/vn97" /
+            name
+        )
+        if (
+            not current.is_file()
+            or not bound.is_file()
+            or _sha256_file(current)
+            != _sha256_file(bound)
+        ):
+            raise VN97PhysicalEvidenceCampaignError(
+                "running M19J source does not match the VN97RUN1-bound checkout"
+            )
+    activity = (
+        root /
+        "android/app/src/main/java/ai/vn97/app/VN97MainActivity.kt"
+    )
+    if not activity.is_file():
+        raise VN97PhysicalEvidenceCampaignError(
+            "M19J Android evidence action source is missing"
+        )
+    return root
+
+
+def _build_bound_debug_apk(
+    repository_root: Path,
+    *,
+    gradle_executable: str,
+) -> Path:
+    if not gradle_executable:
+        raise ValueError(
+            "Gradle executable must not be empty"
+        )
+    try:
+        result = subprocess.run(
+            [
+                gradle_executable,
+                "-p",
+                "android",
+                "--no-daemon",
+                "--stacktrace",
+                ":app:assembleDebug",
+            ],
+            cwd=repository_root,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+            timeout=45 * 60,
+        )
+    except (
+        OSError,
+        subprocess.TimeoutExpired,
+    ) as exc:
+        raise VN97PhysicalEvidenceCampaignError(
+            "bound M19J debug APK build could not complete"
+        ) from exc
+    if result.returncode != 0:
+        detail = result.stderr.decode(
+            "utf-8",
+            errors="replace",
+        )[-4000:]
+        raise VN97PhysicalEvidenceCampaignError(
+            "bound M19J debug APK build failed: "
+            + detail.replace("\n", " ")
+        )
+    apk = (
+        repository_root /
+        "android/app/build/outputs/apk/debug/app-debug.apk"
+    )
+    return _regular_file(
+        apk,
+        label="bound M19J debug APK",
+        max_bytes=2 * 1024 * 1024 * 1024,
+    )
+
+
 def _deployment_tiles(
     production_report: Path,
 ) -> tuple[int, int]:
@@ -997,11 +1165,13 @@ def collect_physical_device_evidence(
     *,
     manifest_path: Path,
     workspace_root: Path,
-    apk_path: Path,
+    repository_root: Path,
     serials: Sequence[str],
     config: VN97PhysicalEvidenceConfig | None = None,
     adb_executable: str = "adb",
+    gradle_executable: str = "gradle",
     adb_client: VN97AdbClient | None = None,
+    prebuilt_apk_for_test: Path | None = None,
 ) -> tuple[VN97CollectedEvidence, ...]:
     if not serials:
         raise ValueError(
@@ -1026,6 +1196,11 @@ def collect_physical_device_evidence(
             workspace_root=
                 workspace_root,
         )
+    )
+    repository = _verify_repository(
+        repository_root,
+        expected_commit=
+            manifest.repository_commit,
     )
     if (
         resolved.intake_output_dir.exists()
@@ -1072,10 +1247,20 @@ def collect_physical_device_evidence(
             "requested measured runs are below VN97RUN1 intake policy"
         )
 
-    apk = _regular_file(
-        apk_path,
-        label="M19J debug APK",
-        max_bytes=2 * 1024 * 1024 * 1024,
+    apk = (
+        _regular_file(
+            prebuilt_apk_for_test,
+            label="M19J test APK",
+            max_bytes=
+                2 * 1024 * 1024 * 1024,
+        )
+        if prebuilt_apk_for_test
+        is not None
+        else _build_bound_debug_apk(
+            repository,
+            gradle_executable=
+                gradle_executable,
+        )
     )
     tile_rows, tile_cols = (
         _deployment_tiles(
