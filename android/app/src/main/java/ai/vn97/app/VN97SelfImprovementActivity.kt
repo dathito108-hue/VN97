@@ -1,6 +1,7 @@
 package ai.vn97.app
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -21,6 +22,7 @@ class VN97SelfImprovementActivity : Activity() {
     private lateinit var publisherKeyButton: Button
     private lateinit var reviewButton: Button
     private lateinit var evaluateButton: Button
+    private lateinit var promoteButton: Button
     private lateinit var rejectButton: Button
 
     private var packageUri: Uri? = null
@@ -78,7 +80,7 @@ class VN97SelfImprovementActivity : Activity() {
                 text =
                     "M17A reviews a signed newer canonical VN97 model against the exact active baseline. " +
                         "M17B evaluates baseline and candidate on the fixed VN97HELD1 suite without activation. " +
-                        "Normal activation remains durably blocked until a later promotion gate."
+                        "M17C can promote only a passing, identity-bound candidate after an explicit confirmation here, with durable rollback evidence."
                 setTextIsSelectable(true)
             },
             fullWidth(),
@@ -179,6 +181,19 @@ class VN97SelfImprovementActivity : Activity() {
             fullWidth(),
         )
 
+        promoteButton =
+            Button(this).apply {
+                text =
+                    "Promote evaluated candidate"
+                setOnClickListener {
+                    confirmPromotion()
+                }
+            }
+        root.addView(
+            promoteButton,
+            fullWidth(),
+        )
+
         rejectButton =
             Button(this).apply {
                 text =
@@ -204,7 +219,7 @@ class VN97SelfImprovementActivity : Activity() {
         root.addView(
             TextView(this).apply {
                 text =
-                    "M17A/B authority boundary: no weight training, no model activation, no promotion, no code modification, no M6 grant, and no bypass of signed VN97CAP1/VN97SIG1 provisioning."
+                    "M17A/B/C authority boundary: no weight training, no autonomous promotion, no code modification, no M6 grant, and no bypass of signed VN97CAP1/VN97SIG1 provisioning. Promotion requires a passing held-out evaluation plus an explicit human confirmation."
                 setTextIsSelectable(true)
             },
             fullWidth(),
@@ -494,6 +509,161 @@ class VN97SelfImprovementActivity : Activity() {
         }
     }
 
+    private fun confirmPromotion() {
+        if (busy) return
+        val candidate =
+            runCatching {
+                app.provisioner
+                    .pendingImprovementCandidate()
+            }.getOrNull()
+                ?: run {
+                    statusView.text =
+                        "No controlled improvement candidate is pending."
+                    refreshControls()
+                    return
+                }
+        val evaluation =
+            runCatching {
+                app.provisioner
+                    .pendingImprovementEvaluation()
+            }.getOrNull()
+        if (
+            evaluation == null ||
+            !evaluation.decision.passed
+        ) {
+            statusView.text =
+                "Promotion is blocked until the exact candidate has a passing M17B held-out evaluation."
+            refreshControls()
+            return
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle(
+                "Promote evaluated VN97 model?"
+            )
+            .setMessage(
+                buildString {
+                    append(
+                        "This explicit approval will replace the active canonical VN97 model with the reviewed candidate. "
+                    )
+                    append(
+                        "M17C will verify the exact activated artifact and automatically roll back to the exact baseline if post-activation verification fails."
+                    )
+                    append("\n\ncandidate_id=")
+                    append(candidate.candidateId)
+                    append("\nevaluation_id=")
+                    append(evaluation.evaluationId)
+                    append("\ncandidate_version=")
+                    append(
+                        candidate.spec
+                            .candidateCapabilityVersion
+                    )
+                }
+            )
+            .setNegativeButton(
+                "Cancel",
+                null,
+            )
+            .setPositiveButton(
+                "Promote candidate",
+            ) { _, _ ->
+                promoteCandidate()
+            }
+            .show()
+    }
+
+    private fun promoteCandidate() {
+        if (busy) return
+        setBusy(true)
+        statusView.text =
+            "Executing explicitly approved M17C promotion with post-activation native verification…"
+        worker.execute {
+            val result = runCatching {
+                app.provisioner
+                    .promotePendingImprovementCandidate(
+                        userApproved = true
+                    )
+            }
+            runOnUiThread {
+                result.onSuccess { promotion ->
+                    statusView.text =
+                        buildString {
+                            append(
+                                "CONTROLLED PROMOTION COMPLETE."
+                            )
+                            append("\npromotion_id=")
+                            append(
+                                promotion.promotionId
+                            )
+                            append("\nstate=")
+                            append(
+                                promotion.state.name
+                            )
+                            if (
+                                promotion
+                                    .resultingActivationId
+                                    .isNotEmpty()
+                            ) {
+                                append(
+                                    "\nresulting_activation_id="
+                                )
+                                append(
+                                    promotion
+                                        .resultingActivationId
+                                )
+                            }
+                            if (
+                                promotion
+                                    .resultingArtifactSha256
+                                    .isNotEmpty()
+                            ) {
+                                append(
+                                    "\nresulting_artifact_sha256="
+                                )
+                                append(
+                                    promotion
+                                        .resultingArtifactSha256
+                                )
+                            }
+                            if (
+                                promotion
+                                    .rollbackRestoredActivationId
+                                    .isNotEmpty()
+                            ) {
+                                append(
+                                    "\nrollback_restored_activation_id="
+                                )
+                                append(
+                                    promotion
+                                        .rollbackRestoredActivationId
+                                )
+                            }
+                            if (
+                                promotion.detail
+                                    .isNotEmpty()
+                            ) {
+                                append("\ndetail=")
+                                append(
+                                    promotion.detail
+                                )
+                            }
+                        }
+                }.onFailure { exc ->
+                    statusView.text =
+                        "Controlled promotion failed closed: " +
+                            (
+                                exc.message ?:
+                                    exc::class.java
+                                        .simpleName
+                            )
+                }
+                setBusy(false)
+                renderPending()
+                refreshControls()
+            }
+        }
+    }
+
     private fun rejectCandidate() {
         if (busy) return
         setBusy(true)
@@ -534,6 +704,11 @@ class VN97SelfImprovementActivity : Activity() {
                     app.provisioner
                         .pendingImprovementEvaluation()
                 }.getOrNull()
+            val promotion =
+                runCatching {
+                    app.provisioner
+                        .pendingPromotionAttempt()
+                }.getOrNull()
             statusView.text =
                 buildString {
                     append(
@@ -563,6 +738,27 @@ class VN97SelfImprovementActivity : Activity() {
                         append(
                             evaluation.decision
                                 .passed
+                        )
+                    }
+                    if (promotion != null) {
+                        append(
+                            "\npromotion_id="
+                        )
+                        append(
+                            promotion.promotionId
+                        )
+                        append(
+                            "\npromotion_state="
+                        )
+                        append(
+                            promotion.state.name
+                        )
+                    } else if (
+                        evaluation?.decision?.passed ==
+                            true
+                    ) {
+                        append(
+                            "\npromotion_ready=true — explicit confirmation required"
                         )
                     }
                 }
@@ -658,6 +854,25 @@ class VN97SelfImprovementActivity : Activity() {
                     .pendingImprovementCandidate() !=
                     null
             }.getOrDefault(false)
+        val evaluation =
+            if (pending) {
+                runCatching {
+                    app.provisioner
+                        .pendingImprovementEvaluation()
+                }.getOrNull()
+            } else {
+                null
+            }
+        val promotionPending =
+            if (pending) {
+                runCatching {
+                    app.provisioner
+                        .pendingPromotionAttempt() !=
+                        null
+                }.getOrDefault(false)
+            } else {
+                false
+            }
         packageButton.isEnabled =
             !busy && !pending
         signatureButton.isEnabled =
@@ -676,9 +891,20 @@ class VN97SelfImprovementActivity : Activity() {
                     .toString()
                     .isNotBlank()
         evaluateButton.isEnabled =
-            !busy && pending
+            !busy &&
+                pending &&
+                evaluation == null &&
+                !promotionPending
+        promoteButton.isEnabled =
+            !busy &&
+                pending &&
+                evaluation?.decision?.passed ==
+                    true &&
+                !promotionPending
         rejectButton.isEnabled =
-            !busy && pending
+            !busy &&
+                pending &&
+                !promotionPending
     }
 
     private fun fullWidth() =
