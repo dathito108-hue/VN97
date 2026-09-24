@@ -21,6 +21,12 @@ class VN97PaperTradingJobService : JobService() {
             try {
                 val app = application as? VN97Application
                     ?: return@execute
+                app.mobileRecovery
+                    .recover(
+                        VN97MobileRecoveryTrigger
+                            .EXECUTION_ENTRY
+                    )
+                    .requireActivationReady()
                 app.paperTrading.runScheduledEpisode(
                     jobId = params.jobId,
                     expectedSessionId = sessionId,
