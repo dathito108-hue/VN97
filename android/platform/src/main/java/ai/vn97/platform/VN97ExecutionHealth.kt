@@ -622,6 +622,9 @@ private fun decode(
     require(lines.size == 13) {
         "execution health record line count is invalid"
     }
+    require(lines[12].isEmpty()) {
+        "execution health record has trailing data"
+    }
     require(lines[0] == "VN97HEALTH1")
     require(
         lines[11].startsWith(
