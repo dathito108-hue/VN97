@@ -166,12 +166,13 @@ written atomically:
 - `model.vn97sig1`;
 - `publisher.ed25519`.
 
-Pointing `--assets-dir` at
-`android/app/src/main/assets/vn97-bootstrap` supplies the three public inputs
-required by M19A.
+M19D now supplies the three public inputs through an external temporary
+`VN97_RELEASE_ASSET_ROOT` rather than copying production bootstrap files into
+the repository.
 
 M19A then generates VN97REL1, checks APK/version/bootstrap identity and requires
-external Android release signing material.
+external Android release signing material. M19D verifies the resulting signed
+APK and publishes VN97APK1 only after all checks pass.
 
 No private Ed25519 key or Android keystore is copied into APK assets.
 
