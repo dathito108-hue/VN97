@@ -308,7 +308,7 @@ _LANGUAGE_ALLOWED = {
     "release_max_examples",
     "release_max_input_bytes",
     "release_max_validation_loss",
-    "release_max_validation_accuracy",
+    "release_min_validation_accuracy",
     "release_max_validation_target_tokens",
     "release_max_windows",
     "sequence_length",
@@ -411,7 +411,7 @@ _FLOAT_KEYS = {
     "max_validation_loss",
     "min_validation_accuracy",
     "release_max_validation_loss",
-    "release_max_validation_accuracy",
+    "release_min_validation_accuracy",
     "weight_decay",
     "max_speech_validation_loss",
     "min_speech_validation_accuracy",
@@ -427,7 +427,7 @@ _FLOAT_KEYS = {
 _OPTIONAL_KEYS = {
     "release_format",
     "release_max_validation_loss",
-    "release_max_validation_accuracy",
+    "release_min_validation_accuracy",
     "release_max_validation_target_tokens",
     "stride",
     "validation_format",
@@ -440,13 +440,13 @@ _OPTIONAL_KEYS = {
 }
 _ACCURACY_KEYS = {
     "min_validation_accuracy",
-    "release_max_validation_accuracy",
+    "release_min_validation_accuracy",
     "min_speech_validation_accuracy",
     "release_min_speech_accuracy",
 }
 _NONNEG_FLOAT_KEYS = {
     "min_validation_accuracy",
-    "release_max_validation_accuracy",
+    "release_min_validation_accuracy",
     "min_speech_validation_accuracy",
     "release_min_speech_accuracy",
     "speech_weight_decay",
@@ -1206,7 +1206,6 @@ def _parse_campaign_definition(
             "d_model",
             "d_state",
             "n_layers",
-            "seed",
         ):
             if (
                 type(item[key]) is not int
@@ -1215,6 +1214,13 @@ def _parse_campaign_definition(
                 raise VN97ProductionRunManifestError(
                     f"campaign candidate {key} must be positive integer"
                 )
+        if (
+            type(item["seed"]) is not int
+            or item["seed"] < 0
+        ):
+            raise VN97ProductionRunManifestError(
+                "campaign candidate seed must be non-negative integer"
+            )
         rank = item[
             "embedding_rank"
         ]
