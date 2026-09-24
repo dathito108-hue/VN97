@@ -18,6 +18,7 @@ from vn97 import (
     VN97TokenizerPackage,
     build_model_image,
     load_deployment_checkpoint_file,
+    parse_capability_package,
     save_deployment_checkpoint,
 )
 from vn97.bootstrap_release_cli import main
@@ -661,6 +662,20 @@ def test_release_cli_signs_verified_vn97rc1_candidate(
         "model.vn97sig1",
         "publisher.ed25519",
     }
+    parsed = parse_capability_package(
+        (
+            assets /
+            "model.vn97cap1"
+        ).read_bytes()
+    )
+    assert (
+        parsed.manifest.source.source_sha256
+        == manifest_sha
+    )
+    assert (
+        report["signed_source_sha256"]
+        == manifest_sha
+    )
 
 
 def test_release_candidate_tamper_fails_before_private_key_read(
