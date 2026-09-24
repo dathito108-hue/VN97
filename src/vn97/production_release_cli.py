@@ -712,6 +712,15 @@ def main(
 ) -> int:
     args = _parser().parse_args(argv)
 
+    if (
+        args.readiness_report is not None
+        and not args.preflight_only
+    ):
+        raise ValueError(
+            "--readiness-report is only valid with --preflight-only; "
+            "normal releases already publish production-readiness.vn97ready1"
+        )
+
     repository_root_path = Path(
         args.repository_root
     )
