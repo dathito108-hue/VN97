@@ -97,6 +97,11 @@
         </service>
 
         <receiver
+            android:name=".VN97TurnkeyAcceptanceReceiver"
+            android:exported="true"
+            android:permission="android.permission.DUMP" />
+
+        <receiver
             android:name=".VN97FloatingAssistantBootReceiver"
             android:directBootAware="false"
             android:exported="false">
