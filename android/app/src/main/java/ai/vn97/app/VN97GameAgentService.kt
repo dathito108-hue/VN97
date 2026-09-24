@@ -288,7 +288,9 @@ class VN97GameAgentService : Service() {
             timeoutMillis = FOREGROUND_WAIT_MILLIS,
         )
 
-        return app.withSovereignExecution {
+        return app.withSovereignExecutionBounded(
+            GAME_LOCK_TIMEOUT_MILLIS
+        ) {
             val reopenForeground =
                 app.assistant.releaseForBackgroundContinuation()
             try {
@@ -887,6 +889,8 @@ class VN97GameAgentService : Service() {
             MAX_EPISODE_MILLIS +
                 FOREGROUND_WAIT_MILLIS +
                 30_000L
+        private const val GAME_LOCK_TIMEOUT_MILLIS =
+            15_000L
         private const val FOREGROUND_POLL_MILLIS = 100L
 
         private val GAME_CAPABILITIES = setOf(
