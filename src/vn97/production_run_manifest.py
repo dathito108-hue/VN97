@@ -1804,3 +1804,281 @@ def options_to_argv(
             ]
         )
     return argv
+
+
+EXECUTION_SCHEMA = "VN97RUNEXEC1"
+_EXECUTION_STAGES = {
+    "verify",
+    "language",
+    "production",
+    "train",
+    "intake",
+    "all",
+}
+
+
+@dataclass(frozen=True)
+class VN97ProductionRunReceipt:
+    manifest_sha256: str
+    repository_commit: str
+    stage: str
+    environment_ready: bool
+    device_evidence_ready: bool
+    language_campaign_report_sha256: str | None
+    production_campaign_report_sha256: str | None
+    intake_report_sha256: str | None
+    release_candidate_manifest_sha256: str | None
+
+    def __post_init__(self) -> None:
+        _require_hex(
+            self.manifest_sha256,
+            length=64,
+            label="run manifest SHA-256",
+        )
+        _require_hex(
+            self.repository_commit,
+            length=40,
+            label="run repository commit",
+        )
+        if self.stage not in _EXECUTION_STAGES:
+            raise VN97ProductionRunManifestError(
+                "run receipt stage is invalid"
+            )
+        if (
+            type(self.environment_ready) is not bool
+            or type(self.device_evidence_ready) is not bool
+        ):
+            raise VN97ProductionRunManifestError(
+                "run receipt readiness fields must be boolean"
+            )
+        for value, label in (
+            (
+                self.language_campaign_report_sha256,
+                "language campaign report SHA-256",
+            ),
+            (
+                self.production_campaign_report_sha256,
+                "production campaign report SHA-256",
+            ),
+            (
+                self.intake_report_sha256,
+                "intake report SHA-256",
+            ),
+            (
+                self.release_candidate_manifest_sha256,
+                "release candidate manifest SHA-256",
+            ),
+        ):
+            if value is not None:
+                _require_hex(
+                    value,
+                    length=64,
+                    label=label,
+                )
+
+        if self.stage == "verify":
+            expected = (
+                None,
+                None,
+                None,
+                None,
+            )
+        elif self.stage == "language":
+            expected = (
+                "set",
+                None,
+                None,
+                None,
+            )
+        elif self.stage in {
+            "production",
+            "train",
+        }:
+            expected = (
+                "set",
+                "set",
+                None,
+                None,
+            )
+        else:
+            expected = (
+                "set",
+                "set",
+                "set",
+                "set",
+            )
+        actual = (
+            (
+                "set"
+                if self.language_campaign_report_sha256
+                is not None
+                else None
+            ),
+            (
+                "set"
+                if self.production_campaign_report_sha256
+                is not None
+                else None
+            ),
+            (
+                "set"
+                if self.intake_report_sha256
+                is not None
+                else None
+            ),
+            (
+                "set"
+                if self.release_candidate_manifest_sha256
+                is not None
+                else None
+            ),
+        )
+        if actual != expected:
+            raise VN97ProductionRunManifestError(
+                "run receipt output identities do not match stage"
+            )
+
+    def canonical_object(self) -> dict[str, object]:
+        return {
+            "device_evidence_ready":
+                self.device_evidence_ready,
+            "environment_ready":
+                self.environment_ready,
+            "intake_report_sha256":
+                self.intake_report_sha256,
+            "language_campaign_report_sha256":
+                self.language_campaign_report_sha256,
+            "manifest_sha256":
+                self.manifest_sha256,
+            "production_campaign_report_sha256":
+                self.production_campaign_report_sha256,
+            "release_candidate_manifest_sha256":
+                self.release_candidate_manifest_sha256,
+            "repository_commit":
+                self.repository_commit,
+            "schema": EXECUTION_SCHEMA,
+            "stage": self.stage,
+        }
+
+    def to_bytes(self) -> bytes:
+        return json.dumps(
+            self.canonical_object(),
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+
+
+def parse_production_run_receipt(
+    data: bytes,
+) -> VN97ProductionRunReceipt:
+    if not 0 < len(data) <= 64 * 1024:
+        raise VN97ProductionRunManifestError(
+            "VN97RUNEXEC1 byte size is outside bounds"
+        )
+    duplicates: list[str] = []
+
+    def hook(
+        pairs: list[tuple[str, Any]],
+    ) -> dict[str, Any]:
+        out: dict[str, Any] = {}
+        for key, value in pairs:
+            if key in out:
+                duplicates.append(key)
+            out[key] = value
+        return out
+
+    try:
+        text = data.decode(
+            "utf-8",
+            errors="strict",
+        )
+        root = json.loads(
+            text,
+            object_pairs_hook=hook,
+            parse_constant=lambda raw: (
+                _ for _ in ()
+            ).throw(ValueError(raw)),
+        )
+    except (
+        UnicodeDecodeError,
+        json.JSONDecodeError,
+        ValueError,
+    ) as exc:
+        raise VN97ProductionRunManifestError(
+            "VN97RUNEXEC1 must be strict UTF-8 JSON"
+        ) from exc
+    if duplicates or not isinstance(root, dict):
+        raise VN97ProductionRunManifestError(
+            "VN97RUNEXEC1 must be one object without duplicate keys"
+        )
+    canonical = json.dumps(
+        root,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
+    if canonical != data:
+        raise VN97ProductionRunManifestError(
+            "VN97RUNEXEC1 must use canonical JSON"
+        )
+    expected = {
+        "device_evidence_ready",
+        "environment_ready",
+        "intake_report_sha256",
+        "language_campaign_report_sha256",
+        "manifest_sha256",
+        "production_campaign_report_sha256",
+        "release_candidate_manifest_sha256",
+        "repository_commit",
+        "schema",
+        "stage",
+    }
+    if (
+        set(root) != expected
+        or root["schema"] != EXECUTION_SCHEMA
+    ):
+        raise VN97ProductionRunManifestError(
+            "VN97RUNEXEC1 schema/keys mismatch"
+        )
+    try:
+        return VN97ProductionRunReceipt(
+            manifest_sha256=
+                root["manifest_sha256"],
+            repository_commit=
+                root["repository_commit"],
+            stage=root["stage"],
+            environment_ready=
+                root["environment_ready"],
+            device_evidence_ready=
+                root["device_evidence_ready"],
+            language_campaign_report_sha256=
+                root[
+                    "language_campaign_report_sha256"
+                ],
+            production_campaign_report_sha256=
+                root[
+                    "production_campaign_report_sha256"
+                ],
+            intake_report_sha256=
+                root["intake_report_sha256"],
+            release_candidate_manifest_sha256=
+                root[
+                    "release_candidate_manifest_sha256"
+                ],
+        )
+    except (
+        TypeError,
+        ValueError,
+        VN97ProductionRunManifestError,
+    ) as exc:
+        if isinstance(
+            exc,
+            VN97ProductionRunManifestError,
+        ):
+            raise
+        raise VN97ProductionRunManifestError(
+            str(exc)
+        ) from exc
