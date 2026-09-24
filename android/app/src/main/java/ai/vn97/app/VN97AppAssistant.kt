@@ -285,6 +285,33 @@ class VN97AppAssistant(
         resources?.session?.hasActiveTurn == true
     }
 
+    fun releaseForModelEvaluation(): Boolean =
+        exclusive {
+            check(pendingResult == null) {
+                "cannot evaluate model while approval is pending"
+            }
+            check(
+                knowledgeAcquisition
+                    ?.pendingReview() == null
+            ) {
+                "cannot evaluate model while knowledge acquisition review is pending"
+            }
+            val activeResources = resources
+            check(
+                activeResources == null ||
+                    !activeResources.session.hasActiveTurn
+            ) {
+                "cannot evaluate model while a foreground turn is active"
+            }
+            val wasOpen =
+                model != null &&
+                    resources != null
+            if (wasOpen) {
+                closeLocked()
+            }
+            wasOpen
+        }
+
     fun releaseForBackgroundContinuation(): Boolean =
         exclusive {
             check(pendingResult == null) {
