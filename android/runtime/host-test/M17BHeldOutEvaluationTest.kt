@@ -23,7 +23,16 @@ private fun metrics(
     VN97ModelEvaluationMetrics(
         cases = VN97HeldOutSuite.cases.size,
         targetTokens = 100L,
-        targetUtf8Bytes = 100L,
+        targetUtf8Bytes =
+            VN97HeldOutSuite.cases
+                .sumOf {
+                    it.target
+                        .toByteArray(
+                            Charsets.UTF_8
+                        )
+                        .size
+                        .toLong()
+                },
         totalNegativeLogLikelihood = nll,
         top1Correct = correct,
         prefillP95Nanos = p95,
