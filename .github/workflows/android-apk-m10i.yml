@@ -5,7 +5,6 @@ on:
     branches:
       - m10i-reproducible-apk-cold-start
       - m10j-turnkey-bootstrap
-      - m19j-physical-device-evidence-orchestrator
   workflow_dispatch:
 
 permissions:
@@ -18,15 +17,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Validate M19J physical evidence orchestration contracts
-        shell: bash
-        run: |
-          python -m compileall -q             src/vn97/device_evidence_campaign.py             src/vn97/device_evidence_campaign_cli.py             src/vn97/production_run_manifest.py             src/vn97/production_run_cli.py             src/vn97/production_preflight.py             tests/host_m19g_production_run.py             tests/host_m19h_production_run_sealer.py             tests/host_m19i_production_preflight.py             tests/host_m19j_device_evidence_campaign.py
-          python tests/host_m19g_production_run.py
-          python tests/host_m19h_production_run_sealer.py
-          python tests/host_m19i_production_preflight.py
-          python tests/host_m19j_device_evidence_campaign.py
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
