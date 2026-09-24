@@ -50,7 +50,8 @@ The canonical runner is:
 
 Training profile:
 
-- tokenizer learned-token ceiling: 8,192;
+- tokenizer training sample: deterministic SHA-256-ranked 2,048 records from the sealed training split only;
+- tokenizer learned-token ceiling: 4,096;
 - sequence length: 512;
 - batch size: 8;
 - epochs: 2;
@@ -62,8 +63,9 @@ Training profile:
 - VN97T2 deployment tiling: 16 x 16.
 
 The large window values are safety ceilings, not requested truncation counts. The
-existing canonical campaign materializes all windows and fails if the configured bound
-is exceeded.
+existing canonical campaign materializes all model-training windows and fails if the
+configured bound is exceeded. The tokenizer sample bound applies only to tokenizer
+learning; all 21,560 sealed training records remain available for model training.
 
 ## Admission quality gate
 

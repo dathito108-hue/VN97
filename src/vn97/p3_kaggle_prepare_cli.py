@@ -20,6 +20,7 @@ from .p3_language_campaign import (
     MAX_VALIDATION_WINDOWS,
     MIN_PAIR_COUNT,
     SEQUENCE_LENGTH,
+    TOKENIZER_TRAIN_RECORDS,
     profile_sha256,
 )
 from .p3_language_campaign_cli import (
@@ -33,6 +34,7 @@ from .p3_tensor_cache import (
 from .tokenizer import (
     VN97Tokenizer,
     learn_byte_bpe_fast,
+    select_deterministic_tokenizer_corpus,
 )
 from .training import (
     VN97TrainingConfig,
@@ -180,16 +182,24 @@ def main(argv: list[str] | None = None) -> int:
         max_examples=100_000,
     )
 
+    rendered_training = [
+        render_chat_text(value)
+        for value in train_records
+    ]
+    tokenizer_corpus = (
+        select_deterministic_tokenizer_corpus(
+            rendered_training,
+            max_samples=TOKENIZER_TRAIN_RECORDS,
+        )
+    )
     print(
         "P3 CACHE stage=tokenizer "
-        f"records={len(train_records)} merges<={LEARNED_TOKENS}",
+        f"records={len(tokenizer_corpus)}/{len(train_records)} "
+        f"merges<={LEARNED_TOKENS}",
         flush=True,
     )
     tokenizer_package = learn_byte_bpe_fast(
-        [
-            render_chat_text(value)
-            for value in train_records
-        ],
+        tokenizer_corpus,
         max_learned_tokens=LEARNED_TOKENS,
         min_pair_count=MIN_PAIR_COUNT,
     )

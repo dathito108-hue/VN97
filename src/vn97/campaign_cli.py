@@ -35,7 +35,11 @@ from .mobile_budget import (
     VN97MobileBudget,
     estimate_vn97_mobile_footprint,
 )
-from .tokenizer import VN97Tokenizer, learn_byte_bpe
+from .tokenizer import (
+    VN97Tokenizer,
+    learn_byte_bpe,
+    select_deterministic_tokenizer_corpus,
+)
 from .training import (
     VN97TrainingConfig,
     build_training_windows,
@@ -259,6 +263,15 @@ def _parser() -> argparse.ArgumentParser:
 
     parser.add_argument("--learned-tokens", type=int, default=2048)
     parser.add_argument("--min-pair-count", type=int, default=2)
+    parser.add_argument(
+        "--tokenizer-max-records",
+        type=int,
+        default=0,
+        help=(
+            "When positive, learn the tokenizer from a deterministic "
+            "training-only hash-ranked subset of at most this many records."
+        ),
+    )
     parser.add_argument("--sequence-length", type=int, default=256)
     parser.add_argument("--stride", type=int, default=None)
     parser.add_argument("--batch-size", type=int, default=4)
@@ -342,6 +355,7 @@ def main(argv: list[str] | None = None) -> int:
         or args.batch_size <= 0
         or args.validation_batch_size <= 0
         or args.release_batch_size <= 0
+        or args.tokenizer_max_records < 0
         or not 0 < args.deployment_tile_rows <= 256
         or not 0 < args.deployment_tile_cols <= 256
     ):
@@ -404,8 +418,16 @@ def main(argv: list[str] | None = None) -> int:
         if args.format == "text"
         else [render_chat_text(value) for value in train_records]
     )
+    tokenizer_corpus = (
+        corpus
+        if args.tokenizer_max_records == 0
+        else select_deterministic_tokenizer_corpus(
+            corpus,
+            max_samples=args.tokenizer_max_records,
+        )
+    )
     tokenizer_package = learn_byte_bpe(
-        corpus,
+        tokenizer_corpus,
         max_learned_tokens=args.learned_tokens,
         min_pair_count=args.min_pair_count,
     )

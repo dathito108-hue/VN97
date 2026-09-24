@@ -67,6 +67,9 @@ def main() -> None:
         for candidate in module.CANDIDATES
     )
     assert module.candidate_ids() == expected_ids
+    assert module.LEARNED_TOKENS == 4096
+    assert module.TOKENIZER_TRAIN_RECORDS == 2048
+    assert module.profile_object()["tokenizer_sampling"] == "sha256-vn97toksample1"
 
     argv = module.campaign_argv(
         corpus_dir=Path("/corpus"),
@@ -79,7 +82,8 @@ def main() -> None:
         "--input /corpus/training.jsonl",
         "--validation-input /corpus/validation.jsonl",
         "--release-input /corpus/release.jsonl",
-        "--learned-tokens 8192",
+        "--learned-tokens 4096",
+        "--tokenizer-max-records 2048",
         "--sequence-length 512",
         "--batch-size 8",
         "--epochs 2",

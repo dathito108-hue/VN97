@@ -56,7 +56,8 @@ EPOCHS = 2
 MAX_TRAIN_WINDOWS = 100_000
 MAX_VALIDATION_WINDOWS = 10_000
 MAX_RELEASE_WINDOWS = 10_000
-LEARNED_TOKENS = 8192
+LEARNED_TOKENS = 4096
+TOKENIZER_TRAIN_RECORDS = 2048
 MIN_PAIR_COUNT = 2
 
 MAX_PARAMETERS = 50_000_000
@@ -112,6 +113,8 @@ def profile_object() -> dict[str, object]:
         "corpus_profile_id": CORPUS_PROFILE_ID,
         "epochs": EPOCHS,
         "learned_tokens": LEARNED_TOKENS,
+        "tokenizer_train_records": TOKENIZER_TRAIN_RECORDS,
+        "tokenizer_sampling": "sha256-vn97toksample1",
         "max_model_image_bytes": MAX_MODEL_IMAGE_BYTES,
         "max_parameters": MAX_PARAMETERS,
         "max_recurrent_state_bytes": MAX_RECURRENT_STATE_BYTES,
@@ -173,6 +176,8 @@ def campaign_argv(
         str(output_dir),
         "--learned-tokens",
         str(LEARNED_TOKENS),
+        "--tokenizer-max-records",
+        str(TOKENIZER_TRAIN_RECORDS),
         "--min-pair-count",
         str(MIN_PAIR_COUNT),
         "--sequence-length",

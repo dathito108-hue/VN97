@@ -957,3 +957,66 @@ def learn_byte_bpe_fast(
     return VN97TokenizerPackage(
         tuple(learned)
     )
+
+
+
+def select_deterministic_tokenizer_corpus(
+    corpus: Iterable[str | bytes],
+    *,
+    max_samples: int,
+) -> tuple[str | bytes, ...]:
+    """Select a deterministic hash-ranked training-only tokenizer sample."""
+    import hashlib
+
+    if max_samples <= 0:
+        raise ValueError(
+            "max_samples must be positive"
+        )
+
+    ranked: list[
+        tuple[
+            bytes,
+            bytes,
+            int,
+            str | bytes,
+        ]
+    ] = []
+    for ordinal, sample in enumerate(corpus):
+        if isinstance(sample, str):
+            data = sample.encode("utf-8")
+        else:
+            data = bytes(sample)
+        if not data:
+            continue
+        ranked.append(
+            (
+                hashlib.sha256(
+                    b"VN97TOKSAMPLE1\0"
+                    + len(data).to_bytes(
+                        8,
+                        "little",
+                    )
+                    + data
+                ).digest(),
+                data,
+                ordinal,
+                sample,
+            )
+        )
+
+    if not ranked:
+        raise ValueError(
+            "tokenizer corpus contains no non-empty samples"
+        )
+
+    ranked.sort(
+        key=lambda item: (
+            item[0],
+            item[1],
+            item[2],
+        )
+    )
+    return tuple(
+        item[3]
+        for item in ranked[:max_samples]
+    )

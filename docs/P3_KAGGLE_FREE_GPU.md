@@ -28,7 +28,7 @@ Each shard:
 
 - uses the exact sealed corpus;
 - learns the tokenizer from training data only;
-- uses the frozen P3 tokenizer/context/training profile;
+- uses the frozen P3 tokenizer/context/training profile; the tokenizer is learned from a deterministic SHA-256-ranked 2,048-record subset of the sealed training split only;
 - evaluates validation only;
 - never opens or encodes `release.jsonl` for model selection;
 - writes the candidate checkpoint only when that candidate passes the validation gate.
