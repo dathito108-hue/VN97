@@ -21,6 +21,7 @@ release path. It only invokes the existing canonical stages.
 ```text
 VN97RUN1
   -> verify bound repository / inputs / environment
+  -> M19I zero-compute production preflight
   -> vn97-campaign
   -> VN97CAMP2
   -> vn97-production-campaign
@@ -260,6 +261,16 @@ reports:
 
 It does not start training.
 
+### preflight
+
+Runs M19I semantic/feasibility validation without optimizer/backprop or real
+candidate model-weight materialization.
+
+It emits VN97PREFLIGHT1 and returns 0 for READY or 2 for BLOCKED.
+
+The training stages `language`, `production`, `train` and `all`
+automatically run the same preflight before launching any training subprocess.
+
 ### language
 
 Requires downstream outputs to be absent and runs only canonical
@@ -326,10 +337,12 @@ It binds:
 
 The receipt parser enforces stage consistency:
 
-- `verify`: no output report hashes;
-- `language`: language report only;
-- `production` / `train`: language + production reports;
-- `intake` / `all`: full language + production + intake + VN97RC1 chain.
+- `verify`: no preflight/output report hashes;
+- `preflight`: VN97PREFLIGHT1 hash only;
+- `language`: preflight + language report;
+- `production` / `train`: preflight + language + production reports;
+- `intake`: existing language + production + intake + VN97RC1 chain;
+- `all`: preflight + full language + production + intake + VN97RC1 chain.
 
 Use:
 
