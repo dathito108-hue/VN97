@@ -191,8 +191,10 @@ class VN97ReleaseCandidateManifest:
     vision_enabled: bool
     speech_training_report_sha256: str | None
     vision_training_report_sha256: str | None
-    device_evidence:
-        tuple[VN97ReleaseCandidateDeviceEvidence, ...]
+    device_evidence: tuple[
+        VN97ReleaseCandidateDeviceEvidence,
+        ...,
+    ]
 
     def __post_init__(self) -> None:
         if (
