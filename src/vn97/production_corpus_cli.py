@@ -93,9 +93,29 @@ def _load_definition(path: Path) -> tuple[str, list[dict[str, object]]]:
             raise VN97ProductionCorpusError(
                 "every corpus source requires explicit license_approved=true"
             )
-        if not isinstance(item["path"], str):
+        for key in (
+            "license",
+            "mode",
+            "origin",
+            "path",
+            "source_id",
+            "split",
+        ):
+            if not isinstance(item[key], str):
+                raise VN97ProductionCorpusError(
+                    f"corpus source {key} must be a string"
+                )
+        if not item["source_id"] or not item["origin"] or not item["license"]:
             raise VN97ProductionCorpusError(
-                "corpus source path must be a string"
+                "corpus source identity/origin/license must be non-empty"
+            )
+        if item["mode"] not in {"text", "chat"}:
+            raise VN97ProductionCorpusError(
+                "corpus source mode must be text or chat"
+            )
+        if item["split"] not in {"training", "validation", "release"}:
+            raise VN97ProductionCorpusError(
+                "corpus source split is invalid"
             )
         path_bytes = item["path"].encode("utf-8")
         if not path_bytes or len(path_bytes) > _MAX_PATH_BYTES:
@@ -103,6 +123,10 @@ def _load_definition(path: Path) -> tuple[str, list[dict[str, object]]]:
                 "corpus source path is outside bounds"
             )
         parsed.append(item)
+    if not root["profile_id"] or len(root["profile_id"].encode("utf-8")) > 128:
+        raise VN97ProductionCorpusError(
+            "corpus profile_id must be 1..128 UTF-8 bytes"
+        )
     return root["profile_id"], parsed
 
 
