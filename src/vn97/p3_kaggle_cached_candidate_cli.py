@@ -170,6 +170,11 @@ def _parser() -> argparse.ArgumentParser:
         type=int,
         default=1,
     )
+    parser.add_argument(
+        "--micro-batch-size",
+        type=int,
+        default=2,
+    )
     return parser
 
 
@@ -178,6 +183,14 @@ def main(argv: list[str] | None = None) -> int:
     if not 0 <= args.cpu_prefetch_workers <= 8:
         raise VN97P3KaggleError(
             "cpu-prefetch-workers must be in [0, 8]"
+        )
+    if (
+        args.micro_batch_size <= 0
+        or args.micro_batch_size > BATCH_SIZE
+        or BATCH_SIZE % args.micro_batch_size != 0
+    ):
+        raise VN97P3KaggleError(
+            "micro-batch-size must be a positive divisor of logical P3 batch size"
         )
     if not args.device.startswith("cuda"):
         raise VN97P3KaggleError(
@@ -367,7 +380,8 @@ def main(argv: list[str] | None = None) -> int:
         f"id={candidate.candidate_id} "
         f"device={args.device} "
         f"windows={train_inputs.shape[0]} "
-        f"cpu_prefetch_workers={args.cpu_prefetch_workers}",
+        f"cpu_prefetch_workers={args.cpu_prefetch_workers} "
+        f"micro_batch_size={args.micro_batch_size}",
         flush=True,
     )
     training = train_vn97_from_tensors(
@@ -378,6 +392,8 @@ def main(argv: list[str] | None = None) -> int:
         device=args.device,
         cpu_prefetch_workers=
             args.cpu_prefetch_workers,
+        micro_batch_size=
+            args.micro_batch_size,
     )
     evaluation = evaluate_vn97_from_tensors(
         model,
@@ -387,6 +403,8 @@ def main(argv: list[str] | None = None) -> int:
         device=args.device,
         cpu_prefetch_workers=
             args.cpu_prefetch_workers,
+        micro_batch_size=
+            args.micro_batch_size,
     )
 
     criteria = VN97ReleaseCriteria(
