@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+from collections import deque
+from concurrent.futures import Future, ThreadPoolExecutor
 import hashlib
 import io
 import json
 import math
 from pathlib import Path
 import random
-from typing import Any
+from typing import Any, Iterator
 
 import torch
 import torch.nn.functional as F
@@ -246,6 +248,114 @@ def load_cache_manifest(
     return value
 
 
+def _prepare_cpu_batch(
+    input_ids: torch.Tensor,
+    labels: torch.Tensor,
+    batch_indices: list[int],
+) -> tuple[torch.Tensor, torch.Tensor]:
+    index_tensor = torch.tensor(
+        batch_indices,
+        dtype=torch.long,
+    )
+    inputs = input_ids.index_select(
+        0,
+        index_tensor,
+    ).to(
+        dtype=torch.long,
+    )
+    batch_labels = labels.index_select(
+        0,
+        index_tensor,
+    ).to(
+        dtype=torch.long,
+    )
+    if torch.cuda.is_available():
+        inputs = inputs.pin_memory()
+        batch_labels = batch_labels.pin_memory()
+    return inputs, batch_labels
+
+
+def _iter_prefetched_cpu_batches(
+    input_ids: torch.Tensor,
+    labels: torch.Tensor,
+    *,
+    indices: list[int],
+    batch_size: int,
+    workers: int,
+) -> Iterator[
+    tuple[torch.Tensor, torch.Tensor]
+]:
+    if batch_size <= 0:
+        raise VN97P3TensorCacheError(
+            "prefetch batch size must be positive"
+        )
+    if workers < 0 or workers > 8:
+        raise VN97P3TensorCacheError(
+            "CPU prefetch workers must be in [0, 8]"
+        )
+
+    batches = [
+        indices[start : start + batch_size]
+        for start in range(
+            0,
+            len(indices),
+            batch_size,
+        )
+    ]
+    if workers == 0:
+        for batch_indices in batches:
+            yield _prepare_cpu_batch(
+                input_ids,
+                labels,
+                batch_indices,
+            )
+        return
+
+    with ThreadPoolExecutor(
+        max_workers=workers,
+        thread_name_prefix="vn97-p3-prefetch",
+    ) as executor:
+        pending: deque[
+            Future[
+                tuple[
+                    torch.Tensor,
+                    torch.Tensor,
+                ]
+            ]
+        ] = deque()
+        next_batch = 0
+        queue_depth = workers + 1
+
+        while (
+            next_batch < len(batches)
+            and len(pending) < queue_depth
+        ):
+            pending.append(
+                executor.submit(
+                    _prepare_cpu_batch,
+                    input_ids,
+                    labels,
+                    batches[next_batch],
+                )
+            )
+            next_batch += 1
+
+        while pending:
+            future = pending.popleft()
+            yield future.result()
+
+            if next_batch < len(batches):
+                pending.append(
+                    executor.submit(
+                        _prepare_cpu_batch,
+                        input_ids,
+                        labels,
+                        batches[next_batch],
+                    )
+                )
+                next_batch += 1
+
+
 def train_vn97_from_tensors(
     model: VN97LanguageCore,
     input_ids: torch.Tensor,
@@ -253,6 +363,7 @@ def train_vn97_from_tensors(
     config: VN97TrainingConfig,
     *,
     device: str | torch.device,
+    cpu_prefetch_workers: int = 1,
 ) -> VN97TrainingResult:
     if not isinstance(model, VN97LanguageCore):
         raise TypeError("model must be VN97LanguageCore")
@@ -299,35 +410,23 @@ def train_vn97_from_tensors(
         if config.shuffle:
             rng.shuffle(indices)
 
-        for batch_start in range(
-            0,
-            window_count,
-            config.batch_size,
+        for (
+            cpu_inputs,
+            cpu_labels,
+        ) in _iter_prefetched_cpu_batches(
+            input_ids,
+            labels,
+            indices=indices,
+            batch_size=config.batch_size,
+            workers=cpu_prefetch_workers,
         ):
-            batch_indices = indices[
-                batch_start:
-                batch_start
-                + config.batch_size
-            ]
-            index_tensor = torch.tensor(
-                batch_indices,
-                dtype=torch.long,
-            )
-            inputs = input_ids.index_select(
-                0,
-                index_tensor,
-            ).to(
+            inputs = cpu_inputs.to(
                 device=resolved,
-                dtype=torch.long,
-                non_blocking=False,
+                non_blocking=True,
             )
-            batch_labels = labels.index_select(
-                0,
-                index_tensor,
-            ).to(
+            batch_labels = cpu_labels.to(
                 device=resolved,
-                dtype=torch.long,
-                non_blocking=False,
+                non_blocking=True,
             )
 
             optimizer.zero_grad(
@@ -414,6 +513,7 @@ def evaluate_vn97_from_tensors(
     *,
     batch_size: int,
     device: str | torch.device,
+    cpu_prefetch_workers: int = 1,
 ) -> VN97EvaluationResult:
     if (
         input_ids.ndim != 2
@@ -441,28 +541,26 @@ def evaluate_vn97_from_tensors(
     )
 
     with torch.no_grad():
-        for start in range(
-            0,
-            window_count,
-            batch_size,
+        indices = list(
+            range(window_count)
+        )
+        for (
+            cpu_inputs,
+            cpu_labels,
+        ) in _iter_prefetched_cpu_batches(
+            input_ids,
+            labels,
+            indices=indices,
+            batch_size=batch_size,
+            workers=cpu_prefetch_workers,
         ):
-            end = min(
-                start + batch_size,
-                window_count,
-            )
-            inputs = input_ids[
-                start:end
-            ].to(
+            inputs = cpu_inputs.to(
                 device=resolved,
-                dtype=torch.long,
-                non_blocking=False,
+                non_blocking=True,
             )
-            batch_labels = labels[
-                start:end
-            ].to(
+            batch_labels = cpu_labels.to(
                 device=resolved,
-                dtype=torch.long,
-                non_blocking=False,
+                non_blocking=True,
             )
             logits, _ = model(inputs)
             if (
