@@ -1,5 +1,6 @@
 package ai.vn97.app
 
+import java.nio.charset.CodingErrorAction
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.util.Base64
@@ -102,6 +103,12 @@ internal data class VN97TurnkeyReleaseManifest(
             val text =
                 StandardCharsets.UTF_8
                     .newDecoder()
+                    .onMalformedInput(
+                        CodingErrorAction.REPORT
+                    )
+                    .onUnmappableCharacter(
+                        CodingErrorAction.REPORT
+                    )
                     .decode(
                         java.nio.ByteBuffer.wrap(
                             bytes
