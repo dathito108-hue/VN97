@@ -53,40 +53,27 @@ records in training.
 
 ## Canonical run
 
-Given a sealed P1 corpus directory:
+Given a sealed P1 corpus directory, use the fixed P2 runner:
 
 ```bash
-vn97-campaign \
-  --input production-corpus-pilot/training.jsonl \
-  --validation-input production-corpus-pilot/validation.jsonl \
-  --release-input production-corpus-pilot/release.jsonl \
-  --format chat \
-  --validation-format chat \
-  --release-format chat \
-  --campaign configs/p2-medium-pilot.vn97campdef1.json \
+vn97-medium-pilot \
+  --corpus-dir production-corpus-pilot \
   --output-dir p2-medium-output \
-  --learned-tokens 4096 \
-  --min-pair-count 2 \
-  --sequence-length 256 \
-  --batch-size 2 \
-  --validation-batch-size 2 \
-  --release-batch-size 2 \
-  --epochs 2 \
-  --max-windows 2048 \
-  --validation-max-windows 256 \
-  --release-max-windows 256 \
-  --max-parameters 5000000 \
-  --max-model-image-bytes 67108864 \
-  --max-recurrent-state-bytes 8388608 \
-  --deployment-tile-rows 16 \
-  --deployment-tile-cols 16 \
-  --max-validation-loss 12.0 \
-  --min-validation-accuracy 0.0 \
-  --min-validation-target-tokens 64 \
-  --release-max-validation-loss 12.0 \
-  --release-min-validation-accuracy 0.0 \
-  --release-min-validation-target-tokens 64 \
   --device cpu
+```
+
+The runner first verifies the exact VN97CORPUS1 output set, recomputes the corpus
+manifest identity, checks every split hash/byte/record count, generates the fixed
+medium candidate manifest internally, and then invokes the existing
+`vn97-campaign` path with the locked P2 settings.
+
+On a rented GPU, the same command changes only the explicit device:
+
+```bash
+vn97-medium-pilot \
+  --corpus-dir production-corpus-pilot \
+  --output-dir p2-medium-output \
+  --device cuda
 ```
 
 The loose loss ceilings are integrity/pipeline guards, not production-quality
@@ -99,13 +86,16 @@ A successful P2 run must leave:
 - `tokenizer.vn97tk1`;
 - `model.vn97ck1`;
 - `campaign-report.json` with schema `VN97CAMP2`;
+- `model.vn97mi1` exported from the exact reloaded checkpoint;
+- `pilot.vn97pilot1.json` with schema `VN97PILOT1`;
 - finite training/evaluation losses;
 - nonzero supervised target-token/step counts;
 - a selected checkpoint whose SHA-256 survives canonical reload;
 - successful sealed-release evaluation of that exact validation-selected candidate.
 
-The checkpoint is then exercised through the existing VN97 model-image/native path
-before P3 begins.
+VN97PILOT1 binds the corpus manifest identity and SHA-256, campaign-report SHA-256,
+fixed candidate/profile identities, checkpoint/tokenizer identities, model-image
+identity/size and the explicit compute device used for the run.
 
 ## CPU-first, not CPU-only
 
