@@ -566,20 +566,27 @@ class VN97AppProvisioner(
                         spec.candidateArtifactSha256 &&
                     current.capabilityVersion ==
                         spec.candidateCapabilityVersion -> {
-                    requireActivatedCandidate(
-                        current,
-                        intent,
-                    )
-                    verifyActivatedModel(current)
-                    promotionLedger
-                        .completePromoted(
-                            promotionId =
-                                intent.promotionId,
-                            activationId =
-                                current.activationId,
-                            artifactSha256 =
-                                current.artifactSha256,
+                    try {
+                        requireActivatedCandidate(
+                            current,
+                            intent,
                         )
+                        verifyActivatedModel(current)
+                        promotionLedger
+                            .completePromoted(
+                                promotionId =
+                                    intent.promotionId,
+                                activationId =
+                                    current.activationId,
+                                artifactSha256 =
+                                    current.artifactSha256,
+                            )
+                    } catch (exc: Throwable) {
+                        reconcileFailedPromotion(
+                            intent = intent,
+                            cause = exc,
+                        )
+                    }
                 }
                 current != null &&
                     current.activationId ==
