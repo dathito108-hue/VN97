@@ -364,6 +364,7 @@ def train_vn97_from_tensors(
     *,
     device: str | torch.device,
     cpu_prefetch_workers: int = 1,
+    micro_batch_size: int | None = None,
 ) -> VN97TrainingResult:
     if not isinstance(model, VN97LanguageCore):
         raise TypeError("model must be VN97LanguageCore")
@@ -377,6 +378,17 @@ def train_vn97_from_tensors(
         raise VN97P3TensorCacheError(
             "training tensor cache shape is invalid"
         )
+    if micro_batch_size is None:
+        micro_batch_size = config.batch_size
+    if (
+        micro_batch_size <= 0
+        or micro_batch_size > config.batch_size
+        or config.batch_size % micro_batch_size != 0
+    ):
+        raise VN97P3TensorCacheError(
+            "micro_batch_size must be a positive divisor of logical batch_size"
+        )
+
     resolved = torch.device(device)
     if resolved.type != "cuda":
         raise VN97P3TensorCacheError(
@@ -420,44 +432,112 @@ def train_vn97_from_tensors(
             batch_size=config.batch_size,
             workers=cpu_prefetch_workers,
         ):
-            inputs = cpu_inputs.to(
-                device=resolved,
-                non_blocking=True,
-            )
-            batch_labels = cpu_labels.to(
-                device=resolved,
-                non_blocking=True,
-            )
-
             optimizer.zero_grad(
                 set_to_none=True
             )
-            logits, _ = model(inputs)
-            if (
-                logits.ndim != 3
-                or logits.shape[:2]
-                != inputs.shape
-                or logits.shape[-1]
-                != model.config.vocab_size
-            ):
-                raise RuntimeError(
-                    "VN97 model returned invalid training logits shape"
-                )
-            loss = F.cross_entropy(
-                logits.reshape(
-                    -1,
-                    logits.shape[-1],
-                ),
-                batch_labels.reshape(-1),
-                ignore_index=IGNORE_INDEX,
+
+            logical_targets = int(
+                (
+                    cpu_labels
+                    != IGNORE_INDEX
+                ).sum().item()
             )
-            if not bool(
-                torch.isfinite(loss)
+            if logical_targets <= 0:
+                raise RuntimeError(
+                    "logical training batch contains no supervised targets"
+                )
+
+            logical_loss_sum = 0.0
+            logical_trained_tokens = 0
+
+            for micro_start in range(
+                0,
+                int(cpu_inputs.shape[0]),
+                micro_batch_size,
+            ):
+                micro_end = min(
+                    micro_start + micro_batch_size,
+                    int(cpu_inputs.shape[0]),
+                )
+                inputs = cpu_inputs[
+                    micro_start:micro_end
+                ].to(
+                    device=resolved,
+                    non_blocking=True,
+                )
+                batch_labels = cpu_labels[
+                    micro_start:micro_end
+                ].to(
+                    device=resolved,
+                    non_blocking=True,
+                )
+
+                logits, _ = model(inputs)
+                if (
+                    logits.ndim != 3
+                    or logits.shape[:2]
+                    != inputs.shape
+                    or logits.shape[-1]
+                    != model.config.vocab_size
+                ):
+                    raise RuntimeError(
+                        "VN97 model returned invalid training logits shape"
+                    )
+
+                micro_loss_sum = F.cross_entropy(
+                    logits.reshape(
+                        -1,
+                        logits.shape[-1],
+                    ),
+                    batch_labels.reshape(-1),
+                    ignore_index=IGNORE_INDEX,
+                    reduction="sum",
+                )
+                if not bool(
+                    torch.isfinite(
+                        micro_loss_sum
+                    )
+                ):
+                    raise RuntimeError(
+                        "VN97 training loss became non-finite"
+                    )
+
+                micro_targets = int(
+                    (
+                        batch_labels
+                        != IGNORE_INDEX
+                    ).sum().item()
+                )
+                if micro_targets <= 0:
+                    raise RuntimeError(
+                        "micro batch contains no supervised targets"
+                    )
+
+                (
+                    micro_loss_sum
+                    / logical_targets
+                ).backward()
+
+                logical_loss_sum += float(
+                    micro_loss_sum.detach().cpu()
+                )
+                logical_trained_tokens += (
+                    micro_targets
+                )
+
+                del inputs
+                del batch_labels
+                del logits
+                del micro_loss_sum
+
+            if (
+                logical_trained_tokens
+                != logical_targets
             ):
                 raise RuntimeError(
-                    "VN97 training loss became non-finite"
+                    "micro-batch target count changed logical batch semantics"
                 )
-            loss.backward()
+
             grad_norm = (
                 torch.nn.utils.clip_grad_norm_(
                     model.parameters(),
@@ -476,16 +556,12 @@ def train_vn97_from_tensors(
                 )
             optimizer.step()
 
-            value = float(
-                loss.detach().cpu()
+            value = (
+                logical_loss_sum
+                / logical_targets
             )
             losses.append(value)
-            trained_tokens += int(
-                (
-                    batch_labels
-                    != IGNORE_INDEX
-                ).sum().item()
-            )
+            trained_tokens += logical_targets
             steps += 1
 
     model.eval()
@@ -514,6 +590,7 @@ def evaluate_vn97_from_tensors(
     batch_size: int,
     device: str | torch.device,
     cpu_prefetch_workers: int = 1,
+    micro_batch_size: int | None = None,
 ) -> VN97EvaluationResult:
     if (
         input_ids.ndim != 2
@@ -525,6 +602,17 @@ def evaluate_vn97_from_tensors(
         raise VN97P3TensorCacheError(
             "evaluation tensor cache shape is invalid"
         )
+    if micro_batch_size is None:
+        micro_batch_size = batch_size
+    if (
+        micro_batch_size <= 0
+        or micro_batch_size > batch_size
+        or batch_size % micro_batch_size != 0
+    ):
+        raise VN97P3TensorCacheError(
+            "evaluation micro_batch_size must be a positive divisor of batch_size"
+        )
+
     resolved = torch.device(device)
     if resolved.type != "cuda":
         raise VN97P3TensorCacheError(
@@ -554,68 +642,86 @@ def evaluate_vn97_from_tensors(
             batch_size=batch_size,
             workers=cpu_prefetch_workers,
         ):
-            inputs = cpu_inputs.to(
-                device=resolved,
-                non_blocking=True,
-            )
-            batch_labels = cpu_labels.to(
-                device=resolved,
-                non_blocking=True,
-            )
-            logits, _ = model(inputs)
-            if (
-                logits.ndim != 3
-                or logits.shape[:2]
-                != inputs.shape
-                or logits.shape[-1]
-                != model.config.vocab_size
+            for micro_start in range(
+                0,
+                int(cpu_inputs.shape[0]),
+                micro_batch_size,
             ):
-                raise RuntimeError(
-                    "VN97 model returned invalid evaluation logits shape"
+                micro_end = min(
+                    micro_start + micro_batch_size,
+                    int(cpu_inputs.shape[0]),
                 )
-            active = (
-                batch_labels
-                != IGNORE_INDEX
-            )
-            target_count = int(
-                active.sum().item()
-            )
-            if target_count <= 0:
-                raise RuntimeError(
-                    "evaluation batch contains no supervised targets"
+                inputs = cpu_inputs[
+                    micro_start:micro_end
+                ].to(
+                    device=resolved,
+                    non_blocking=True,
                 )
-            loss = F.cross_entropy(
-                logits.reshape(
-                    -1,
-                    logits.shape[-1],
-                ),
-                batch_labels.reshape(-1),
-                ignore_index=IGNORE_INDEX,
-                reduction="sum",
-            )
-            if not bool(
-                torch.isfinite(loss)
-            ):
-                raise RuntimeError(
-                    "VN97 validation loss became non-finite"
+                batch_labels = cpu_labels[
+                    micro_start:micro_end
+                ].to(
+                    device=resolved,
+                    non_blocking=True,
                 )
-            predictions = (
-                logits.argmax(dim=-1)
-            )
-            correct = int(
-                (
-                    (
-                        predictions
-                        == batch_labels
+                logits, _ = model(inputs)
+                if (
+                    logits.ndim != 3
+                    or logits.shape[:2]
+                    != inputs.shape
+                    or logits.shape[-1]
+                    != model.config.vocab_size
+                ):
+                    raise RuntimeError(
+                        "VN97 model returned invalid evaluation logits shape"
                     )
-                    & active
-                ).sum().item()
-            )
-            total_loss += float(
-                loss.detach().cpu()
-            )
-            total_targets += target_count
-            total_correct += correct
+                active = (
+                    batch_labels
+                    != IGNORE_INDEX
+                )
+                target_count = int(
+                    active.sum().item()
+                )
+                if target_count <= 0:
+                    raise RuntimeError(
+                        "evaluation micro batch contains no supervised targets"
+                    )
+                loss = F.cross_entropy(
+                    logits.reshape(
+                        -1,
+                        logits.shape[-1],
+                    ),
+                    batch_labels.reshape(-1),
+                    ignore_index=IGNORE_INDEX,
+                    reduction="sum",
+                )
+                if not bool(
+                    torch.isfinite(loss)
+                ):
+                    raise RuntimeError(
+                        "VN97 validation loss became non-finite"
+                    )
+                predictions = (
+                    logits.argmax(dim=-1)
+                )
+                correct = int(
+                    (
+                        (
+                            predictions
+                            == batch_labels
+                        )
+                        & active
+                    ).sum().item()
+                )
+                total_loss += float(
+                    loss.detach().cpu()
+                )
+                total_targets += target_count
+                total_correct += correct
+
+                del inputs
+                del batch_labels
+                del logits
+                del loss
 
     return VN97EvaluationResult(
         windows=window_count,

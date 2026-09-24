@@ -67,7 +67,8 @@ run_one() {
     --candidate-index "$index" \
     --output-dir "$out" \
     --device cuda:0 \
-    --cpu-prefetch-workers "${VN97_CPU_PREFETCH_WORKERS:-1}"
+    --cpu-prefetch-workers "${VN97_CPU_PREFETCH_WORKERS:-1}" \
+    --micro-batch-size "${VN97_MICRO_BATCH_SIZE:-2}"
 }
 
 run_pair() {
@@ -84,6 +85,7 @@ run_pair() {
   echo "candidate $second -> physical GPU 1 pid=$p2"
   echo "CPU support threads per GPU process: ${VN97_CPU_THREADS_PER_GPU:-2}"
   echo "CPU prefetch workers per GPU process: ${VN97_CPU_PREFETCH_WORKERS:-1}"
+  echo "GPU micro-batch size: ${VN97_MICRO_BATCH_SIZE:-2} (logical batch remains 8)"
 
   local monitor_pid=""
   if command -v nvidia-smi >/dev/null 2>&1; then
