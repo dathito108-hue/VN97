@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import importlib.util
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -37,7 +38,9 @@ _CHECK_NAMES = (
     "output_directory",
     "publisher_private_key",
     "python_dependencies",
+    "quality_thresholds",
     "release_identity",
+    "release_metadata",
     "repository",
     "source_bootstrap_slot",
     "speech_validation",
@@ -563,6 +566,13 @@ def evaluate_production_readiness(
     speech_validation_input: Path | None,
     vision_validation_input: Path | None,
     output_dir: Path | None,
+    key_id: str | None,
+    capability_version: int | None,
+    source_origin: str | None,
+    source_license: str | None,
+    max_validation_loss: float | None,
+    max_speech_validation_loss: float | None,
+    max_vision_validation_loss: float | None,
     gradle: str,
     apksigner: str | None,
     aapt: str | None,
@@ -713,6 +723,111 @@ def evaluate_production_readiness(
                 "intelligence",
                 "VN97RC1 release candidate failed canonical directory/identity verification.",
             )
+
+    metadata_values = (
+        key_id,
+        source_origin,
+        source_license,
+    )
+    if (
+        any(
+            not isinstance(value, str)
+            or not value
+            or len(value) > 256
+            or any(ord(ch) < 0x20 for ch in value)
+            for value in metadata_values
+        )
+        or type(capability_version) is not int
+        or not 1 <= capability_version <= 0xffffffff
+    ):
+        _block(
+            blockers,
+            checks,
+            "release_metadata",
+            "release_metadata.invalid",
+            "release",
+            "Publisher key id, capability version, source origin and source license must be valid production metadata.",
+        )
+
+    language_loss_valid = (
+        isinstance(max_validation_loss, (int, float))
+        and not isinstance(max_validation_loss, bool)
+        and math.isfinite(float(max_validation_loss))
+        and float(max_validation_loss) > 0.0
+    )
+    speech_loss_valid = (
+        max_speech_validation_loss is None
+        or (
+            isinstance(
+                max_speech_validation_loss,
+                (int, float),
+            )
+            and not isinstance(
+                max_speech_validation_loss,
+                bool,
+            )
+            and math.isfinite(
+                float(
+                    max_speech_validation_loss
+                )
+            )
+            and float(
+                max_speech_validation_loss
+            ) > 0.0
+        )
+    )
+    vision_loss_valid = (
+        max_vision_validation_loss is None
+        or (
+            isinstance(
+                max_vision_validation_loss,
+                (int, float),
+            )
+            and not isinstance(
+                max_vision_validation_loss,
+                bool,
+            )
+            and math.isfinite(
+                float(
+                    max_vision_validation_loss
+                )
+            )
+            and float(
+                max_vision_validation_loss
+            ) > 0.0
+        )
+    )
+    if (
+        not language_loss_valid
+        or (
+            loaded is not None
+            and loaded.manifest.speech_enabled
+            and not (
+                speech_loss_valid
+                and max_speech_validation_loss
+                is not None
+            )
+        )
+        or (
+            loaded is not None
+            and loaded.manifest.vision_enabled
+            and not (
+                vision_loss_valid
+                and max_vision_validation_loss
+                is not None
+            )
+        )
+        or not speech_loss_valid
+        or not vision_loss_valid
+    ):
+        _block(
+            blockers,
+            checks,
+            "quality_thresholds",
+            "quality_thresholds.invalid",
+            "quality",
+            "Fresh language and enabled-modality maximum validation-loss thresholds must be finite positive values.",
+        )
 
     if publisher_private_key is None:
         _block(
