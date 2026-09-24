@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.metadata
 import json
 import os
+import platform
 from pathlib import Path
 import shutil
 import stat
@@ -154,6 +156,32 @@ def _verify_repository(
             "running M19G code does not match the repository checkout bound by VN97RUN1"
         )
     return root
+
+
+def _environment_ready(
+    manifest: VN97ProductionRunManifest,
+) -> bool:
+    try:
+        torch_version = (
+            importlib.metadata.version(
+                "torch"
+            )
+        )
+    except (
+        importlib.metadata.PackageNotFoundError,
+        ValueError,
+    ):
+        return False
+    return (
+        platform.python_version()
+        == manifest.python_version
+        and torch_version
+        == manifest.torch_version
+        and platform.system()
+        == manifest.platform_system
+        and platform.machine()
+        == manifest.platform_machine
+    )
 
 
 def _stage_environment(
@@ -411,6 +439,7 @@ def _canonical_receipt(
     stage: str,
     repository_commit: str,
     device_evidence_ready: bool,
+    environment_ready: bool,
     language_report_sha256: str | None,
     production_report_sha256: str | None,
     intake_report_sha256: str | None,
@@ -420,6 +449,8 @@ def _canonical_receipt(
         {
             "device_evidence_ready":
                 device_evidence_ready,
+            "environment_ready":
+                environment_ready,
             "intake_report_sha256":
                 intake_report_sha256,
             "language_campaign_report_sha256":
@@ -569,6 +600,11 @@ def main(
                 .repository_commit,
         )
     )
+    environment_ready = (
+        _environment_ready(
+            manifest
+        )
+    )
 
     evidence_ready = False
     try:
@@ -590,6 +626,8 @@ def main(
                     .repository_commit,
                 device_evidence_ready=
                     evidence_ready,
+                environment_ready=
+                    environment_ready,
                 language_report_sha256=None,
                 production_report_sha256=None,
                 intake_report_sha256=None,
@@ -606,6 +644,10 @@ def main(
         )
         return 0
 
+    if args.stage != "verify" and not environment_ready:
+        raise ValueError(
+            "VN97RUN1 Python/Torch/platform environment does not match the current execution environment"
+        )
     if args.stage == "all" and not evidence_ready:
         raise ValueError(
             "stage all requires physical-device evidence to be present before training starts"
@@ -764,6 +806,8 @@ def main(
             manifest.repository_commit,
         device_evidence_ready=
             evidence_ready,
+        environment_ready=
+            environment_ready,
         language_report_sha256=
             language.report_sha256,
         production_report_sha256=(
