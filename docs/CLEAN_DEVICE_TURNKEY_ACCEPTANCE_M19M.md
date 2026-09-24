@@ -23,7 +23,9 @@ vn97-turnkey-accept \
 ```
 
 By default M19M uninstalls the acceptance copy after success. Use
-`--keep-installed` only when the accepted APK should remain on the test phone.
+`--keep-installed` only when the successfully accepted APK should remain on the test phone.
+A failed acceptance is always uninstalled even when `--keep-installed` was requested,
+so an unaccepted build is not left behind on the clean-device test target.
 
 ## Exact release binding
 
@@ -217,7 +219,13 @@ ADB serial numbers are deliberately not persisted in VN97ACCEPT1.
 Default acceptance uninstalls `ai.vn97.app` after success/failure cleanup so the
 dedicated test phone returns to a clean app state.
 
+`--keep-installed` changes cleanup only after every acceptance check has succeeded. If
+any install-time, bootstrap, self-test, floating-service, reboot or post-reboot check fails,
+M19M still attempts to uninstall the package before returning the original failure.
+
 If a successful acceptance cannot perform requested cleanup, no VN97ACCEPT1 is emitted.
+If failure cleanup also fails, that cleanup failure is attached to the primary acceptance
+error and no VN97ACCEPT1 is emitted.
 
 ## CI boundary
 
