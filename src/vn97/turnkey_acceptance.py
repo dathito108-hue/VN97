@@ -33,6 +33,12 @@ from .release_attestation import (
 SCHEMA = "VN97ACCEPT1"
 SELFTEST_SCHEMA = "VN97SELFTEST1"
 MAX_RECEIPT_BYTES = 256 * 1024
+_EXPECTED_RELEASE_ENTRIES = {
+    "VN97-production.apk",
+    "bootstrap-release.vn97bootrel6.json",
+    "production-readiness.vn97ready1",
+    "release-attestation.vn97apk1",
+}
 
 ACCEPTANCE_RECEIVER = (
     "ai.vn97.app/.VN97TurnkeyAcceptanceReceiver"
@@ -948,13 +954,74 @@ def _load_release_binding(
             receipt_bytes
         )
     )
-    root = release_dir.resolve(
-        strict=True
-    )
-    if not root.is_dir():
-        raise VN97TurnkeyAcceptanceError(
-            "release directory is invalid"
+    try:
+        release_info = os.lstat(
+            release_dir
         )
+        root = release_dir.resolve(
+            strict=True
+        )
+    except OSError as exc:
+        raise VN97TurnkeyAcceptanceError(
+            "release directory is unavailable"
+        ) from exc
+    if (
+        stat.S_ISLNK(
+            release_info.st_mode
+        )
+        or not stat.S_ISDIR(
+            release_info.st_mode
+        )
+        or not root.is_dir()
+    ):
+        raise VN97TurnkeyAcceptanceError(
+            "release directory must be a real non-symlink directory"
+        )
+    try:
+        actual_entries = {
+            entry.name
+            for entry in root.iterdir()
+        }
+    except OSError as exc:
+        raise VN97TurnkeyAcceptanceError(
+            "release directory entries could not be inspected"
+        ) from exc
+    if (
+        actual_entries
+        != _EXPECTED_RELEASE_ENTRIES
+    ):
+        raise VN97TurnkeyAcceptanceError(
+            "release directory entries do not match canonical M19L bundle"
+        )
+
+    readiness_path = _regular_file(
+        root
+        / "production-readiness.vn97ready1",
+        label="VN97READY1 report",
+        max_bytes=256 * 1024,
+    )
+    bootstrap_path = _regular_file(
+        root
+        / "bootstrap-release.vn97bootrel6.json",
+        label="VN97BOOTREL6 report",
+        max_bytes=1024 * 1024,
+    )
+    if (
+        _sha256_file(
+            readiness_path
+        )
+        != receipt
+        .readiness_report_sha256
+        or _sha256_file(
+            bootstrap_path
+        )
+        != receipt
+        .bootstrap_release_report_sha256
+    ):
+        raise VN97TurnkeyAcceptanceError(
+            "canonical M19L release reports do not match VN97FINAL1"
+        )
+
     apk = _regular_file(
         root / "VN97-production.apk",
         label="VN97 production APK",
@@ -1004,6 +1071,18 @@ def _load_release_binding(
         .signer_certificate_sha256
         != receipt
         .signer_certificate_sha256
+        or attestation
+        .release_candidate_manifest_sha256
+        != receipt
+        .release_candidate_manifest_sha256
+        or attestation
+        .bootstrap_release_report_sha256
+        != receipt
+        .bootstrap_release_report_sha256
+        or attestation
+        .release_manifest_sha256
+        != receipt
+        .release_manifest_sha256
     ):
         raise VN97TurnkeyAcceptanceError(
             "VN97APK1 identity does not match VN97FINAL1"
@@ -1497,6 +1576,36 @@ def _wait_for_reboot(
     )
 
 
+def _validate_acceptance_output(
+    *,
+    release_dir: Path,
+    output_path: Path | None,
+) -> None:
+    if output_path is None:
+        return
+    release_target = release_dir.resolve(
+        strict=True
+    )
+    output_target = output_path.resolve(
+        strict=False
+    )
+    if (
+        output_target == release_target
+        or release_target
+        in output_target.parents
+    ):
+        raise VN97TurnkeyAcceptanceError(
+            "VN97ACCEPT1 output must stay outside the canonical M19L release directory"
+        )
+    if (
+        output_path.exists()
+        or output_path.is_symlink()
+    ):
+        raise VN97TurnkeyAcceptanceError(
+            "VN97ACCEPT1 output must not already exist"
+        )
+
+
 def _atomic_create(
     path: Path,
     data: bytes,
@@ -1586,6 +1695,10 @@ def run_clean_device_acceptance(
         final_receipt_path=
             final_receipt_path,
         release_dir=release_dir,
+    )
+    _validate_acceptance_output(
+        release_dir=release_dir,
+        output_path=output_path,
     )
     _verify_repository(
         repository_root,
