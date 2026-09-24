@@ -170,6 +170,16 @@ def _validate_corpus(corpus_dir: Path) -> tuple[str, str]:
         data,
         label="VN97CORPUS1 manifest",
     )
+    if set(manifest) != {
+        "manifest_id",
+        "profile_id",
+        "schema",
+        "sources",
+        "splits",
+    }:
+        raise VN97MediumPilotError(
+            "VN97CORPUS1 manifest fields are invalid"
+        )
     if manifest.get("schema") != "VN97CORPUS1":
         raise VN97MediumPilotError(
             "P2 requires VN97CORPUS1"
@@ -182,6 +192,25 @@ def _validate_corpus(corpus_dir: Path) -> tuple[str, str]:
         manifest.get("manifest_id"),
         label="corpus manifest ID",
     )
+    identity = {
+        key: value
+        for key, value in manifest.items()
+        if key != "manifest_id"
+    }
+    expected_manifest_id = hashlib.sha256(
+        b"VN97CORPUS1\0"
+        + json.dumps(
+            identity,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+    ).hexdigest()
+    if manifest_id != expected_manifest_id:
+        raise VN97MediumPilotError(
+            "VN97CORPUS1 manifest identity mismatch"
+        )
     splits = manifest.get("splits")
     if (
         not isinstance(splits, dict)
