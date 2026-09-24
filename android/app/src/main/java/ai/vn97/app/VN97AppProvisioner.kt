@@ -141,7 +141,7 @@ class VN97AppProvisioner(
 
             val wasOpen =
                 application.assistant
-                    .releaseForBackgroundContinuation()
+                    .releaseForModelEvaluation()
             try {
                 improvementEvaluator
                     .evaluate(candidate)
