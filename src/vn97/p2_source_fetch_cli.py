@@ -283,7 +283,9 @@ def _download_one(
         records = _jsonl_record_count(temp)
         if records != source.expected_records:
             raise VN97P2SourceFetchError(
-                f"source record-count mismatch: {source.source_id}"
+                "source record-count mismatch: "
+                f"{source.source_id} expected={source.expected_records} "
+                f"observed={records}"
             )
 
         try:
