@@ -11,11 +11,16 @@ import stat
 import tempfile
 from typing import Callable, Sequence, Any
 
+from .device_evidence import (
+    require_device_evidence,
+)
 from .device_evidence_campaign import (
     VN97PhysicalEvidenceConfig,
+    _production_policy,
     collect_physical_device_evidence,
 )
 from .production_intake import (
+    inspect_device_evidence_files,
     inspect_language_campaign_directory,
     inspect_production_campaign_directory,
     parse_production_intake_report,
@@ -830,6 +835,10 @@ def _inspect_campaigns(
 
 def _inspect_evidence(
     directory: Path,
+    *,
+    manifest:
+        VN97ProductionRunManifest,
+    production,
 ) -> tuple[
     tuple[Path, ...],
     tuple[str, ...],
@@ -841,23 +850,54 @@ def _inspect_evidence(
     except ValueError:
         return tuple(), tuple()
 
-    evidence = []
-    for path in paths:
-        from .device_evidence import (
-            load_device_evidence,
+    if production is None:
+        raise VN97ProductionClosureError(
+            "physical-device evidence exists before canonical production output"
         )
-        evidence.append(
-            load_device_evidence(
-                path
+
+    evidence = (
+        inspect_device_evidence_files(
+            list(paths),
+            expected_model_image_sha256=
+                production
+                .model_image_sha256,
+        )
+    )
+    policy = _production_policy(
+        manifest
+    )
+    profiles = set()
+    for item in evidence:
+        require_device_evidence(
+            item,
+            policy.criteria,
+            expected_model_image_sha256=
+                production
+                .model_image_sha256,
+            speech_enabled=True,
+        )
+        profiles.add(
+            (
+                item.manufacturer,
+                item.model,
+                item.sdk_int,
+                item.abi,
             )
         )
+    if (
+        len(profiles)
+        < policy
+        .min_distinct_device_profiles
+    ):
+        raise VN97ProductionClosureError(
+            "physical-device evidence does not satisfy VN97RUN1 distinct-profile policy"
+        )
+
     return (
         paths,
         tuple(
-            sorted(
-                item.evidence_sha256
-                for item in evidence
-            )
+            item.evidence_sha256
+            for item in evidence
         ),
     )
 
@@ -1198,7 +1238,9 @@ def run_production_closure(
     )
     _, evidence_sha = (
         _inspect_evidence(
-            resolved.device_evidence_dir
+            resolved.device_evidence_dir,
+            manifest=manifest,
+            production=production,
         )
     )
     (
@@ -1321,7 +1363,9 @@ def run_production_closure(
 
     _, evidence_sha = (
         _inspect_evidence(
-            resolved.device_evidence_dir
+            resolved.device_evidence_dir,
+            manifest=manifest,
+            production=production,
         )
     )
     if not evidence_sha:
