@@ -222,6 +222,36 @@ fun main() {
             )
     }
 
+    expectM19AFailure(
+        "malformed utf8"
+    ) {
+        val invalid =
+            manifest(
+                modelSha,
+                signature,
+                publisher,
+            ).copyOf()
+        invalid[0] = 0xc3.toByte()
+        invalid[1] = 0x28.toByte()
+        VN97TurnkeyReleaseManifest
+            .parse(invalid)
+    }
+
+    expectM19AFailure(
+        "oversized manifest"
+    ) {
+        VN97TurnkeyReleaseManifest
+            .parse(
+                ByteArray(
+                    VN97TurnkeyReleaseManifest
+                        .MAX_MANIFEST_BYTES +
+                        1
+                ) {
+                    'a'.code.toByte()
+                }
+            )
+    }
+
     println(
         "M19A turnkey release manifest contracts: PASS"
     )
