@@ -360,6 +360,15 @@ def inspect_language_campaign_directory(
         raise VN97ProductionIntakeError(
             "language selected candidate is not uniquely represented"
         )
+    selected_row = selected_rows[0]
+    if (
+        selected_row.get("status") != "ELIGIBLE"
+        or selected_row.get("checkpoint_sha256")
+        != selected_checkpoint_sha256
+    ):
+        raise VN97ProductionIntakeError(
+            "language selected candidate row is not the eligible bound checkpoint"
+        )
 
     checkpoint_path = root / "model.vn97ck1"
     actual_checkpoint_sha, _ = _sha256_file(
