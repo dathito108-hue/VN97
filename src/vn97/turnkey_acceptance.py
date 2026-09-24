@@ -1930,7 +1930,11 @@ def run_clean_device_acceptance(
         )
         if (
             installed
-            and not keep_installed
+            and (
+                not keep_installed
+                or primary_failure
+                is not None
+            )
         ):
             cleanup = adb.run(
                 serial,
