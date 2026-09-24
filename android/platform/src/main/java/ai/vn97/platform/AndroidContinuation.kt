@@ -229,33 +229,151 @@ class AndroidContinuationScheduler(private val context: Context) {
 }
 
 class VN97ContinuationJobService : JobService() {
-    private val executor = Executors.newSingleThreadExecutor()
-    @Volatile private var stopped: AtomicBoolean? = null
+    private val executor =
+        Executors.newSingleThreadExecutor()
+    private val healthStore by lazy(
+        LazyThreadSafetyMode.SYNCHRONIZED
+    ) {
+        VN97ExecutionHealthStore(
+            File(
+                noBackupFilesDir,
+                "vn97-execution-health",
+            )
+        )
+    }
 
-    override fun onStartJob(params: JobParameters): Boolean {
+    @Volatile
+    private var stopped: AtomicBoolean? = null
+
+    @Volatile
+    private var systemStopped = false
+
+    override fun onStartJob(
+        params: JobParameters,
+    ): Boolean {
         val cancellation = AtomicBoolean(false)
         stopped = cancellation
+        systemStopped = false
         executor.execute {
             var reschedule = true
+            var lease:
+                VN97ExecutionHealthLease? = null
+            var watchdog:
+                VN97ExecutionWatchdog? = null
+            var failure: Throwable? = null
             try {
-                val budget = AndroidComputeGovernor(this).budget()
-                if (budget.runnable && !cancellation.get()) {
-                    reschedule = when (
-                        params.extras.getString(CONTINUATION_MODE_KEY)
-                            ?: CONTINUATION_MODE_RUNTIME
-                    ) {
-                        CONTINUATION_MODE_RUNTIME ->
-                            runRuntimeContinuation(params, budget, cancellation)
-                        CONTINUATION_MODE_ASSISTANT ->
-                            runAssistantContinuation(params, budget, cancellation)
-                        else -> error("unknown VN97 continuation mode")
+                val budget =
+                    AndroidComputeGovernor(this)
+                        .budget()
+                if (
+                    budget.runnable &&
+                    !cancellation.get()
+                ) {
+                    val begin =
+                        healthStore.begin(
+                            domain =
+                                VN97ExecutionHealthDomain
+                                    .CONTINUATION_JOB,
+                            key =
+                                params.jobId
+                                    .toString(),
+                            nowWallTimeMillis =
+                                System
+                                    .currentTimeMillis(),
+                            maxRunMillis =
+                                maxOf(
+                                    1L,
+                                    budget.maxRunMillis,
+                                ),
+                        )
+                    if (begin.suppressed) {
+                        reschedule = true
+                        return@execute
                     }
+                    lease =
+                        checkNotNull(
+                            begin.lease
+                        )
+                    watchdog =
+                        VN97ExecutionWatchdog(
+                            store = healthStore,
+                            lease = lease,
+                            cancellation =
+                                cancellation,
+                        )
+                    reschedule =
+                        when (
+                            params.extras
+                                .getString(
+                                    CONTINUATION_MODE_KEY
+                                )
+                                ?: CONTINUATION_MODE_RUNTIME
+                        ) {
+                            CONTINUATION_MODE_RUNTIME ->
+                                runRuntimeContinuation(
+                                    params,
+                                    budget,
+                                    cancellation,
+                                )
+
+                            CONTINUATION_MODE_ASSISTANT ->
+                                runAssistantContinuation(
+                                    params,
+                                    budget,
+                                    cancellation,
+                                )
+
+                            else ->
+                                error(
+                                    "unknown VN97 continuation mode"
+                                )
+                        }
                 }
-            } catch (_: Throwable) {
+            } catch (exc: Throwable) {
+                failure = exc
                 reschedule = true
             } finally {
-                if (!cancellation.get()) {
-                    jobFinished(params, reschedule)
+                watchdog?.close()
+                lease?.let {
+                    currentLease ->
+                    runCatching {
+                        healthStore.finish(
+                            lease =
+                                currentLease,
+                            state =
+                                if (
+                                    failure == null &&
+                                    !cancellation.get()
+                                ) {
+                                    VN97ExecutionHealthState
+                                        .SUCCEEDED
+                                } else {
+                                    VN97ExecutionHealthState
+                                        .FAILED
+                                },
+                            nowWallTimeMillis =
+                                System
+                                    .currentTimeMillis(),
+                            detail =
+                                failure
+                                    ?.javaClass
+                                    ?.simpleName
+                                    ?: if (
+                                        cancellation.get()
+                                    ) {
+                                        "continuation cancelled or stopped"
+                                    } else {
+                                        ""
+                                    },
+                        )
+                    }
+                }
+                if (!systemStopped) {
+                    jobFinished(
+                        params,
+                        reschedule ||
+                            cancellation.get(),
+                    )
                 }
             }
         }
@@ -267,25 +385,47 @@ class VN97ContinuationJobService : JobService() {
         budget: ComputeBudget,
         cancellation: AtomicBoolean,
     ): Boolean {
-        val provider = application as? ContinuationWorkProvider
-            ?: error("Application must implement ContinuationWorkProvider")
-        val config = params.extras.toRuntimeConfig()
-        val root = continuationRoot(params.jobId)
-        val store = AtomicCheckpointStore(root)
-        NativeRuntimeOwner(store).use { owner ->
-            val info = owner.restoreOrCreate(config)
+        val provider =
+            application as?
+                ContinuationWorkProvider
+                ?: error(
+                    "Application must implement ContinuationWorkProvider"
+                )
+        val config =
+            params.extras.toRuntimeConfig()
+        val root =
+            continuationRoot(params.jobId)
+        val store =
+            AtomicCheckpointStore(root)
+        NativeRuntimeOwner(store).use {
+            owner ->
+            val info =
+                owner.restoreOrCreate(config)
             when (info.lifecycle) {
-                RuntimeLifecycle.CREATED -> owner.activate()
-                RuntimeLifecycle.SUSPENDED -> owner.resume()
-                RuntimeLifecycle.ACTIVE -> Unit
+                RuntimeLifecycle.CREATED ->
+                    owner.activate()
+
+                RuntimeLifecycle.SUSPENDED ->
+                    owner.resume()
+
+                RuntimeLifecycle.ACTIVE ->
+                    Unit
             }
-            val outcome = provider.createVN97ContinuationWork().run(
-                ContinuationContext(owner, budget, cancellation)
-            )
+            val outcome =
+                provider
+                    .createVN97ContinuationWork()
+                    .run(
+                        ContinuationContext(
+                            owner,
+                            budget,
+                            cancellation,
+                        )
+                    )
             if (!cancellation.get()) {
                 owner.suspendAndPersist()
             }
-            return outcome == ContinuationOutcome.RESCHEDULE
+            return outcome ==
+                ContinuationOutcome.RESCHEDULE
         }
     }
 
@@ -294,46 +434,86 @@ class VN97ContinuationJobService : JobService() {
         budget: ComputeBudget,
         cancellation: AtomicBoolean,
     ): Boolean {
-        val provider = application as? VN97AssistantContinuationWorkProvider
-            ?: error("Application must implement VN97AssistantContinuationWorkProvider")
-        val config = params.extras.toRuntimeConfig()
-        val binding = params.extras.toAssistantBinding()
-        val root = continuationRoot(params.jobId)
-        val bindingStore = VN97AssistantContinuationBindingStore(root)
+        val provider =
+            application as?
+                VN97AssistantContinuationWorkProvider
+                ?: error(
+                    "Application must implement VN97AssistantContinuationWorkProvider"
+                )
+        val config =
+            params.extras.toRuntimeConfig()
+        val binding =
+            params.extras.toAssistantBinding()
+        val root =
+            continuationRoot(params.jobId)
+        val bindingStore =
+            VN97AssistantContinuationBindingStore(
+                root
+            )
         bindingStore.require(binding)
-        val compositeStore = AtomicCompositeContinuityStore(root)
-        val continuity = compositeStore.loadOrNull()
+        val compositeStore =
+            AtomicCompositeContinuityStore(
+                root
+            )
+        val continuity =
+            compositeStore.loadOrNull()
         if (continuity == null) {
             bindingStore.delete()
             return false
         }
-        val restored = restoreAssistantContinuation(binding, continuity)
+        val restored =
+            restoreAssistantContinuation(
+                binding,
+                continuity,
+            )
 
-        val ownerCheckpoint = AtomicCheckpointStore(
-            File(root, "owner-runtime"),
-            fileName = "runtime.vn97run1",
-        )
-        NativeRuntimeOwner(ownerCheckpoint).use { owner ->
-            val info = owner.restoreComposite(config, restored.continuity)
-            check(info.lifecycle == RuntimeLifecycle.SUSPENDED) {
+        val ownerCheckpoint =
+            AtomicCheckpointStore(
+                File(root, "owner-runtime"),
+                fileName =
+                    "runtime.vn97run1",
+            )
+        NativeRuntimeOwner(
+            ownerCheckpoint
+        ).use { owner ->
+            val info =
+                owner.restoreComposite(
+                    config,
+                    restored.continuity,
+                )
+            check(
+                info.lifecycle ==
+                    RuntimeLifecycle.SUSPENDED
+            ) {
                 "assistant composite runtime must restore SUSPENDED"
             }
             owner.resume()
 
-            val outcome = provider.createVN97AssistantContinuationWork().run(
-                VN97AssistantContinuationContext(
-                    jobId = params.jobId,
-                    runtime = owner,
-                    controller = restored.controller,
-                    binding = restored.binding,
-                    epoch = restored.epoch,
-                    budget = budget,
-                    stopped = cancellation,
-                )
-            )
-            if (cancellation.get()) return true
+            val outcome =
+                provider
+                    .createVN97AssistantContinuationWork()
+                    .run(
+                        VN97AssistantContinuationContext(
+                            jobId =
+                                params.jobId,
+                            runtime = owner,
+                            controller =
+                                restored.controller,
+                            binding =
+                                restored.binding,
+                            epoch =
+                                restored.epoch,
+                            budget = budget,
+                            stopped =
+                                cancellation,
+                        )
+                    )
+            if (cancellation.get()) {
+                return true
+            }
 
-            val plan = restored.controller.plan
+            val plan =
+                restored.controller.plan
             if (plan.isTerminal()) {
                 owner.suspendAndSnapshot()
                 compositeStore.delete()
@@ -341,33 +521,55 @@ class VN97ContinuationJobService : JobService() {
                 return false
             }
 
-            val snapshot = owner.suspendAndSnapshot()
-            check(snapshot.modelBinding.bound) {
+            val snapshot =
+                owner.suspendAndSnapshot()
+            check(
+                snapshot.modelBinding.bound
+            ) {
                 "assistant continuation lost runtime model binding"
             }
-            binding.requireModelId(snapshot.modelBinding.modelId)
-            val manifest = compositeStore.save(snapshot, plan)
-            check(manifest.planId == binding.planId) {
+            binding.requireModelId(
+                snapshot.modelBinding.modelId
+            )
+            val manifest =
+                compositeStore.save(
+                    snapshot,
+                    plan,
+                )
+            check(
+                manifest.planId ==
+                    binding.planId
+            ) {
                 "assistant continuation plan identity changed across persisted epoch"
             }
-            binding.requireModelId(manifest.modelId)
+            binding.requireModelId(
+                manifest.modelId
+            )
 
             if (
-                plan.status == NativePlanStatus.WAITING_EXTERNAL ||
-                plan.status == NativePlanStatus.PAUSED
+                plan.status ==
+                    NativePlanStatus
+                        .WAITING_EXTERNAL ||
+                plan.status ==
+                    NativePlanStatus.PAUSED
             ) {
                 return false
             }
-            return outcome == ContinuationOutcome.RESCHEDULE
+            return outcome ==
+                ContinuationOutcome.RESCHEDULE
         }
     }
 
-    override fun onStopJob(params: JobParameters): Boolean {
+    override fun onStopJob(
+        params: JobParameters,
+    ): Boolean {
+        systemStopped = true
         stopped?.set(true)
         return true
     }
 
     override fun onDestroy() {
+        systemStopped = true
         stopped?.set(true)
         executor.shutdownNow()
         super.onDestroy()
