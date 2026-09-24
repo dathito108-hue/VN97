@@ -1,39 +1,67 @@
-name: VN97 P3 microbatch dual T4
+name: VN97 Android APK M10I
 
 on:
   push:
     branches:
-      - p3-kaggle-microbatch-dual-t4
+      - m10i-reproducible-apk-cold-start
+      - m10j-turnkey-bootstrap
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  host-contract:
+  build-apk:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
         with:
-          python-version: "3.12"
+          distribution: temurin
+          java-version: "17"
 
-      - name: Compile microbatch pipeline
-        run: |
-          python -m py_compile \
-            src/vn97/p3_tensor_cache.py \
-            src/vn97/p3_kaggle_cached_candidate_cli.py
+      - name: Set up Gradle 9.6.0
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "9.6.0"
 
-      - name: Validate logical-batch preservation and launcher
+      - name: Install pinned Android packages
+        shell: bash
+        env:
+          ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
         run: |
-          bash -n tools/kaggle_p3_dual_gpu.sh
-          grep -q 'micro_batch_size' src/vn97/p3_tensor_cache.py
-          grep -q 'micro_loss_sum' src/vn97/p3_tensor_cache.py
-          grep -q '/ logical_targets' src/vn97/p3_tensor_cache.py
-          grep -q 'steps += 1' src/vn97/p3_tensor_cache.py
-          grep -q -- '--micro-batch-size' src/vn97/p3_kaggle_cached_candidate_cli.py
-          grep -q 'default=2' src/vn97/p3_kaggle_cached_candidate_cli.py
-          grep -q 'VN97_MICRO_BATCH_SIZE:-2' tools/kaggle_p3_dual_gpu.sh
-          grep -q 'logical batch remains 8' tools/kaggle_p3_dual_gpu.sh
-          grep -q 'CUDA_VISIBLE_DEVICES="$physical_gpu"' tools/kaggle_p3_dual_gpu.sh
+          TOOLS_ZIP="$RUNNER_TEMP/android-cmdline-tools.zip"
+          TOOLS_DIR="$RUNNER_TEMP/android-cmdline-tools"
+          curl -fsSL             "https://dl.google.com/android/repository/commandlinetools-linux-12266719_latest.zip"             -o "$TOOLS_ZIP"
+          rm -rf "$TOOLS_DIR"
+          mkdir -p "$TOOLS_DIR"
+          unzip -q "$TOOLS_ZIP" -d "$TOOLS_DIR"
+          SDKMANAGER="$TOOLS_DIR/cmdline-tools/bin/sdkmanager"
+          test -x "$SDKMANAGER"
+          yes | "$SDKMANAGER" --sdk_root="$ANDROID_SDK_ROOT" --licenses >/dev/null || true
+          "$SDKMANAGER"             --sdk_root="$ANDROID_SDK_ROOT"             --channel=3             "platforms;android-37.0"             "build-tools;36.0.0"             "ndk;28.2.13676358"             "cmake;3.22.1"
+
+      - name: Build VN97 debug APK
+        shell: bash
+        run: |
+          gradle -p android             --no-daemon             --stacktrace             :app:assembleDebug
+
+      - name: Verify APK
+        shell: bash
+        run: |
+          APK="android/app/build/outputs/apk/debug/app-debug.apk"
+          test -f "$APK"
+          sha256sum "$APK"
+          ls -lh "$APK"
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: VN97-debug-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 7
