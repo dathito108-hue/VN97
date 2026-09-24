@@ -131,13 +131,20 @@ class VN97FloatingAssistantService : Service() {
                 (application as VN97Application)
                     .assistant,
             beforeAssistantOpen = {
-                (application as VN97Application)
-                    .mobileRecovery
+                val app =
+                    application as
+                        VN97Application
+                app.mobileRecovery
                     .recover(
                         VN97MobileRecoveryTrigger
                             .EXECUTION_ENTRY
                     )
                     .requireActivationReady()
+                app.runtimeResources
+                    .requireRunnable(
+                        VN97RuntimeExecutionClass
+                            .INTERACTIVE
+                    )
             },
             anchorProvider = { layoutParams },
             publishMode = { mode, energy ->
