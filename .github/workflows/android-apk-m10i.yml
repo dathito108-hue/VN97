@@ -5,6 +5,7 @@ on:
     branches:
       - m10i-reproducible-apk-cold-start
       - m10j-turnkey-bootstrap
+      - m19d-production-release-orchestrator
   workflow_dispatch:
 
 permissions:
@@ -17,6 +18,14 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Validate M19D release attestation contracts
+        shell: bash
+        run: |
+          python -m compileall -q             src/vn97/release_attestation.py             src/vn97/production_release_cli.py             tests/host_m19b_release_candidate.py             tests/host_m19c_signed_candidate.py             tests/host_m19d_release_attestation.py
+          python tests/host_m19b_release_candidate.py
+          python tests/host_m19c_signed_candidate.py
+          python tests/host_m19d_release_attestation.py
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -44,6 +53,23 @@ jobs:
           test -x "$SDKMANAGER"
           yes | "$SDKMANAGER" --sdk_root="$ANDROID_SDK_ROOT" --licenses >/dev/null || true
           "$SDKMANAGER"             --sdk_root="$ANDROID_SDK_ROOT"             --channel=3             "platforms;android-37.0"             "build-tools;36.0.0"             "ndk;28.2.13676358"             "cmake;3.22.1"
+
+      - name: Assert M19D production release gate fails closed without production inputs
+        shell: bash
+        run: |
+          LOG="$RUNNER_TEMP/m19d-release-gate.log"
+          set +e
+          gradle -p android             --no-daemon             --stacktrace             --continue             :app:verifyExternalReleaseAssetRoot             :app:verifyTurnkeyBootstrap             :app:verifyReleaseSigning             :app:verifyReleaseVersion             >"$LOG" 2>&1
+          STATUS=$?
+          set -e
+          cat "$LOG"
+          if [ "$STATUS" -eq 0 ]; then
+            echo "M19D production gate unexpectedly passed without production inputs." >&2
+            exit 1
+          fi
+          grep -q "VN97 turnkey release requires a safe regular asset" "$LOG"
+          grep -q "VN97 release signing requires" "$LOG"
+          echo "M19D_RELEASE_GATE_FAIL_CLOSED_PASS"
 
       - name: Build VN97 debug APK
         shell: bash
