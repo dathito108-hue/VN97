@@ -309,7 +309,7 @@ _LANGUAGE_ALLOWED = {
     "release_max_input_bytes",
     "release_max_validation_loss",
     "release_min_validation_accuracy",
-    "release_max_validation_target_tokens",
+    "release_min_validation_target_tokens",
     "release_max_windows",
     "sequence_length",
     "stride",
@@ -381,7 +381,7 @@ _INT_KEYS = {
     "release_batch_size",
     "release_max_examples",
     "release_max_input_bytes",
-    "release_max_validation_target_tokens",
+    "release_min_validation_target_tokens",
     "release_max_windows",
     "sequence_length",
     "stride",
@@ -428,7 +428,7 @@ _OPTIONAL_KEYS = {
     "release_format",
     "release_max_validation_loss",
     "release_min_validation_accuracy",
-    "release_max_validation_target_tokens",
+    "release_min_validation_target_tokens",
     "stride",
     "validation_format",
     "release_max_speech_loss",
@@ -715,6 +715,50 @@ class VN97ProductionRunManifest:
             raise VN97ProductionRunManifestError(
                 "speech train/validation/release manifest paths must be distinct"
             )
+
+        for options, allowed, required, label in (
+            (
+                self.language_options,
+                _LANGUAGE_ALLOWED,
+                _LANGUAGE_REQUIRED,
+                "language",
+            ),
+            (
+                self.speech_options,
+                _SPEECH_ALLOWED,
+                _SPEECH_REQUIRED,
+                "speech",
+            ),
+            (
+                self.intake_options,
+                _INTAKE_ALLOWED,
+                set(),
+                "intake",
+            ),
+        ):
+            keys = tuple(
+                key
+                for key, _ in options
+            )
+            if (
+                tuple(sorted(set(keys)))
+                != keys
+            ):
+                raise VN97ProductionRunManifestError(
+                    f"{label} option tuples must be unique and sorted"
+                )
+            normalized = _validate_options(
+                _options_object(
+                    options
+                ),
+                allowed=allowed,
+                required=required,
+                label=label,
+            )
+            if normalized != options:
+                raise VN97ProductionRunManifestError(
+                    f"{label} option tuples are not canonical"
+                )
 
         _relative_path(
             self.device_evidence_dir,
