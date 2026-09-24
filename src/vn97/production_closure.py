@@ -1411,7 +1411,9 @@ def run_production_closure(
         _, evidence_sha = (
             _inspect_evidence(
                 resolved
-                .device_evidence_dir
+                .device_evidence_dir,
+                manifest=manifest,
+                production=production,
             )
         )
         if not evidence_sha:
