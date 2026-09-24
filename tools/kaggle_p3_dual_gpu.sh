@@ -45,7 +45,7 @@ prepare_cache() {
 
 run_one() {
   local index="$1"
-  local gpu="$2"
+  local physical_gpu="$2"
   local root="$3"
   local out="$root/candidate-$index"
   if [[ -f "$out/candidate-report.vn97p3cand1.json" ]]; then
@@ -53,25 +53,48 @@ run_one() {
     return 0
   fi
   rm -rf "$out"
-  vn97-p3-kaggle-cached-candidate     --cache-dir "$root/cache"     --candidate-index "$index"     --output-dir "$out"     --device "cuda:$gpu"
+
+  # Give this process exactly one physical GPU. Inside the isolated process
+  # that device is always cuda:0, which avoids cross-process CUDA indexing
+  # ambiguity on notebook hosts.
+  CUDA_VISIBLE_DEVICES="$physical_gpu"   OMP_NUM_THREADS="${VN97_CPU_THREADS_PER_GPU:-2}"   MKL_NUM_THREADS="${VN97_CPU_THREADS_PER_GPU:-2}"   vn97-p3-kaggle-cached-candidate     --cache-dir "$root/cache"     --candidate-index "$index"     --output-dir "$out"     --device cuda:0
 }
 
 run_pair() {
   local first="$1"
   local second="$2"
   local root="$3"
+
   run_one "$first" 0 "$root" >"$root/candidate-$first.log" 2>&1 &
   local p1=$!
   run_one "$second" 1 "$root" >"$root/candidate-$second.log" 2>&1 &
   local p2=$!
 
-  echo "candidate $first -> cuda:0 pid=$p1"
-  echo "candidate $second -> cuda:1 pid=$p2"
+  echo "candidate $first -> physical GPU 0 (isolated cuda:0) pid=$p1"
+  echo "candidate $second -> physical GPU 1 (isolated cuda:0) pid=$p2"
+  echo "CPU support threads per GPU process: ${VN97_CPU_THREADS_PER_GPU:-2}"
+
+  local monitor_pid=""
+  if command -v nvidia-smi >/dev/null 2>&1; then
+    (
+      while kill -0 "$p1" 2>/dev/null || kill -0 "$p2" 2>/dev/null; do
+        echo "---- GPU MONITOR $(date -u +%Y-%m-%dT%H:%M:%SZ) ----"
+        nvidia-smi           --query-gpu=index,name,utilization.gpu,memory.used,memory.total           --format=csv,noheader,nounits || true
+        sleep 20
+      done
+    ) &
+    monitor_pid=$!
+  fi
 
   local r1=0
   local r2=0
   wait "$p1" || r1=$?
   wait "$p2" || r2=$?
+
+  if [[ -n "$monitor_pid" ]]; then
+    kill "$monitor_pid" 2>/dev/null || true
+    wait "$monitor_pid" 2>/dev/null || true
+  fi
 
   cat "$root/candidate-$first.log"
   cat "$root/candidate-$second.log"
