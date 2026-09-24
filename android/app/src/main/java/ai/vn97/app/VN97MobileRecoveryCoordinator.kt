@@ -164,9 +164,19 @@ class VN97MobileRecoveryCoordinator(
         domain: VN97MobileRecoveryDomain,
     ) {
         when (domain) {
-            VN97MobileRecoveryDomain.ACTIVATION ->
+            VN97MobileRecoveryDomain.ACTIVATION -> {
                 application.provisioner
                     .recoverPending()
+                if (
+                    BuildConfig
+                        .VN97_TURNKEY_REQUIRED
+                ) {
+                    application.bundledBootstrap
+                        .activateIfPresent(
+                            required = true
+                        )
+                }
+            }
 
             VN97MobileRecoveryDomain.AUTONOMOUS ->
                 application.autonomousWork
