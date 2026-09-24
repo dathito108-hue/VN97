@@ -1,0 +1,41 @@
+{
+  "schema": "VN97P2FETCHDEF1",
+  "sources": [
+    {
+      "download_url": "https://huggingface.co/datasets/hoanghai2110/vietnamese-dataset/resolve/321a852edc7e9d36e8456fb7d7df583b520645a9/hypermamba_data.jsonl?download=true",
+      "expected_bytes": null,
+      "expected_records": 2417,
+      "expected_sha256": null,
+      "filename": "hypermamba_data.jsonl",
+      "license": "Apache-2.0",
+      "max_bytes": 2097152,
+      "origin": "https://huggingface.co/datasets/hoanghai2110/vietnamese-dataset",
+      "revision": "321a852edc7e9d36e8456fb7d7df583b520645a9",
+      "source_id": "vi-dialogue-hoanghai2110"
+    },
+    {
+      "download_url": "https://huggingface.co/datasets/databricks/databricks-dolly-15k/resolve/d72c16e4644a463b9c678c71d9440befd4594556/databricks-dolly-15k.jsonl?download=true",
+      "expected_bytes": 13085339,
+      "expected_records": 15011,
+      "expected_sha256": "2df9083338b4abd6bceb5635764dab5d833b393b55759dffb0959b6fcbf794ec",
+      "filename": "databricks-dolly-15k.jsonl",
+      "license": "CC-BY-SA-3.0",
+      "max_bytes": 16777216,
+      "origin": "https://huggingface.co/datasets/databricks/databricks-dolly-15k",
+      "revision": "d72c16e4644a463b9c678c71d9440befd4594556",
+      "source_id": "databricks-dolly-15k"
+    },
+    {
+      "download_url": "https://raw.githubusercontent.com/openai/grade-school-math/3101c7d5072418e28b9008a6636bde82a006892c/grade_school_math/data/train.jsonl",
+      "expected_bytes": 4166206,
+      "expected_records": 7473,
+      "expected_sha256": "17f347dc51477c50d4efb83959dbb7c56297aba886e5544ee2aaed3024813465",
+      "filename": "gsm8k-train.jsonl",
+      "license": "MIT",
+      "max_bytes": 5242880,
+      "origin": "https://github.com/openai/grade-school-math",
+      "revision": "3101c7d5072418e28b9008a6636bde82a006892c",
+      "source_id": "openai-gsm8k-train"
+    }
+  ]
+}
