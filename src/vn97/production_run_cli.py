@@ -381,6 +381,7 @@ def _canonical_receipt(
     manifest: VN97ProductionRunManifest,
     stage: str,
     repository_commit: str,
+    device_evidence_ready: bool,
     language_report_sha256: str | None,
     production_report_sha256: str | None,
     intake_report_sha256: str | None,
@@ -388,6 +389,8 @@ def _canonical_receipt(
 ) -> bytes:
     return json.dumps(
         {
+            "device_evidence_ready":
+                device_evidence_ready,
             "intake_report_sha256":
                 intake_report_sha256,
             "language_campaign_report_sha256":
@@ -556,36 +559,28 @@ def main(
                 repository_commit=
                     manifest
                     .repository_commit,
+                device_evidence_ready=
+                    evidence_ready,
                 language_report_sha256=None,
                 production_report_sha256=None,
                 intake_report_sha256=None,
                 release_candidate_manifest_sha256=None,
             )
         )
-        summary = json.loads(
-            receipt.decode(
-                "utf-8"
-            )
-        )
-        summary[
-            "device_evidence_ready"
-        ] = evidence_ready
-        output = json.dumps(
-            summary,
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-            allow_nan=False,
-        ).encode("utf-8")
         if args.receipt:
             _write_receipt(
                 Path(args.receipt),
-                output,
+                receipt,
             )
         print(
-            output.decode("utf-8")
+            receipt.decode("utf-8")
         )
         return 0
+
+    if args.stage == "all" and not evidence_ready:
+        raise ValueError(
+            "stage all requires physical-device evidence to be present before training starts"
+        )
 
     if args.stage in {
         "language",
@@ -738,6 +733,8 @@ def main(
         stage=args.stage,
         repository_commit=
             manifest.repository_commit,
+        device_evidence_ready=
+            evidence_ready,
         language_report_sha256=
             language.report_sha256,
         production_report_sha256=(
