@@ -241,6 +241,13 @@ fun evaluateImprovementCandidate(
         "baseline/candidate held-out case count differs"
     }
 
+    require(
+        baseline.targetUtf8Bytes ==
+            candidate.targetUtf8Bytes
+    ) {
+        "baseline/candidate held-out target byte count differs"
+    }
+
     val failures = mutableListOf<String>()
 
     val nllLimit =
@@ -351,6 +358,41 @@ data class VN97ImprovementEvaluationRecord(
                     VN97HeldOutSuite.cases.size
         ) {
             "evaluation case count does not match VN97HELD1"
+        }
+        require(
+            suiteSha256 ==
+                VN97HeldOutSuite
+                    .suiteSha256
+        ) {
+            "evaluation suite identity is not canonical VN97HELD1"
+        }
+        val expectedTargetBytes =
+            VN97HeldOutSuite.cases
+                .sumOf {
+                    it.target
+                        .toByteArray(
+                            StandardCharsets.UTF_8
+                        )
+                        .size
+                        .toLong()
+                }
+        require(
+            baseline.targetUtf8Bytes ==
+                expectedTargetBytes &&
+                candidate.targetUtf8Bytes ==
+                    expectedTargetBytes
+        ) {
+            "evaluation target byte count does not match VN97HELD1"
+        }
+        require(
+            decision ==
+                evaluateImprovementCandidate(
+                    baseline = baseline,
+                    candidate = candidate,
+                    criteria = criteria,
+                )
+        ) {
+            "evaluation decision does not match canonical criteria"
         }
     }
 
@@ -484,8 +526,12 @@ class VN97ImprovementEvaluationLedger(
                         record.baselineArtifactSha256 &&
                     existing.candidatePackageSha256 ==
                         record.candidatePackageSha256 &&
+                    existing.candidateArtifactSha256 ==
+                        record.candidateArtifactSha256 &&
                     existing.suiteSha256 ==
-                        record.suiteSha256
+                        record.suiteSha256 &&
+                    existing.criteria ==
+                        record.criteria
             ) {
                 "held-out evaluation identity changed"
             }
