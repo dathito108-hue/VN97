@@ -287,6 +287,40 @@ def main() -> None:
             ),
         )
 
+    with tempfile.TemporaryDirectory() as tmp:
+        target = (
+            Path(tmp)
+            / "raced.vn97final1"
+        )
+        real_link = MAT.os.link
+
+        def racing_link(
+            source,
+            destination,
+        ):
+            Path(destination).write_bytes(
+                b"competing-final-receipt"
+            )
+            return real_link(
+                source,
+                destination,
+            )
+
+        MAT.os.link = racing_link
+        try:
+            expect_failure(
+                "final receipt publication race",
+                lambda: MAT._atomic_create(
+                    target,
+                    receipt.to_bytes(),
+                ),
+            )
+        finally:
+            MAT.os.link = real_link
+        assert target.read_bytes() == (
+            b"competing-final-receipt"
+        )
+
     source = (
         SRC /
         "production_materialization.py"

@@ -1523,9 +1523,21 @@ def _atomic_create(
             os.fsync(
                 stream.fileno()
             )
-        os.replace(
-            temporary,
-            path,
+        try:
+            os.link(
+                temporary,
+                path,
+            )
+        except FileExistsError as exc:
+            raise VN97TurnkeyAcceptanceError(
+                "VN97ACCEPT1 output must not already exist"
+            ) from exc
+        except OSError as exc:
+            raise VN97TurnkeyAcceptanceError(
+                "VN97ACCEPT1 could not be published atomically"
+            ) from exc
+        os.unlink(
+            temporary
         )
         if path.read_bytes() != data:
             raise VN97TurnkeyAcceptanceError(

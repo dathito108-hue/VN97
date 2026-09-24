@@ -533,6 +533,40 @@ def main() -> None:
     )
 
     with tempfile.TemporaryDirectory() as tmp:
+        target = (
+            Path(tmp)
+            / "raced.vn97accept1"
+        )
+        real_link = ACC.os.link
+
+        def racing_link(
+            source,
+            destination,
+        ):
+            Path(destination).write_bytes(
+                b"competing-acceptance-receipt"
+            )
+            return real_link(
+                source,
+                destination,
+            )
+
+        ACC.os.link = racing_link
+        try:
+            expect_failure(
+                "acceptance receipt publication race",
+                lambda: ACC._atomic_create(
+                    target,
+                    selftest.to_bytes(),
+                ),
+            )
+        finally:
+            ACC.os.link = real_link
+        assert target.read_bytes() == (
+            b"competing-acceptance-receipt"
+        )
+
+    with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         (
             release,
