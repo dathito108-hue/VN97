@@ -294,6 +294,70 @@ class VN97ProductionClosureReport:
             raise VN97ProductionClosureError(
                 "readiness dependency phases require BLOCKED VN97READY1"
             )
+        if (
+            self.phase
+            in {
+                "NEEDS_RELEASE_INPUTS",
+                "NEEDS_SIGNING",
+                "READINESS_BLOCKED",
+                "READY_TO_RELEASE",
+            }
+            and (
+                self.language_campaign_report_sha256
+                is None
+                or self.production_campaign_report_sha256
+                is None
+                or not self.device_evidence_sha256
+                or self.intake_report_sha256
+                is None
+                or self.release_candidate_manifest_sha256
+                is None
+                or self.readiness_report_sha256
+                is None
+            )
+        ):
+            raise VN97ProductionClosureError(
+                "post-intake closure phase lacks complete artifact/readiness chain"
+            )
+        if (
+            self.phase == "NEEDS_INTAKE"
+            and (
+                self.language_campaign_report_sha256
+                is None
+                or self.production_campaign_report_sha256
+                is None
+                or not self.device_evidence_sha256
+                or self.intake_report_sha256
+                is not None
+                or self.release_candidate_manifest_sha256
+                is not None
+                or self.readiness_report_sha256
+                is not None
+            )
+        ):
+            raise VN97ProductionClosureError(
+                "NEEDS_INTAKE artifact chain is inconsistent"
+            )
+        if (
+            self.phase
+            == "NEEDS_PHYSICAL_EVIDENCE"
+            and (
+                self.language_campaign_report_sha256
+                is None
+                or self.production_campaign_report_sha256
+                is None
+                or self.device_evidence_sha256
+                or self.intake_report_sha256
+                is not None
+                or self.release_candidate_manifest_sha256
+                is not None
+                or self.readiness_report_sha256
+                is not None
+            )
+        ):
+            raise VN97ProductionClosureError(
+                "NEEDS_PHYSICAL_EVIDENCE artifact chain is inconsistent"
+            )
 
     def canonical_object(
         self,
