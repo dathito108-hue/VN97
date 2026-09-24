@@ -503,7 +503,9 @@ class VN97AutonomousWorkManager(
         )
         store.save(running)
 
-        return application.withSovereignExecution {
+        return application.withSovereignExecutionBounded(
+            AUTONOMOUS_LOCK_TIMEOUT_MILLIS
+        ) {
             val reopenForeground =
                 application.assistant
                     .releaseForBackgroundContinuation()
@@ -1360,6 +1362,8 @@ class VN97AutonomousWorkManager(
         private const val MAX_SCHEDULE_ATTEMPTS = 64
         private const val MAX_EVENT_WAKEUPS = 32
         private const val MAX_RECONCILE_GOALS = 32
+        private const val AUTONOMOUS_LOCK_TIMEOUT_MILLIS =
+            15_000L
         private const val MAX_JOB_PROBES = 128
         private const val JOB_PREFIX = 0x40000000
         private const val JOB_MASK = 0x3fffffff
