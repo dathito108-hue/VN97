@@ -217,13 +217,17 @@ unsorted/duplicate signer identities, or invalid APK metadata.
 
 The user-facing output directory must not already exist.
 
-Only after all signing/build/attestation checks pass does M19D atomically publish:
+Only after all signing/build/attestation checks pass does M19D/M19E atomically publish:
 
 ```text
 VN97-production.apk
 bootstrap-release.vn97bootrel6.json
 release-attestation.vn97apk1
+production-readiness.vn97ready1
 ```
+
+M19E runs the canonical VN97READY1 gate before M19D enters M10N/signing/build.
+The normal release path and `--preflight-only` use the same readiness engine.
 
 A failed model gate, signing failure, Gradle failure, APK signature failure,
 payload mismatch or attestation mismatch cannot publish a partially valid final
