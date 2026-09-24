@@ -559,6 +559,7 @@ def run_production_preflight(
     )
     from .speech_training import (
         VN97SpeechReleaseCriteria,
+        VN97SpeechTrainingConfig,
         require_disjoint_speech_splits,
     )
     from .speech_training_cli import (
@@ -868,6 +869,31 @@ def run_production_preflight(
                 ),
             )
         )
+
+    speech_training_config = (
+        VN97SpeechTrainingConfig(
+            epochs=
+                speech_args.speech_epochs,
+            learning_rate=
+                speech_args
+                .speech_learning_rate,
+            weight_decay=
+                speech_args
+                .speech_weight_decay,
+            max_grad_norm=
+                speech_args
+                .speech_max_grad_norm,
+            seed=
+                speech_args.speech_seed,
+            shuffle=True,
+            max_frames=
+                speech_args
+                .speech_max_frames,
+            max_target_tokens=
+                speech_args
+                .speech_max_target_tokens,
+        )
+    )
 
     speech_training, speech_train_sha = (
         load_speech_manifest(
