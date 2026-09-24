@@ -1809,6 +1809,7 @@ def options_to_argv(
 EXECUTION_SCHEMA = "VN97RUNEXEC1"
 _EXECUTION_STAGES = {
     "verify",
+    "preflight",
     "language",
     "production",
     "train",
@@ -1824,6 +1825,7 @@ class VN97ProductionRunReceipt:
     stage: str
     environment_ready: bool
     device_evidence_ready: bool
+    preflight_report_sha256: str | None
     language_campaign_report_sha256: str | None
     production_campaign_report_sha256: str | None
     intake_report_sha256: str | None
@@ -1852,6 +1854,10 @@ class VN97ProductionRunReceipt:
                 "run receipt readiness fields must be boolean"
             )
         for value, label in (
+            (
+                self.preflight_report_sha256,
+                "preflight report SHA-256",
+            ),
             (
                 self.language_campaign_report_sha256,
                 "language campaign report SHA-256",
@@ -1882,9 +1888,19 @@ class VN97ProductionRunReceipt:
                 None,
                 None,
                 None,
+                None,
+            )
+        elif self.stage == "preflight":
+            expected = (
+                "set",
+                None,
+                None,
+                None,
+                None,
             )
         elif self.stage == "language":
             expected = (
+                "set",
                 "set",
                 None,
                 None,
@@ -1897,8 +1913,17 @@ class VN97ProductionRunReceipt:
             expected = (
                 "set",
                 "set",
+                "set",
                 None,
                 None,
+            )
+        elif self.stage == "intake":
+            expected = (
+                None,
+                "set",
+                "set",
+                "set",
+                "set",
             )
         else:
             expected = (
@@ -1906,8 +1931,15 @@ class VN97ProductionRunReceipt:
                 "set",
                 "set",
                 "set",
+                "set",
             )
         actual = (
+            (
+                "set"
+                if self.preflight_report_sha256
+                is not None
+                else None
+            ),
             (
                 "set"
                 if self.language_campaign_report_sha256
@@ -1950,6 +1982,8 @@ class VN97ProductionRunReceipt:
                 self.language_campaign_report_sha256,
             "manifest_sha256":
                 self.manifest_sha256,
+            "preflight_report_sha256":
+                self.preflight_report_sha256,
             "production_campaign_report_sha256":
                 self.production_campaign_report_sha256,
             "release_candidate_manifest_sha256":
@@ -2030,6 +2064,7 @@ def parse_production_run_receipt(
         "intake_report_sha256",
         "language_campaign_report_sha256",
         "manifest_sha256",
+        "preflight_report_sha256",
         "production_campaign_report_sha256",
         "release_candidate_manifest_sha256",
         "repository_commit",
@@ -2054,6 +2089,8 @@ def parse_production_run_receipt(
                 root["environment_ready"],
             device_evidence_ready=
                 root["device_evidence_ready"],
+            preflight_report_sha256=
+                root["preflight_report_sha256"],
             language_campaign_report_sha256=
                 root[
                     "language_campaign_report_sha256"
