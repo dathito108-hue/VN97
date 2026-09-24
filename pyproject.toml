@@ -24,6 +24,7 @@ vn97-production-run = "vn97.production_run_cli:main"
 vn97-production-seal = "vn97.production_run_seal_cli:main"
 vn97-device-evidence-campaign = "vn97.device_evidence_campaign_cli:main"
 vn97-production-close = "vn97.production_closure_cli:main"
+vn97-production-materialize = "vn97.production_materialization_cli:main"
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]

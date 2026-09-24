@@ -226,6 +226,16 @@ from .production_run_manifest import (
     parse_production_run_receipt,
     verify_production_run_inputs,
 )
+from .production_materialization import (
+    VN97FinalReleaseReceipt,
+    VN97FinalValidationConfig,
+    VN97ProductionMaterializationBlocked,
+    VN97ProductionMaterializationError,
+    build_release_argv,
+    materialize_final_release,
+    parse_final_release_receipt,
+    verify_materialized_release,
+)
 from .production_closure import (
     VN97ClosureObservation,
     VN97ProductionClosureError,

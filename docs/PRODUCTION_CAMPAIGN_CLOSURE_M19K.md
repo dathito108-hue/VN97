@@ -186,3 +186,13 @@ Code 1
   -> M19F intake
   -> M19E VN97READY1
 ```
+
+## M19L final materialization
+
+When M19K reaches `READY_TO_RELEASE`, the canonical next step is:
+
+```text
+vn97-production-materialize ...
+```
+
+M19L re-runs M19K in inspect-only mode with the same release inputs, delegates the actual signed APK build to `vn97-production-release`, independently re-verifies VN97READY1/VN97APK1/VN97BOOTREL6/APK/signature/package identities, and emits immutable VN97FINAL1 only after successful materialization.
