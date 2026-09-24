@@ -1,9 +1,11 @@
 package ai.vn97.app
 
 import ai.vn97.platform.AndroidVN97CapabilityProvisioner
+import ai.vn97.platform.VN97ControlledImprovementEvaluator
 import ai.vn97.runtime.VN97ImprovementCandidateLedger
 import ai.vn97.runtime.VN97ImprovementCandidateRecord
 import ai.vn97.runtime.VN97ImprovementCandidateSpec
+import ai.vn97.runtime.VN97ImprovementEvaluationRecord
 import ai.vn97.runtime.VN97ModelImageActivationBackend
 import ai.vn97.runtime.VN97ModelImageProvisioningSession
 import ai.vn97.runtime.VN97ModelProvisioningReview
@@ -32,6 +34,11 @@ class VN97AppProvisioner(
                 platform.capabilityRoot,
                 "self-improvement",
             )
+        )
+
+    private val improvementEvaluator =
+        VN97ControlledImprovementEvaluator(
+            application
         )
 
     fun recoverPending() {
@@ -120,6 +127,41 @@ class VN97AppProvisioner(
             session.clearReview()
             throw exc
         }
+    }
+
+    fun evaluatePendingImprovementCandidate():
+        VN97ImprovementEvaluationRecord =
+        application.withSovereignExecution {
+            val candidate =
+                checkNotNull(
+                    pendingImprovementCandidate()
+                ) {
+                    "no controlled self-improvement candidate is pending"
+                }
+
+            val wasOpen =
+                application.assistant
+                    .releaseForModelEvaluation()
+            try {
+                improvementEvaluator
+                    .evaluate(candidate)
+            } finally {
+                if (wasOpen) {
+                    application.assistant
+                        .reloadActivatedModel()
+                }
+            }
+        }
+
+    fun pendingImprovementEvaluation():
+        VN97ImprovementEvaluationRecord? {
+        val candidate =
+            pendingImprovementCandidate()
+                ?: return null
+        return improvementEvaluator
+            .loadOrNull(
+                candidate.candidateId
+            )
     }
 
     fun rejectImprovementCandidate(

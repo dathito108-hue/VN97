@@ -20,6 +20,7 @@ class VN97SelfImprovementActivity : Activity() {
     private lateinit var signatureButton: Button
     private lateinit var publisherKeyButton: Button
     private lateinit var reviewButton: Button
+    private lateinit var evaluateButton: Button
     private lateinit var rejectButton: Button
 
     private var packageUri: Uri? = null
@@ -76,7 +77,8 @@ class VN97SelfImprovementActivity : Activity() {
             TextView(this).apply {
                 text =
                     "M17A reviews a signed newer canonical VN97 model against the exact active baseline. " +
-                        "It does not activate the candidate. Normal activation is durably blocked until future evaluation and promotion gates pass."
+                        "M17B evaluates baseline and candidate on the fixed VN97HELD1 suite without activation. " +
+                        "Normal activation remains durably blocked until a later promotion gate."
                 setTextIsSelectable(true)
             },
             fullWidth(),
@@ -164,6 +166,19 @@ class VN97SelfImprovementActivity : Activity() {
             fullWidth(),
         )
 
+        evaluateButton =
+            Button(this).apply {
+                text =
+                    "Evaluate held-out candidate"
+                setOnClickListener {
+                    evaluateCandidate()
+                }
+            }
+        root.addView(
+            evaluateButton,
+            fullWidth(),
+        )
+
         rejectButton =
             Button(this).apply {
                 text =
@@ -189,7 +204,7 @@ class VN97SelfImprovementActivity : Activity() {
         root.addView(
             TextView(this).apply {
                 text =
-                    "M17A authority boundary: no weight training, no model activation, no code modification, no M6 grant, and no bypass of signed VN97CAP1/VN97SIG1 provisioning."
+                    "M17A/B authority boundary: no weight training, no model activation, no promotion, no code modification, no M6 grant, and no bypass of signed VN97CAP1/VN97SIG1 provisioning."
                 setTextIsSelectable(true)
             },
             fullWidth(),
@@ -364,6 +379,121 @@ class VN97SelfImprovementActivity : Activity() {
         }
     }
 
+    private fun evaluateCandidate() {
+        if (busy) return
+        setBusy(true)
+        statusView.text =
+            "Running fixed VN97HELD1 evaluation against exact baseline and non-active candidate…"
+        worker.execute {
+            val result = runCatching {
+                app.provisioner
+                    .evaluatePendingImprovementCandidate()
+            }
+            runOnUiThread {
+                result.onSuccess { evaluation ->
+                    statusView.text =
+                        buildString {
+                            append(
+                                "HELD-OUT EVALUATION COMPLETE — candidate is still not active."
+                            )
+                            append(
+                                "\nevaluation_id="
+                            )
+                            append(
+                                evaluation.evaluationId
+                            )
+                            append(
+                                "\nsuite_sha256="
+                            )
+                            append(
+                                evaluation.suiteSha256
+                            )
+                            append(
+                                "\npassed="
+                            )
+                            append(
+                                evaluation.decision
+                                    .passed
+                            )
+                            append(
+                                "\nbaseline_nll_per_byte="
+                            )
+                            append(
+                                evaluation.baseline
+                                    .nllPerUtf8Byte
+                            )
+                            append(
+                                "\ncandidate_nll_per_byte="
+                            )
+                            append(
+                                evaluation.candidate
+                                    .nllPerUtf8Byte
+                            )
+                            append(
+                                "\nbaseline_top1="
+                            )
+                            append(
+                                evaluation.baseline
+                                    .top1Accuracy
+                            )
+                            append(
+                                "\ncandidate_top1="
+                            )
+                            append(
+                                evaluation.candidate
+                                    .top1Accuracy
+                            )
+                            append(
+                                "\nbaseline_prefill_p95_ns="
+                            )
+                            append(
+                                evaluation.baseline
+                                    .prefillP95Nanos
+                            )
+                            append(
+                                "\ncandidate_prefill_p95_ns="
+                            )
+                            append(
+                                evaluation.candidate
+                                    .prefillP95Nanos
+                            )
+                            append(
+                                "\nreasons="
+                            )
+                            append(
+                                if (
+                                    evaluation.decision
+                                        .reasons
+                                        .isEmpty()
+                                ) {
+                                    "none"
+                                } else {
+                                    evaluation.decision
+                                        .reasons
+                                        .joinToString(
+                                            " | "
+                                        )
+                                }
+                            )
+                            append(
+                                "\nNext gate: M17C controlled promotion. No activation occurred."
+                            )
+                        }
+                }.onFailure { exc ->
+                    statusView.text =
+                        "Held-out evaluation failed: " +
+                            (
+                                exc.message ?:
+                                    exc::class.java
+                                        .simpleName
+                            )
+                }
+                setBusy(false)
+                refreshControls()
+            }
+        }
+    }
+
     private fun rejectCandidate() {
         if (busy) return
         setBusy(true)
@@ -399,6 +529,11 @@ class VN97SelfImprovementActivity : Activity() {
                     .pendingImprovementCandidate()
             }.getOrNull()
         if (candidate != null) {
+            val evaluation =
+                runCatching {
+                    app.provisioner
+                        .pendingImprovementEvaluation()
+                }.getOrNull()
             statusView.text =
                 buildString {
                     append(
@@ -415,6 +550,21 @@ class VN97SelfImprovementActivity : Activity() {
                         candidate.spec.objective
                             .take(2048)
                     )
+                    if (evaluation != null) {
+                        append(
+                            "\nevaluation_id="
+                        )
+                        append(
+                            evaluation.evaluationId
+                        )
+                        append(
+                            "\nevaluation_passed="
+                        )
+                        append(
+                            evaluation.decision
+                                .passed
+                        )
+                    }
                 }
         } else if (
             statusView.text.isNullOrBlank()
@@ -525,6 +675,8 @@ class VN97SelfImprovementActivity : Activity() {
                 objectiveView.text
                     .toString()
                     .isNotBlank()
+        evaluateButton.isEnabled =
+            !busy && pending
         rejectButton.isEnabled =
             !busy && pending
     }
