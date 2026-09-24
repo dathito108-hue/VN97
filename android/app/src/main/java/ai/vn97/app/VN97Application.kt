@@ -83,6 +83,7 @@ class VN97Application :
 
     override fun onCreate() {
         super.onCreate()
+        runtimeResources
         mobileRecovery
             .scheduleProcessStartRecovery()
     }
