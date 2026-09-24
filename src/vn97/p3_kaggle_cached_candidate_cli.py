@@ -165,11 +165,20 @@ def _parser() -> argparse.ArgumentParser:
         "--device",
         required=True,
     )
+    parser.add_argument(
+        "--cpu-prefetch-workers",
+        type=int,
+        default=1,
+    )
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    if not 0 <= args.cpu_prefetch_workers <= 8:
+        raise VN97P3KaggleError(
+            "cpu-prefetch-workers must be in [0, 8]"
+        )
     if not args.device.startswith("cuda"):
         raise VN97P3KaggleError(
             "cached P3 candidate training requires CUDA"
@@ -357,7 +366,8 @@ def main(argv: list[str] | None = None) -> int:
         f"candidate={args.candidate_index} "
         f"id={candidate.candidate_id} "
         f"device={args.device} "
-        f"windows={train_inputs.shape[0]}",
+        f"windows={train_inputs.shape[0]} "
+        f"cpu_prefetch_workers={args.cpu_prefetch_workers}",
         flush=True,
     )
     training = train_vn97_from_tensors(
@@ -366,6 +376,8 @@ def main(argv: list[str] | None = None) -> int:
         train_labels,
         training_config,
         device=args.device,
+        cpu_prefetch_workers=
+            args.cpu_prefetch_workers,
     )
     evaluation = evaluate_vn97_from_tensors(
         model,
@@ -373,6 +385,8 @@ def main(argv: list[str] | None = None) -> int:
         validation_labels,
         batch_size=BATCH_SIZE,
         device=args.device,
+        cpu_prefetch_workers=
+            args.cpu_prefetch_workers,
     )
 
     criteria = VN97ReleaseCriteria(
