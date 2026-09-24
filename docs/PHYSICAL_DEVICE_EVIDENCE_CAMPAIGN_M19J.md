@@ -175,3 +175,13 @@ connected Android hardware.
 M19J introduces no model, planner, memory engine, inference backend or alternate
 release path. It only automates the existing physical evidence machinery required by
 M19F.
+
+## M19K closure handoff
+
+After M19J publishes real VN97MOBEVID1, the canonical resumable handoff is:
+
+```text
+vn97-production-close --manifest <VN97RUN1> --workspace-root <workspace> --repository-root <repo>
+```
+
+M19K revalidates the M19J evidence against the exact VN97PRODCAMP1 identity and M19F policy, runs intake only when missing, then evaluates M19E VN97READY1 without inventing signing or fresh release-validation inputs.
