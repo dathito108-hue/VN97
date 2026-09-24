@@ -690,6 +690,15 @@ def write_manifest_atomic(
             temporary,
             path,
         )
+        directory_fd = os.open(
+            path.parent.resolve(strict=True),
+            os.O_RDONLY
+            | getattr(os, "O_DIRECTORY", 0),
+        )
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
         if path.read_bytes() != data:
             raise VN97ProductionRunSealerError(
                 "VN97RUN1 post-write verification failed"
