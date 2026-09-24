@@ -196,6 +196,17 @@ from .production_intake import (
     inspect_production_campaign_directory,
     parse_production_intake_report,
 )
+from .production_run_manifest import (
+    VN97ProductionRunManifest,
+    VN97ProductionRunManifestError,
+    VN97ResolvedProductionRun,
+    VN97RunFile,
+    VN97SpeechRunInput,
+    load_production_run_manifest,
+    options_to_argv,
+    parse_production_run_manifest,
+    verify_production_run_inputs,
+)
 from .production_readiness import (
     VN97ProductionReadinessError,
     VN97ProductionReadinessReport,
