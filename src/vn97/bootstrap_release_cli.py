@@ -1135,9 +1135,14 @@ def main(argv: list[str] | None = None) -> int:
         args.key_id,
         private_key,
     )
+    signed_source_sha256 = (
+        loaded.checkpoint_sha256
+        if release_candidate is None
+        else release_candidate.manifest_sha256
+    )
     source = CapabilitySource(
         args.source_origin,
-        loaded.checkpoint_sha256,
+        signed_source_sha256,
         args.source_license,
     )
 
@@ -1235,6 +1240,8 @@ def main(argv: list[str] | None = None) -> int:
             }
         ),
         "schema": "VN97BOOTREL6",
+        "signed_source_sha256":
+            signed_source_sha256,
         "speech_enabled": loaded.audio_adapter is not None,
         "vision_enabled": loaded.vision_adapter is not None,
         "vision_runtime_budget": (
