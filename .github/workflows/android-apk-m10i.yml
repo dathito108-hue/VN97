@@ -1,4 +1,4 @@
-name: VN97 P3 explicit dual GPU
+name: VN97 P3 dual GPU plus CPU
 
 on:
   push:
@@ -15,11 +15,25 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - name: Validate dual-GPU launcher
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Compile GPU+CPU pipeline
+        run: |
+          python -m py_compile \
+            src/vn97/p3_tensor_cache.py \
+            src/vn97/p3_kaggle_cached_candidate_cli.py
+
+      - name: Validate dual-GPU plus CPU launcher
         run: |
           bash -n tools/kaggle_p3_dual_gpu.sh
           grep -q 'CUDA_VISIBLE_DEVICES="$physical_gpu"' tools/kaggle_p3_dual_gpu.sh
           grep -q 'candidate $first -> physical GPU 0' tools/kaggle_p3_dual_gpu.sh
           grep -q 'candidate $second -> physical GPU 1' tools/kaggle_p3_dual_gpu.sh
-          grep -q 'nvidia-smi' tools/kaggle_p3_dual_gpu.sh
+          grep -q 'VN97_CPU_PREFETCH_WORKERS' tools/kaggle_p3_dual_gpu.sh
           grep -q 'OMP_NUM_THREADS' tools/kaggle_p3_dual_gpu.sh
+          grep -q 'nvidia-smi' tools/kaggle_p3_dual_gpu.sh
+          grep -q '_iter_prefetched_cpu_batches' src/vn97/p3_tensor_cache.py
+          grep -q 'non_blocking=True' src/vn97/p3_tensor_cache.py
+          grep -q -- '--cpu-prefetch-workers' src/vn97/p3_kaggle_cached_candidate_cli.py
