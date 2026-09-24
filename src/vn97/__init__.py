@@ -199,12 +199,14 @@ from .production_intake import (
 from .production_run_manifest import (
     VN97ProductionRunManifest,
     VN97ProductionRunManifestError,
+    VN97ProductionRunReceipt,
     VN97ResolvedProductionRun,
     VN97RunFile,
     VN97SpeechRunInput,
     load_production_run_manifest,
     options_to_argv,
     parse_production_run_manifest,
+    parse_production_run_receipt,
     verify_production_run_inputs,
 )
 from .production_readiness import (
