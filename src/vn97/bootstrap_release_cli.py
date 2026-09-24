@@ -261,6 +261,7 @@ def _load_production_campaign_report(
     checkpoint_sha256: str,
     tokenizer_sha256: str,
     model_image_sha256: str,
+    selected_candidate_id: str | None = None,
 ) -> str:
     data = _read_regular_file(
         path,
@@ -319,6 +320,14 @@ def _load_production_campaign_report(
             raise ValueError(
                 f"production campaign report {key} does not match release input"
             )
+    if (
+        selected_candidate_id is not None
+        and report.get("selected_candidate_id")
+        != selected_candidate_id
+    ):
+        raise ValueError(
+            "production campaign selected_candidate_id does not match VN97RC1"
+        )
     return hashlib.sha256(data).hexdigest()
 
 
@@ -944,6 +953,13 @@ def main(argv: list[str] | None = None) -> int:
                 checkpoint_sha256=loaded.checkpoint_sha256,
                 tokenizer_sha256=tokenizer_sha256,
                 model_image_sha256=preview_model_image_sha256,
+                selected_candidate_id=(
+                    None
+                    if release_candidate is None
+                    else release_candidate
+                        .manifest
+                        .selected_candidate_id
+                ),
             )
         )
 
@@ -1033,22 +1049,69 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     if release_candidate is not None:
-        expected_evidence = sorted(
-            item.evidence_sha256
+        expected_evidence = {
+            item.evidence_sha256: item
             for item in
                 release_candidate
                 .manifest
                 .device_evidence
-        )
-        actual_evidence = sorted(
-            item.evidence_sha256
+        }
+        actual_evidence = {
+            item.evidence_sha256: item
             for item in
                 verified_device_evidence
-        )
-        if actual_evidence != expected_evidence:
+        }
+        if (
+            set(actual_evidence)
+            != set(expected_evidence)
+        ):
             raise ValueError(
                 "M10N device evidence identities do not match VN97RC1"
             )
+        for digest, expected_item in expected_evidence.items():
+            actual_item = actual_evidence[digest]
+            actual_summary = (
+                actual_item.manufacturer,
+                actual_item.model,
+                actual_item.sdk_int,
+                actual_item.abi,
+                actual_item.runs,
+                actual_item.text_prefill.p95_ms,
+                actual_item
+                    .text_decode_per_token
+                    .p95_ms,
+                (
+                    None
+                    if actual_item.speech_prefill is None
+                    else actual_item
+                        .speech_prefill
+                        .p95_ms
+                ),
+                actual_item.peak_pss_kib,
+                actual_item.thermal_status_max,
+                actual_item
+                    .battery_energy_counter_delta_nwh,
+            )
+            expected_summary = (
+                expected_item.manufacturer,
+                expected_item.model,
+                expected_item.sdk_int,
+                expected_item.abi,
+                expected_item.runs,
+                expected_item.text_prefill_p95_ms,
+                expected_item
+                    .text_decode_p95_ms_per_token,
+                expected_item.speech_prefill_p95_ms,
+                expected_item.peak_pss_kib,
+                expected_item.thermal_status_max,
+                expected_item
+                    .battery_energy_counter_delta_nwh,
+            )
+            if actual_summary != expected_summary:
+                raise ValueError(
+                    "M10N device evidence summary does not match VN97RC1: "
+                    + digest
+                )
 
     device_evidence = (
         verified_device_evidence[0]
