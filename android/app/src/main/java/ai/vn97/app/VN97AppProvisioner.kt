@@ -63,6 +63,10 @@ class VN97AppProvisioner(
     fun pendingReview(): VN97ModelProvisioningReview? =
         session.pendingReview()
 
+    fun currentModelActivation():
+        VN97CapabilityInventoryItem? =
+        platform.currentModelActivation()
+
     fun clearReview() {
         session.clearReview()
     }
