@@ -1,67 +1,45 @@
-name: VN97 Android APK M10I
+name: VN97 P2 corpus preparation contract
 
 on:
   push:
     branches:
-      - m10i-reproducible-apk-cold-start
-      - m10j-turnkey-bootstrap
+      - p2-corpus-preparation-workflow
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  build-apk:
+  corpus-preparation-contract:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          distribution: temurin
-          java-version: "17"
+          python-version: "3.12"
 
-      - name: Set up Gradle 9.6.0
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: "9.6.0"
-
-      - name: Install pinned Android packages
-        shell: bash
-        env:
-          ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+      - name: Compile torch-free P2 preparation path
         run: |
-          TOOLS_ZIP="$RUNNER_TEMP/android-cmdline-tools.zip"
-          TOOLS_DIR="$RUNNER_TEMP/android-cmdline-tools"
-          curl -fsSL             "https://dl.google.com/android/repository/commandlinetools-linux-12266719_latest.zip"             -o "$TOOLS_ZIP"
-          rm -rf "$TOOLS_DIR"
-          mkdir -p "$TOOLS_DIR"
-          unzip -q "$TOOLS_ZIP" -d "$TOOLS_DIR"
-          SDKMANAGER="$TOOLS_DIR/cmdline-tools/bin/sdkmanager"
-          test -x "$SDKMANAGER"
-          yes | "$SDKMANAGER" --sdk_root="$ANDROID_SDK_ROOT" --licenses >/dev/null || true
-          "$SDKMANAGER"             --sdk_root="$ANDROID_SDK_ROOT"             --channel=3             "platforms;android-37.0"             "build-tools;36.0.0"             "ndk;28.2.13676358"             "cmake;3.22.1"
+          python -m py_compile             src/vn97/corpus_io.py             src/vn97/production_corpus.py             src/vn97/production_corpus_cli.py             src/vn97/p2_corpus_intake.py             src/vn97/p2_corpus_intake_cli.py             src/vn97/p2_source_fetch.py             src/vn97/p2_source_fetch_cli.py             src/vn97/p2_corpus_bundle.py             src/vn97/p2_corpus_bundle_cli.py             tools/p2_corpus_tool.py             tests/host_production_corpus_v1.py             tests/host_p2_corpus_intake.py             tests/host_p2_source_fetch.py             tests/host_p2_corpus_bundle.py
 
-      - name: Build VN97 debug APK
-        shell: bash
+      - name: Run P2 host contracts
         run: |
-          gradle -p android             --no-daemon             --stacktrace             :app:assembleDebug
+          python tests/host_production_corpus_v1.py
+          python tests/host_p2_corpus_intake.py
+          python tests/host_p2_source_fetch.py
+          python tests/host_p2_corpus_bundle.py
 
-      - name: Verify APK
-        shell: bash
+      - name: Prove lightweight launcher needs no training runtime
         run: |
-          APK="android/app/build/outputs/apk/debug/app-debug.apk"
-          test -f "$APK"
-          sha256sum "$APK"
-          ls -lh "$APK"
+          python tools/p2_corpus_tool.py source-fetch --help >/dev/null
+          python tools/p2_corpus_tool.py corpus-intake --help >/dev/null
+          python tools/p2_corpus_tool.py corpus-seal --help >/dev/null
+          python tools/p2_corpus_tool.py corpus-bundle --help >/dev/null
 
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: VN97-debug-apk
-          path: android/app/build/outputs/apk/debug/app-debug.apk
-          if-no-files-found: error
-          retention-days: 7
+      - name: Validate manual workflow YAML parses
+        run: |
+          ruby -e 'require "yaml"; YAML.load_file(".github/workflows/p2-corpus-preparation.yml"); puts "P2 workflow YAML PASS"'
