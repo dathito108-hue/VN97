@@ -79,6 +79,7 @@ class FakeExecutor:
         transient_ui_failures: int = 0,
         transient_boot_failures: int = 0,
         transient_service_failures: int = 0,
+        fail_pre_selftest: bool = false,
     ) -> None:
         self.apk_version_code = (
             apk_version_code
@@ -98,6 +99,9 @@ class FakeExecutor:
         )
         self.transient_service_failures = (
             transient_service_failures
+        )
+        self.fail_pre_selftest = (
+            fail_pre_selftest
         )
         self.installed = False
         self.service = False
@@ -345,17 +349,28 @@ class FakeExecutor:
             in text
         ):
             self.service = True
-            encoded = base64.b64encode(
-                self._selftest(
-                    "PRE_REBOOT"
+            if self.fail_pre_selftest:
+                encoded = base64.b64encode(
+                    b"injected pre-reboot failure"
+                ).decode()
+                output = (
+                    'Broadcasting\n'
+                    'Broadcast completed: result=1, data="'
+                    + encoded
+                    + '"\n'
                 )
-            ).decode()
-            output = (
-                'Broadcasting\n'
-                'Broadcast completed: result=0, data="'
-                + encoded
-                + '"\n'
-            )
+            else:
+                encoded = base64.b64encode(
+                    self._selftest(
+                        "PRE_REBOOT"
+                    )
+                ).decode()
+                output = (
+                    'Broadcasting\n'
+                    'Broadcast completed: result=0, data="'
+                    + encoded
+                    + '"\n'
+                )
             return subprocess.CompletedProcess(
                 command,
                 0,
@@ -832,6 +847,63 @@ def main() -> None:
             item.endswith(" reboot")
             for item in commands
         )
+        assert any(
+            "uninstall ai.vn97.app"
+            in item
+            for item in commands
+        )
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (
+            release,
+            final_path,
+            package_sha,
+            final,
+        ) = fixture_release(
+            root,
+            repository_commit=commit,
+        )
+        fake = FakeExecutor(
+            apk_version_code=
+                final.version_code,
+            apk_version_name=
+                final.version_name,
+            package_sha256=
+                package_sha,
+            fail_pre_selftest=True,
+        )
+        output = (
+            root
+            / "failed.vn97accept1"
+        )
+        expect_failure(
+            "failed keep-installed acceptance cleanup",
+            lambda:
+                ACC.run_clean_device_acceptance(
+                    final_receipt_path=
+                        final_path,
+                    release_dir=release,
+                    repository_root=ROOT,
+                    serial="physical-001",
+                    output_path=output,
+                    keep_installed=True,
+                    adb_client=
+                        DEV.VN97AdbClient(
+                            "adb",
+                            executor=fake,
+                        ),
+                    launch_timeout_seconds=10,
+                    reboot_timeout_seconds=10,
+                    selftest_timeout_seconds=10,
+                ),
+        )
+        assert not fake.installed
+        assert not output.exists()
+        commands = [
+            " ".join(item)
+            for item in fake.commands
+        ]
         assert any(
             "uninstall ai.vn97.app"
             in item
