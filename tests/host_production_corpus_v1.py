@@ -2,17 +2,31 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import hashlib
+import importlib.util
 from pathlib import Path
 import sys
+import types
 
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "src"))
+SRC = ROOT / "src" / "vn97"
 
-from vn97.production_corpus import (  # noqa: E402
-    VN97ProductionCorpusError,
-    prepare_corpus,
+pkg = types.ModuleType("vn97")
+pkg.__path__ = [str(SRC)]
+sys.modules["vn97"] = pkg
+
+spec = importlib.util.spec_from_file_location(
+    "vn97.production_corpus",
+    SRC / "production_corpus.py",
 )
+if spec is None or spec.loader is None:
+    raise RuntimeError("could not load production_corpus.py")
+module = importlib.util.module_from_spec(spec)
+sys.modules["vn97.production_corpus"] = module
+spec.loader.exec_module(module)
+
+VN97ProductionCorpusError = module.VN97ProductionCorpusError
+prepare_corpus = module.prepare_corpus
 
 
 @dataclass(frozen=True)
