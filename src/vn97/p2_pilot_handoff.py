@@ -340,6 +340,8 @@ class VN97P2PilotRunReceipt:
     model_image_sha256: str
     profile_sha256: str
     device: str
+    python_version: str
+    torch_version: str
 
     def __post_init__(self) -> None:
         _require_commit(
@@ -373,6 +375,19 @@ class VN97P2PilotRunReceipt:
             raise VN97P2PilotHandoffError(
                 "GitHub P2 run receipt requires cpu device"
             )
+        for value, label in (
+            (self.python_version, "Python version"),
+            (self.torch_version, "Torch version"),
+        ):
+            if (
+                not isinstance(value, str)
+                or not value
+                or len(value) > 128
+                or any(ord(ch) < 0x20 for ch in value)
+            ):
+                raise VN97P2PilotHandoffError(
+                    f"{label} is invalid"
+                )
 
     def canonical_object(self) -> dict[str, object]:
         body = {
@@ -387,7 +402,9 @@ class VN97P2PilotRunReceipt:
             "model_image_sha256": self.model_image_sha256,
             "pilot_receipt_sha256": self.pilot_receipt_sha256,
             "profile_sha256": self.profile_sha256,
+            "python_version": self.python_version,
             "schema": "VN97P2RUN1",
+            "torch_version": self.torch_version,
             "tokenizer_sha256": self.tokenizer_sha256,
             "training_commit": self.training_commit,
             "training_run_id": self.training_run_id,
@@ -408,6 +425,8 @@ def build_pilot_run_receipt(
     training_commit: str,
     corpus_run_id: str,
     training_run_id: str,
+    python_version: str,
+    torch_version: str,
 ) -> VN97P2PilotRunReceipt:
     training_commit = _require_commit(
         training_commit,
@@ -495,4 +514,6 @@ def build_pilot_run_receipt(
             label="pilot profile SHA-256",
         ),
         device="cpu",
+        python_version=python_version,
+        torch_version=torch_version,
     )
