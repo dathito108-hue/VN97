@@ -691,6 +691,30 @@ class VN97ProductionRunManifest:
             raise VN97ProductionRunManifestError(
                 "language train/validation/release paths must be distinct"
             )
+        speech_audio_paths = [
+            item.path
+            for spec in (
+                self.speech_training,
+                self.speech_validation,
+                self.speech_release,
+            )
+            for item in spec.audio
+        ]
+        if len(set(speech_audio_paths)) != len(
+            speech_audio_paths
+        ):
+            raise VN97ProductionRunManifestError(
+                "speech train/validation/release audio paths must be distinct"
+            )
+        speech_manifest_paths = {
+            self.speech_training.manifest.path,
+            self.speech_validation.manifest.path,
+            self.speech_release.manifest.path,
+        }
+        if len(speech_manifest_paths) != 3:
+            raise VN97ProductionRunManifestError(
+                "speech train/validation/release manifest paths must be distinct"
+            )
 
         _relative_path(
             self.device_evidence_dir,
@@ -1556,19 +1580,25 @@ def verify_production_run_inputs(
         relative: str,
     ) -> Path:
         target = workspace / relative
-        try:
-            target.parent.resolve(
-                strict=True
-            ).relative_to(
-                workspace
-            )
-        except (
-            OSError,
-            ValueError,
-        ) as exc:
-            raise VN97ProductionRunManifestError(
-                f"run path parent escapes/unavailable: {relative}"
-            ) from exc
+        cursor = workspace
+        parts = Path(relative).parts
+        for part in parts[:-1]:
+            cursor = cursor / part
+            try:
+                info = os.lstat(cursor)
+            except FileNotFoundError:
+                break
+            except OSError as exc:
+                raise VN97ProductionRunManifestError(
+                    f"run path parent is unavailable: {relative}"
+                ) from exc
+            if (
+                stat.S_ISLNK(info.st_mode)
+                or not stat.S_ISDIR(info.st_mode)
+            ):
+                raise VN97ProductionRunManifestError(
+                    f"run path parent must stay inside real directories: {relative}"
+                )
         return target
 
     return VN97ResolvedProductionRun(
