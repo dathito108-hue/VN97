@@ -5,6 +5,7 @@ on:
     branches:
       - m10i-reproducible-apk-cold-start
       - m10j-turnkey-bootstrap
+      - m19a-release-turnkey-production-gate
   workflow_dispatch:
 
 permissions:
@@ -23,6 +24,18 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
+
+      - name: Run M18 and M19A host contracts
+        shell: bash
+        run: |
+          if command -v kotlinc >/dev/null 2>&1; then
+            bash android/app/host-test/run-m18a.sh
+            bash android/app/host-test/run-m18b.sh
+            bash android/platform/host-test/run-m18c.sh
+            bash android/app/host-test/run-m19a.sh
+          else
+            echo "kotlinc unavailable on runner; APK compilation remains the integration gate."
+          fi
 
       - name: Set up Gradle 9.6.0
         uses: gradle/actions/setup-gradle@v4
@@ -44,6 +57,30 @@ jobs:
           test -x "$SDKMANAGER"
           yes | "$SDKMANAGER" --sdk_root="$ANDROID_SDK_ROOT" --licenses >/dev/null || true
           "$SDKMANAGER"             --sdk_root="$ANDROID_SDK_ROOT"             --channel=3             "platforms;android-37.0"             "build-tools;36.0.0"             "ndk;28.2.13676358"             "cmake;3.22.1"
+
+      - name: Assert production release gate fails closed without release inputs
+        shell: bash
+        run: |
+          LOG="$RUNNER_TEMP/m19a-release-gate.log"
+          set +e
+          gradle -p android \
+            --no-daemon \
+            --stacktrace \
+            --continue \
+            :app:verifyTurnkeyBootstrap \
+            :app:verifyReleaseSigning \
+            :app:verifyReleaseVersion \
+            >"$LOG" 2>&1
+          STATUS=$?
+          set -e
+          if [ "$STATUS" -eq 0 ]; then
+            cat "$LOG"
+            echo "M19A production gate unexpectedly passed without production inputs." >&2
+            exit 1
+          fi
+          grep -q "VN97 turnkey release requires a safe regular asset" "$LOG"
+          grep -q "VN97 release signing requires" "$LOG"
+          echo "M19A_RELEASE_GATE_FAIL_CLOSED_PASS"
 
       - name: Build VN97 debug APK
         shell: bash
