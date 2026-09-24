@@ -4,13 +4,7 @@ from dataclasses import dataclass
 import hashlib
 import json
 from pathlib import Path
-from typing import Iterable, Sequence
-
-from .dataset_split import (
-    VN97DatasetSplitError,
-    dataset_record_fingerprints,
-)
-from .training import VN97ChatMessage
+from typing import Sequence
 
 
 class VN97ProductionCorpusError(RuntimeError):
@@ -58,7 +52,10 @@ def _canonical_record(record: object, *, mode: str) -> bytes:
     if (
         not isinstance(record, tuple)
         or not record
-        or any(not isinstance(item, VN97ChatMessage) for item in record)
+        or any(
+            not hasattr(item, "role") or not hasattr(item, "content")
+            for item in record
+        )
     ):
         raise VN97ProductionCorpusError(
             "chat corpus records must be non-empty VN97ChatMessage tuples"
@@ -322,13 +319,18 @@ def prepare_corpus(
             )
 
         fingerprints = tuple(
-            next(iter(dataset_record_fingerprints([record], mode=mode)))
+            hashlib.sha256(
+                b"VN97DATAREC1\0"
+                + mode.encode("ascii")
+                + b"\0"
+                + _canonical_record(record, mode=mode)
+            ).hexdigest()
             for record in records
         )
         for fp in fingerprints:
             prior_split = global_fp_to_split.get(fp)
             if prior_split is not None and prior_split != split:
-                raise VN97DatasetSplitError(
+                raise VN97ProductionCorpusError(
                     f"{prior_split}/{split} dataset records overlap"
                 )
             global_fp_to_split[fp] = split
