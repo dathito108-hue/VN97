@@ -319,8 +319,7 @@ def _load_production_report(
             f"production report {key}",
         )
 
-    candidate_id =
-        root["selected_candidate_id"]
+    candidate_id = root["selected_candidate_id"]
     if (
         not isinstance(candidate_id, str)
         or len(candidate_id) != 16
@@ -642,77 +641,51 @@ def main(
             "min-distinct-device-profiles must be positive"
         )
 
-    checkpoint_path =
-        Path(args.checkpoint)
-    tokenizer_path =
-        Path(args.tokenizer)
-    production_report_path =
-        Path(
-            args.production_campaign_report
-        )
-
-    production, production_bytes, production_sha256 =
-        _load_production_report(
-            production_report_path
-        )
-    deployment =
-        production["deployment"]
-    assert isinstance(
-        deployment,
-        dict,
-    )
-    tile_rows =
-        deployment["tile_rows"]
-    tile_cols =
-        deployment["tile_cols"]
-    assert isinstance(
-        tile_rows,
-        int,
-    )
-    assert isinstance(
-        tile_cols,
-        int,
+    checkpoint_path = Path(args.checkpoint)
+    tokenizer_path = Path(args.tokenizer)
+    production_report_path = Path(
+        args.production_campaign_report
     )
 
-    checkpoint =
-        load_deployment_checkpoint_file(
-            checkpoint_path
-        )
+    production, _, production_sha256 = _load_production_report(
+        production_report_path
+    )
+    deployment = production["deployment"]
+    assert isinstance(deployment, dict)
+    tile_rows = deployment["tile_rows"]
+    tile_cols = deployment["tile_cols"]
+    assert isinstance(tile_rows, int)
+    assert isinstance(tile_cols, int)
+
+    checkpoint = load_deployment_checkpoint_file(
+        checkpoint_path
+    )
     if (
         checkpoint.checkpoint_sha256
-        != production[
-            "unified_checkpoint_sha256"
-        ]
+        != production["unified_checkpoint_sha256"]
     ):
         raise ValueError(
             "production checkpoint identity does not match VN97PRODCAMP1"
         )
 
-    tokenizer_bytes =
-        _read_regular_file(
-            tokenizer_path,
-            max_bytes=
-                _MAX_TOKENIZER_BYTES,
-            label="release tokenizer",
-        )
-    tokenizer_sha256 =
-        _sha256_bytes(
-            tokenizer_bytes
-        )
+    tokenizer_bytes = _read_regular_file(
+        tokenizer_path,
+        max_bytes=_MAX_TOKENIZER_BYTES,
+        label="release tokenizer",
+    )
+    tokenizer_sha256 = _sha256_bytes(
+        tokenizer_bytes
+    )
     if (
         tokenizer_sha256
-        != production[
-            "tokenizer_sha256"
-        ]
+        != production["tokenizer_sha256"]
     ):
         raise ValueError(
             "production tokenizer identity does not match VN97PRODCAMP1"
         )
-    tokenizer =
-        VN97TokenizerPackage
-            .from_bytes(
-                tokenizer_bytes
-            )
+    tokenizer = VN97TokenizerPackage.from_bytes(
+        tokenizer_bytes
+    )
     if (
         tokenizer.vocab_size
         != checkpoint.config.vocab_size
@@ -721,102 +694,82 @@ def main(
             "production tokenizer vocabulary does not match checkpoint"
         )
 
-    preview =
-        build_model_image(
-            checkpoint.model,
-            tokenizer=tokenizer,
-            audio_adapter=
-                checkpoint.audio_adapter,
-            vision_adapter=
-                checkpoint.vision_adapter,
-            tile_rows=tile_rows,
-            tile_cols=tile_cols,
-        )
-    model_image_sha256 =
-        _sha256_bytes(
-            preview.data
-        )
+    preview = build_model_image(
+        checkpoint.model,
+        tokenizer=tokenizer,
+        audio_adapter=checkpoint.audio_adapter,
+        vision_adapter=checkpoint.vision_adapter,
+        tile_rows=tile_rows,
+        tile_cols=tile_cols,
+    )
+    model_image_sha256 = _sha256_bytes(
+        preview.data
+    )
     if (
         model_image_sha256
-        != production[
-            "model_image_sha256"
-        ]
+        != production["model_image_sha256"]
     ):
         raise ValueError(
             "reconstructed VN97MI1 identity does not match production campaign"
         )
 
-    footprint =
-        estimate_vn97_mobile_footprint(
-            checkpoint.config,
-            tokenizer_nbytes=
-                len(tokenizer_bytes),
-            audio_frame_size=(
-                None
-                if checkpoint.audio_adapter
-                is None
-                else int(
-                    checkpoint.audio_adapter
-                        .projection
-                        .in_features
-                )
-            ),
-            vision_input_features=(
-                None
-                if checkpoint.vision_adapter
-                is None
-                else int(
-                    checkpoint.vision_adapter
-                        .projection
-                        .in_features
-                )
-            ),
-            tile_rows=tile_rows,
-            tile_cols=tile_cols,
-            batch_size=1,
-        )
+    footprint = estimate_vn97_mobile_footprint(
+        checkpoint.config,
+        tokenizer_nbytes=len(tokenizer_bytes),
+        audio_frame_size=(
+            None
+            if checkpoint.audio_adapter is None
+            else int(
+                checkpoint.audio_adapter
+                .projection
+                .in_features
+            )
+        ),
+        vision_input_features=(
+            None
+            if checkpoint.vision_adapter is None
+            else int(
+                checkpoint.vision_adapter
+                .projection
+                .in_features
+            )
+        ),
+        tile_rows=tile_rows,
+        tile_cols=tile_cols,
+        batch_size=1,
+    )
     if (
         footprint.canonical_object()
-        != production[
-            "mobile_footprint"
-        ]
+        != production["mobile_footprint"]
     ):
         raise ValueError(
             "reconstructed mobile footprint does not match production campaign"
         )
-    budget_raw =
-        production["mobile_budget"]
-    assert isinstance(
-        budget_raw,
-        dict,
+    budget_raw = production["mobile_budget"]
+    assert isinstance(budget_raw, dict)
+    budget = VN97MobileBudget(
+        max_model_image_bytes=budget_raw[
+            "max_model_image_bytes"
+        ],
+        max_recurrent_state_bytes=budget_raw[
+            "max_recurrent_state_bytes"
+        ],
     )
-    budget =
-        VN97MobileBudget(
-            max_model_image_bytes=
-                budget_raw[
-                    "max_model_image_bytes"
-                ],
-            max_recurrent_state_bytes=
-                budget_raw[
-                    "max_recurrent_state_bytes"
-                ],
-        )
-    rejection =
-        budget.rejection_status(
-            footprint
-        )
+    rejection = budget.rejection_status(
+        footprint
+    )
     if rejection is not None:
         raise ValueError(
             "production candidate no longer fits recorded mobile budget: "
             + rejection
         )
 
-    speech_enabled =
-        checkpoint.audio_adapter
-        is not None
-    vision_enabled =
-        checkpoint.vision_adapter
-        is not None
+    speech_enabled = (
+        checkpoint.audio_adapter is not None
+    )
+    vision_enabled = (
+        checkpoint.vision_adapter is not None
+    )
 
     speech_report_path: Path | None = None
     speech_report_sha256: str | None = None
@@ -825,18 +778,14 @@ def main(
             raise ValueError(
                 "speech-enabled checkpoint requires --speech-training-report"
             )
-        speech_report_path =
-            Path(
-                args.speech_training_report
-            )
-        _, speech_report_sha256 =
-            _load_speech_training_report(
-                speech_report_path,
-                checkpoint_sha256=
-                    checkpoint.checkpoint_sha256,
-                tokenizer_sha256=
-                    tokenizer_sha256,
-            )
+        speech_report_path = Path(
+            args.speech_training_report
+        )
+        _, speech_report_sha256 = _load_speech_training_report(
+            speech_report_path,
+            checkpoint_sha256=checkpoint.checkpoint_sha256,
+            tokenizer_sha256=tokenizer_sha256,
+        )
     elif args.speech_training_report:
         raise ValueError(
             "speech training report supplied for checkpoint without speech weights"
@@ -849,41 +798,36 @@ def main(
             raise ValueError(
                 "vision-enabled checkpoint requires --vision-training-report"
             )
-        vision_report_path =
-            Path(
-                args.vision_training_report
-            )
-        _, vision_report_sha256 =
-            _load_vision_training_report(
-                vision_report_path,
-                checkpoint_sha256=
-                    checkpoint.checkpoint_sha256,
-                tokenizer_sha256=
-                    tokenizer_sha256,
-            )
+        vision_report_path = Path(
+            args.vision_training_report
+        )
+        _, vision_report_sha256 = _load_vision_training_report(
+            vision_report_path,
+            checkpoint_sha256=checkpoint.checkpoint_sha256,
+            tokenizer_sha256=tokenizer_sha256,
+        )
     elif args.vision_training_report:
         raise ValueError(
             "vision training report supplied for checkpoint without vision weights"
         )
 
-    criteria =
-        VN97DeviceEvidenceCriteria(
-            min_runs=args.min_device_runs,
-            max_text_prefill_p95_ms=
-                args.max_text_prefill_p95_ms,
-            max_text_decode_p95_ms_per_token=
-                args.max_text_decode_p95_ms_per_token,
-            max_peak_pss_kib=
-                args.max_device_peak_pss_kib,
-            max_thermal_status=
-                args.max_device_thermal_status,
-            max_speech_prefill_p95_ms=
-                args.max_speech_prefill_p95_ms,
-            require_energy_counter=
-                args.require_energy_counter,
-            max_abs_battery_energy_counter_delta_nwh=
-                args.max_abs_battery_energy_counter_delta_nwh,
-        )
+    criteria = VN97DeviceEvidenceCriteria(
+        min_runs=args.min_device_runs,
+        max_text_prefill_p95_ms=
+            args.max_text_prefill_p95_ms,
+        max_text_decode_p95_ms_per_token=
+            args.max_text_decode_p95_ms_per_token,
+        max_peak_pss_kib=
+            args.max_device_peak_pss_kib,
+        max_thermal_status=
+            args.max_device_thermal_status,
+        max_speech_prefill_p95_ms=
+            args.max_speech_prefill_p95_ms,
+        require_energy_counter=
+            args.require_energy_counter,
+        max_abs_battery_energy_counter_delta_nwh=
+            args.max_abs_battery_energy_counter_delta_nwh,
+    )
 
     evidence_entries: list[
         VN97ReleaseCandidateDeviceEvidence
@@ -898,10 +842,9 @@ def main(
 
     for raw_path in args.device_evidence:
         path = Path(raw_path)
-        evidence =
-            load_device_evidence(
-                path
-            )
+        evidence = load_device_evidence(
+            path
+        )
         if (
             evidence.evidence_sha256
             in seen_digests
@@ -914,8 +857,7 @@ def main(
             criteria,
             expected_model_image_sha256=
                 model_image_sha256,
-            speech_enabled=
-                speech_enabled,
+            speech_enabled=speech_enabled,
         )
         if evidence.sdk_int < 26:
             raise ValueError(
@@ -949,29 +891,23 @@ def main(
                 abi=evidence.abi,
                 runs=evidence.runs,
                 text_prefill_p95_ms=
-                    evidence
-                        .text_prefill
-                        .p95_ms,
+                    evidence.text_prefill.p95_ms,
                 text_decode_p95_ms_per_token=
                     evidence
-                        .text_decode_per_token
-                        .p95_ms,
+                    .text_decode_per_token
+                    .p95_ms,
                 speech_prefill_p95_ms=(
                     None
-                    if evidence.speech_prefill
-                    is None
-                    else evidence
-                        .speech_prefill
-                        .p95_ms
+                    if evidence.speech_prefill is None
+                    else evidence.speech_prefill.p95_ms
                 ),
                 peak_pss_kib=
                     evidence.peak_pss_kib,
                 thermal_status_max=
-                    evidence
-                        .thermal_status_max,
+                    evidence.thermal_status_max,
                 battery_energy_counter_delta_nwh=
                     evidence
-                        .battery_energy_counter_delta_nwh,
+                    .battery_energy_counter_delta_nwh,
             )
         )
 
@@ -984,47 +920,44 @@ def main(
         )
 
     evidence_entries.sort(
-        key=lambda item:
-            item.evidence_sha256
+        key=lambda item: item.evidence_sha256
     )
-    manifest =
-        VN97ReleaseCandidateManifest(
-            selected_candidate_id=
-                production[
-                    "selected_candidate_id"
-                ],
-            checkpoint_sha256=
-                checkpoint.checkpoint_sha256,
-            checkpoint_bytes=
-                checkpoint_path.stat()
-                    .st_size,
-            tokenizer_sha256=
-                tokenizer_sha256,
-            tokenizer_bytes=
-                len(tokenizer_bytes),
-            production_campaign_report_sha256=
-                production_sha256,
-            model_image_sha256=
-                model_image_sha256,
-            tile_rows=tile_rows,
-            tile_cols=tile_cols,
-            speech_enabled=
-                speech_enabled,
-            vision_enabled=
-                vision_enabled,
-            speech_training_report_sha256=
-                speech_report_sha256,
-            vision_training_report_sha256=
-                vision_report_sha256,
-            device_evidence=
-                tuple(evidence_entries),
+    checkpoint_info = checkpoint_path.stat()
+    if (
+        not stat.S_ISREG(checkpoint_info.st_mode)
+        or checkpoint_info.st_size <= 0
+    ):
+        raise ValueError(
+            "release checkpoint must be a non-empty regular file"
         )
+    manifest = VN97ReleaseCandidateManifest(
+        selected_candidate_id=production[
+            "selected_candidate_id"
+        ],
+        checkpoint_sha256=
+            checkpoint.checkpoint_sha256,
+        checkpoint_bytes=
+            checkpoint_info.st_size,
+        tokenizer_sha256=tokenizer_sha256,
+        tokenizer_bytes=len(tokenizer_bytes),
+        production_campaign_report_sha256=
+            production_sha256,
+        model_image_sha256=
+            model_image_sha256,
+        tile_rows=tile_rows,
+        tile_cols=tile_cols,
+        speech_enabled=speech_enabled,
+        vision_enabled=vision_enabled,
+        speech_training_report_sha256=
+            speech_report_sha256,
+        vision_training_report_sha256=
+            vision_report_sha256,
+        device_evidence=
+            tuple(evidence_entries),
+    )
 
     output = Path(args.output_dir)
-    if (
-        output.exists()
-        or output.is_symlink()
-    ):
+    if output.exists() or output.is_symlink():
         raise ValueError(
             "release candidate output-dir must not already exist"
         )
@@ -1045,69 +978,55 @@ def main(
     try:
         _copy_regular_file(
             checkpoint_path,
-            staging /
-                "model.vn97ck1",
-            max_bytes=
-                MAX_CHECKPOINT_BYTES,
+            staging / "model.vn97ck1",
+            max_bytes=MAX_CHECKPOINT_BYTES,
             expected_sha256=
-                checkpoint
-                    .checkpoint_sha256,
+                checkpoint.checkpoint_sha256,
             label="release checkpoint",
         )
         _copy_regular_file(
             tokenizer_path,
-            staging /
-                "tokenizer.vn97tk1",
-            max_bytes=
-                _MAX_TOKENIZER_BYTES,
-            expected_sha256=
-                tokenizer_sha256,
+            staging / "tokenizer.vn97tk1",
+            max_bytes=_MAX_TOKENIZER_BYTES,
+            expected_sha256=tokenizer_sha256,
             label="release tokenizer",
         )
         _copy_regular_file(
             production_report_path,
             staging /
                 "production-campaign-report.json",
-            max_bytes=
-                _MAX_REPORT_BYTES,
-            expected_sha256=
-                production_sha256,
+            max_bytes=_MAX_REPORT_BYTES,
+            expected_sha256=production_sha256,
             label="production campaign report",
         )
         if (
             speech_report_path is not None
-            and speech_report_sha256
-            is not None
+            and speech_report_sha256 is not None
         ):
             _copy_regular_file(
                 speech_report_path,
                 staging /
                     "speech-training-report.json",
-                max_bytes=
-                    _MAX_REPORT_BYTES,
+                max_bytes=_MAX_REPORT_BYTES,
                 expected_sha256=
                     speech_report_sha256,
                 label="speech training report",
             )
         if (
             vision_report_path is not None
-            and vision_report_sha256
-            is not None
+            and vision_report_sha256 is not None
         ):
             _copy_regular_file(
                 vision_report_path,
                 staging /
                     "vision-training-report.json",
-                max_bytes=
-                    _MAX_REPORT_BYTES,
+                max_bytes=_MAX_REPORT_BYTES,
                 expected_sha256=
                     vision_report_sha256,
                 label="vision training report",
             )
 
-        evidence_dir =
-            staging /
-            "device-evidence"
+        evidence_dir = staging / "device-evidence"
         evidence_dir.mkdir()
         for index, (
             source,
@@ -1115,8 +1034,7 @@ def main(
         ) in enumerate(
             sorted(
                 evidence_sources,
-                key=lambda item:
-                    item[1],
+                key=lambda item: item[1],
             ),
             start=1,
         ):
@@ -1127,8 +1045,7 @@ def main(
                         f"{index:03d}-"
                         f"{digest}.json"
                     ),
-                max_bytes=
-                    _MAX_EVIDENCE_BYTES,
+                max_bytes=_MAX_EVIDENCE_BYTES,
                 expected_sha256=digest,
                 label="mobile device evidence",
             )
@@ -1138,19 +1055,10 @@ def main(
                 "release-candidate.vn97rc1",
             manifest.to_bytes(),
         )
-        _fsync_directory(
-            evidence_dir
-        )
-        _fsync_directory(
-            staging
-        )
-        os.replace(
-            staging,
-            output,
-        )
-        _fsync_directory(
-            output.parent
-        )
+        _fsync_directory(evidence_dir)
+        _fsync_directory(staging)
+        os.replace(staging, output)
+        _fsync_directory(output.parent)
     except BaseException:
         shutil.rmtree(
             staging,
