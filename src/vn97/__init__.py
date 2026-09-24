@@ -196,6 +196,14 @@ from .production_intake import (
     inspect_production_campaign_directory,
     parse_production_intake_report,
 )
+from .production_run_sealer import (
+    VN97ProductionEnvironment,
+    VN97ProductionRunSealerError,
+    bootstrap_workspace,
+    build_production_run_manifest,
+    probe_production_environment,
+    write_manifest_atomic,
+)
 from .production_run_manifest import (
     VN97ProductionRunManifest,
     VN97ProductionRunManifestError,
