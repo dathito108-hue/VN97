@@ -322,7 +322,7 @@ def prepare_corpus(
             )
 
         fingerprints = tuple(
-            dataset_record_fingerprints([record], mode=mode).pop()
+            next(iter(dataset_record_fingerprints([record], mode=mode)))
             for record in records
         )
         for fp in fingerprints:
