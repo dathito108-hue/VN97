@@ -146,6 +146,11 @@ class VN97GameAgentService : Service() {
                     .EXECUTION_ENTRY
             )
             .requireActivationReady()
+        app.runtimeResources
+            .requireRunnable(
+                VN97RuntimeExecutionClass
+                    .HEAVY
+            )
         val session =
             app.platformRuntime.gameControlPolicy.activeSessionOrNull()
                 ?: error("no active game-control authorization")
