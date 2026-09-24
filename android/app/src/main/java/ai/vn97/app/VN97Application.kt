@@ -4,6 +4,7 @@ import ai.vn97.platform.AndroidPlatformRuntime
 import ai.vn97.platform.VN97AssistantContinuationWork
 import ai.vn97.platform.VN97AssistantContinuationWorkProvider
 import android.app.Application
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
 
@@ -121,4 +122,33 @@ class VN97Application :
     inline fun <T> withSovereignExecution(
         block: () -> T,
     ): T = sovereignExecutionLock.withLock(block)
+
+    fun <T> withSovereignExecutionBounded(
+        timeoutMillis: Long,
+        block: () -> T,
+    ): T {
+        require(timeoutMillis > 0L)
+        val acquired =
+            try {
+                sovereignExecutionLock.tryLock(
+                    timeoutMillis,
+                    TimeUnit.MILLISECONDS,
+                )
+            } catch (exc: InterruptedException) {
+                Thread.currentThread()
+                    .interrupt()
+                throw IllegalStateException(
+                    "VN97 sovereign lock wait interrupted",
+                    exc,
+                )
+            }
+        check(acquired) {
+            "VN97 sovereign execution lock timed out"
+        }
+        try {
+            return block()
+        } finally {
+            sovereignExecutionLock.unlock()
+        }
+    }
 }
