@@ -336,6 +336,61 @@ class VN97ImprovementPromotionLedger(
     }
 
     @Synchronized
+    fun pendingAttempts():
+        List<VN97ImprovementPromotionRecord> {
+        val records =
+            ArrayList<
+                VN97ImprovementPromotionRecord
+            >()
+        var count = 0
+        Files.newDirectoryStream(
+            rootPath,
+            "*.vn97impprom1",
+        ).use { entries ->
+            for (path in entries) {
+                count += 1
+                require(count <= MAX_FILES) {
+                    "promotion ledger file count exceeds bound"
+                }
+                require(
+                    Files.isRegularFile(
+                        path,
+                        LinkOption.NOFOLLOW_LINKS,
+                    ) &&
+                        !Files.isSymbolicLink(path)
+                )
+                val name =
+                    path.fileName.toString()
+                val id =
+                    name.removeSuffix(
+                        ".vn97impprom1"
+                    )
+                require(
+                    name.endsWith(
+                        ".vn97impprom1"
+                    ) &&
+                        id.length == 64
+                )
+                val record =
+                    loadOrNull(id)
+                        ?: throw IllegalStateException(
+                            "promotion ledger entry disappeared"
+                        )
+                if (
+                    record.state ==
+                        VN97ImprovementPromotionState
+                            .PENDING
+                ) {
+                    records += record
+                }
+            }
+        }
+        return records.sortedBy {
+            it.spec.requestedWallTimeMillis
+        }
+    }
+
+    @Synchronized
     fun pendingForCandidate(
         candidateId: String,
     ): VN97ImprovementPromotionRecord? {
@@ -512,25 +567,23 @@ class VN97ImprovementPromotionLedger(
                 out.fd.sync()
             }
             try {
-                val options =
-                    if (replace) {
-                        arrayOf(
-                            StandardCopyOption
-                                .ATOMIC_MOVE,
-                            StandardCopyOption
-                                .REPLACE_EXISTING,
-                        )
-                    } else {
-                        arrayOf(
-                            StandardCopyOption
-                                .ATOMIC_MOVE
-                        )
-                    }
-                Files.move(
-                    temp,
-                    target,
-                    *options,
-                )
+                if (replace) {
+                    Files.move(
+                        temp,
+                        target,
+                        StandardCopyOption
+                            .ATOMIC_MOVE,
+                        StandardCopyOption
+                            .REPLACE_EXISTING,
+                    )
+                } else {
+                    Files.move(
+                        temp,
+                        target,
+                        StandardCopyOption
+                            .ATOMIC_MOVE,
+                    )
+                }
             } catch (
                 exc: AtomicMoveNotSupportedException
             ) {
