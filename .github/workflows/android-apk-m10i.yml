@@ -73,8 +73,8 @@ jobs:
             >"$LOG" 2>&1
           STATUS=$?
           set -e
+          cat "$LOG"
           if [ "$STATUS" -eq 0 ]; then
-            cat "$LOG"
             echo "M19A production gate unexpectedly passed without production inputs." >&2
             exit 1
           fi
