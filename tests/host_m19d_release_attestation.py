@@ -26,6 +26,7 @@ SPEC.loader.exec_module(MODULE)
 
 Attestation = MODULE.VN97ApkAttestation
 parse_release_manifest = MODULE.parse_release_manifest
+parse_apk_attestation = MODULE.parse_apk_attestation
 verify_apk_payload = MODULE.verify_apk_payload
 parse_aapt_badging = MODULE.parse_aapt_badging
 parse_apksigner = (
@@ -251,6 +252,9 @@ def main() -> None:
             "99" * 32,
     )
     encoded = attestation.to_bytes()
+    assert parse_apk_attestation(
+        encoded
+    ) == attestation
     assert b'"schema":"VN97APK1"' in encoded
     assert encoded == (
         __import__("json")
