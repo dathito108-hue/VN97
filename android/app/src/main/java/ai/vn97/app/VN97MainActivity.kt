@@ -1834,7 +1834,7 @@ class VN97MainActivity : Activity() {
         val size =
             Files.size(path)
         check(
-            size in 1..maxBytes
+            size in 1L..maxBytes
         ) {
             "M19J staged asset size is outside bounds: $name"
         }
@@ -1867,28 +1867,32 @@ class VN97MainActivity : Activity() {
                     target.name +
                     ".tmp",
             )
-        FileOutputStream(
-            temp,
-            false,
-        ).use {
-            output ->
-            output.write(bytes)
-            output.flush()
-            output.fd.sync()
-        }
-        Files.move(
-            temp.toPath(),
-            target.toPath(),
-            StandardCopyOption.REPLACE_EXISTING,
-        )
-        if (
-            !target
-                .readBytes()
-                .contentEquals(bytes)
-        ) {
-            throw IllegalStateException(
-                "M19J output post-write verification failed"
+        try {
+            FileOutputStream(
+                temp,
+                false,
+            ).use {
+                output ->
+                output.write(bytes)
+                output.flush()
+                output.fd.sync()
+            }
+            Files.move(
+                temp.toPath(),
+                target.toPath(),
+                StandardCopyOption.REPLACE_EXISTING,
             )
+            if (
+                !target
+                    .readBytes()
+                    .contentEquals(bytes)
+            ) {
+                throw IllegalStateException(
+                    "M19J output post-write verification failed"
+                )
+            }
+        } finally {
+            temp.delete()
         }
     }
 
