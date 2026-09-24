@@ -186,6 +186,13 @@ from .device_evidence import (
     parse_device_evidence,
     require_device_evidence,
 )
+from .release_candidate import (
+    MAX_MANIFEST_BYTES as MAX_RELEASE_CANDIDATE_MANIFEST_BYTES,
+    VN97ReleaseCandidateDeviceEvidence,
+    VN97ReleaseCandidateError,
+    VN97ReleaseCandidateManifest,
+    parse_release_candidate_manifest,
+)
 from .evaluation import (
     VN97EvaluationResult,
     VN97ReleaseCriteria,
