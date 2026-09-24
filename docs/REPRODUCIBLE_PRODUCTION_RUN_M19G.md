@@ -453,6 +453,21 @@ M19E then determines whether signing/build prerequisites are READY.
 M19G therefore freezes **how the real model/evidence candidate was produced**;
 M19E/M19D freeze **whether and how that candidate may be signed and shipped**.
 
+M19H now provides the canonical authoring path for this manifest:
+
+```text
+vn97-production-seal bootstrap
+-> populate real production workspace
+-> vn97-production-seal seal
+-> production-run.vn97run1
+-> vn97-production-run --stage verify
+```
+
+The sealer auto-discovers and hashes the conventional language/speech workspace
+instead of requiring operators to hand-author file byte counts and SHA-256
+identities. The resulting file is still this exact VN97RUN1 schema and is
+verified by the same M19G parser/verifier before publication.
+
 ## Honest reproducibility boundary
 
 VN97RUN1 does not claim that:
