@@ -35,6 +35,10 @@ from .speech_training import (
 from .speech_training_cli import load_speech_manifest
 from .mobile_budget import VN97MobileBudget, estimate_vn97_mobile_footprint
 from .model_image import build_model_image
+from .release_candidate import (
+    VN97LoadedReleaseCandidate,
+    load_release_candidate_directory,
+)
 from .tokenizer import VN97Tokenizer, VN97TokenizerPackage
 from .training import (
     VN97TrainingConfig,
@@ -334,8 +338,16 @@ def _parser() -> argparse.ArgumentParser:
             "Create the exact signed VN97 bootstrap assets consumed by the M10J Android app."
         )
     )
-    parser.add_argument("--checkpoint", required=True)
-    parser.add_argument("--tokenizer", required=True)
+    parser.add_argument("--checkpoint")
+    parser.add_argument("--tokenizer")
+    parser.add_argument(
+        "--release-candidate-dir",
+        help=(
+            "verified VN97RC1 candidate directory; resolves checkpoint, "
+            "tokenizer, production report, modality reports, device evidence, "
+            "and deployment tile geometry"
+        ),
+    )
     parser.add_argument("--private-key", required=True)
     parser.add_argument("--key-id", required=True)
     parser.add_argument("--capability-version", type=int, required=True)
@@ -480,8 +492,8 @@ def _parser() -> argparse.ArgumentParser:
         default=64,
     )
 
-    parser.add_argument("--tile-rows", type=int, default=16)
-    parser.add_argument("--tile-cols", type=int, default=16)
+    parser.add_argument("--tile-rows", type=int)
+    parser.add_argument("--tile-cols", type=int)
     parser.add_argument(
         "--max-model-image-bytes",
         type=int,
@@ -544,11 +556,121 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _resolve_release_inputs(
+    args: argparse.Namespace,
+) -> tuple[
+    VN97LoadedReleaseCandidate | None,
+    Path,
+    Path,
+    Path | None,
+    Path | None,
+    Path | None,
+    tuple[Path, ...],
+    int,
+    int,
+]:
+    candidate: VN97LoadedReleaseCandidate | None = None
+    if args.release_candidate_dir is not None:
+        conflicting = {
+            "--checkpoint": args.checkpoint,
+            "--tokenizer": args.tokenizer,
+            "--production-campaign-report":
+                args.production_campaign_report,
+            "--speech-training-report":
+                args.speech_training_report,
+            "--vision-training-report":
+                args.vision_training_report,
+            "--device-evidence":
+                args.device_evidence,
+        }
+        supplied = [
+            name
+            for name, value in conflicting.items()
+            if value is not None
+        ]
+        if supplied:
+            raise ValueError(
+                "--release-candidate-dir cannot be combined with: "
+                + ", ".join(supplied)
+            )
+        candidate = load_release_candidate_directory(
+            args.release_candidate_dir
+        )
+        if (
+            tile_rows is not None
+            and tile_rows
+            != candidate.manifest.tile_rows
+        ):
+            raise ValueError(
+                "--tile-rows does not match VN97RC1"
+            )
+        if (
+            tile_cols is not None
+            and tile_cols
+            != candidate.manifest.tile_cols
+        ):
+            raise ValueError(
+                "--tile-cols does not match VN97RC1"
+            )
+        return (
+            candidate,
+            candidate.checkpoint_path,
+            candidate.tokenizer_path,
+            candidate.production_campaign_report_path,
+            candidate.speech_training_report_path,
+            candidate.vision_training_report_path,
+            candidate.device_evidence_paths,
+            candidate.manifest.tile_rows,
+            candidate.manifest.tile_cols,
+        )
+
+    if args.checkpoint is None or args.tokenizer is None:
+        raise ValueError(
+            "raw release mode requires --checkpoint and --tokenizer"
+        )
+    return (
+        None,
+        Path(args.checkpoint),
+        Path(args.tokenizer),
+        (
+            None
+            if args.production_campaign_report is None
+            else Path(args.production_campaign_report)
+        ),
+        (
+            None
+            if args.speech_training_report is None
+            else Path(args.speech_training_report)
+        ),
+        (
+            None
+            if args.vision_training_report is None
+            else Path(args.vision_training_report)
+        ),
+        (
+            tuple()
+            if args.device_evidence is None
+            else (Path(args.device_evidence),)
+        ),
+        16 if tile_rows is None else tile_rows,
+        16 if tile_cols is None else tile_cols,
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
 
-    checkpoint_path = Path(args.checkpoint)
-    tokenizer_path = Path(args.tokenizer)
+    (
+        release_candidate,
+        checkpoint_path,
+        tokenizer_path,
+        production_campaign_report_path,
+        speech_training_report_path,
+        vision_training_report_path,
+        device_evidence_paths,
+        tile_rows,
+        tile_cols,
+    ) = _resolve_release_inputs(args)
     private_key_path = Path(args.private_key)
     assets_dir = Path(args.assets_dir)
 
@@ -628,13 +750,13 @@ def main(argv: list[str] | None = None) -> int:
     speech_training_report = None
     speech_training_report_sha256 = None
     if loaded.audio_adapter is not None:
-        if args.speech_training_report is None:
+        if speech_training_report_path is None:
             raise ValueError(
                 "speech-enabled VN97CK1 requires --speech-training-report"
             )
         speech_training_report, speech_training_report_sha256 = (
             _load_speech_training_report(
-                Path(args.speech_training_report),
+                speech_training_report_path,
                 checkpoint_sha256=loaded.checkpoint_sha256,
                 tokenizer_sha256=tokenizer_sha256,
             )
@@ -693,7 +815,7 @@ def main(argv: list[str] | None = None) -> int:
         )
     elif (
         args.speech_validation_input is not None
-        or args.speech_training_report is not None
+        or speech_training_report_path is not None
     ):
         raise ValueError(
             "speech release inputs were provided but VN97CK1 has no audio adapter"
@@ -704,7 +826,7 @@ def main(argv: list[str] | None = None) -> int:
     vision_training_report = None
     vision_training_report_sha256 = None
     if loaded.vision_adapter is not None:
-        if args.vision_training_report is None:
+        if vision_training_report_path is None:
             raise ValueError(
                 "vision-enabled VN97CK1 requires --vision-training-report"
             )
@@ -718,7 +840,7 @@ def main(argv: list[str] | None = None) -> int:
             )
         vision_training_report, vision_training_report_sha256 = (
             _load_vision_training_report(
-                Path(args.vision_training_report),
+                vision_training_report_path,
                 checkpoint_sha256=loaded.checkpoint_sha256,
                 tokenizer_sha256=tokenizer_sha256,
             )
@@ -760,7 +882,7 @@ def main(argv: list[str] | None = None) -> int:
         )
     elif (
         args.vision_validation_input is not None
-        or args.vision_training_report is not None
+        or vision_training_report_path is not None
     ):
         raise ValueError(
             "vision release inputs were provided but VN97CK1 has no vision adapter"
@@ -779,8 +901,8 @@ def main(argv: list[str] | None = None) -> int:
             if loaded.vision_adapter is None
             else loaded.vision_adapter.input_features
         ),
-        tile_rows=args.tile_rows,
-        tile_cols=args.tile_cols,
+        tile_rows=tile_rows,
+        tile_cols=tile_cols,
         batch_size=1,
     )
     mobile_budget = VN97MobileBudget(
@@ -799,8 +921,8 @@ def main(argv: list[str] | None = None) -> int:
         tokenizer=tokenizer,
         audio_adapter=loaded.audio_adapter,
         vision_adapter=loaded.vision_adapter,
-        tile_rows=args.tile_rows,
-        tile_cols=args.tile_cols,
+        tile_rows=tile_rows,
+        tile_cols=tile_cols,
     )
     preview_model_image_sha256 = hashlib.sha256(
         preview_image.data
@@ -809,16 +931,16 @@ def main(argv: list[str] | None = None) -> int:
     production_campaign_report_sha256 = None
     if (
         args.require_production_campaign_report
-        and args.production_campaign_report is None
+        and production_campaign_report_path is None
     ):
         raise ValueError(
             "--require-production-campaign-report needs "
             "--production-campaign-report"
         )
-    if args.production_campaign_report is not None:
+    if production_campaign_report_path is not None:
         production_campaign_report_sha256 = (
             _load_production_campaign_report(
-                Path(args.production_campaign_report),
+                production_campaign_report_path,
                 checkpoint_sha256=loaded.checkpoint_sha256,
                 tokenizer_sha256=tokenizer_sha256,
                 model_image_sha256=preview_model_image_sha256,
@@ -887,8 +1009,8 @@ def main(argv: list[str] | None = None) -> int:
         source=source,
         capability_version=args.capability_version,
         signer=signer,
-        tile_rows=args.tile_rows,
-        tile_cols=args.tile_cols,
+        tile_rows=tile_rows,
+        tile_cols=tile_cols,
     )
     if bundle.model_image_sha256 != preview_model_image_sha256:
         raise RuntimeError(
