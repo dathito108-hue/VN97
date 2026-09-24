@@ -597,16 +597,16 @@ def _resolve_release_inputs(
             args.release_candidate_dir
         )
         if (
-            tile_rows is not None
-            and tile_rows
+            args.tile_rows is not None
+            and args.tile_rows
             != candidate.manifest.tile_rows
         ):
             raise ValueError(
                 "--tile-rows does not match VN97RC1"
             )
         if (
-            tile_cols is not None
-            and tile_cols
+            args.tile_cols is not None
+            and args.tile_cols
             != candidate.manifest.tile_cols
         ):
             raise ValueError(
@@ -652,8 +652,8 @@ def _resolve_release_inputs(
             if args.device_evidence is None
             else (Path(args.device_evidence),)
         ),
-        16 if tile_rows is None else tile_rows,
-        16 if tile_cols is None else tile_cols,
+        16 if args.tile_rows is None else args.tile_rows,
+        16 if args.tile_cols is None else args.tile_cols,
     )
 
 
@@ -947,40 +947,117 @@ def main(argv: list[str] | None = None) -> int:
             )
         )
 
-    device_evidence = None
-    device_evidence_criteria = None
-    if args.require_device_evidence and args.device_evidence is None:
+    if release_candidate is not None:
+        manifest = release_candidate.manifest
+        if (
+            preview_model_image_sha256
+            != manifest.model_image_sha256
+        ):
+            raise ValueError(
+                "M10N reconstructed VN97MI1 does not match VN97RC1"
+            )
+        if (
+            manifest.speech_enabled
+            != (loaded.audio_adapter is not None)
+        ):
+            raise ValueError(
+                "VN97RC1 speech modality flag does not match checkpoint"
+            )
+        if (
+            manifest.vision_enabled
+            != (loaded.vision_adapter is not None)
+        ):
+            raise ValueError(
+                "VN97RC1 vision modality flag does not match checkpoint"
+            )
+        if (
+            production_campaign_report_sha256
+            != manifest.production_campaign_report_sha256
+        ):
+            raise ValueError(
+                "M10N production report identity does not match VN97RC1"
+            )
+        if (
+            speech_training_report_sha256
+            != manifest.speech_training_report_sha256
+        ):
+            raise ValueError(
+                "M10N speech report identity does not match VN97RC1"
+            )
+        if (
+            vision_training_report_sha256
+            != manifest.vision_training_report_sha256
+        ):
+            raise ValueError(
+                "M10N vision report identity does not match VN97RC1"
+            )
+
+    device_evidence_criteria = VN97DeviceEvidenceCriteria(
+        min_runs=args.device_evidence_min_runs,
+        max_text_prefill_p95_ms=args.max_text_prefill_p95_ms,
+        max_text_decode_p95_ms_per_token=(
+            args.max_text_decode_p95_ms_per_token
+        ),
+        max_peak_pss_kib=args.max_device_peak_pss_kib,
+        max_thermal_status=args.max_device_thermal_status,
+        max_speech_prefill_p95_ms=(
+            args.max_speech_prefill_p95_ms
+            if loaded.audio_adapter is not None
+            else None
+        ),
+        require_energy_counter=args.require_device_energy_counter,
+        max_abs_battery_energy_counter_delta_nwh=(
+            args.max_abs_battery_energy_counter_delta_nwh
+        ),
+    )
+    if (
+        args.require_device_evidence
+        and not device_evidence_paths
+    ):
         raise ValueError(
-            "--require-device-evidence needs --device-evidence"
+            "--require-device-evidence needs device evidence"
         )
-    if args.device_evidence is not None:
-        device_evidence = load_device_evidence(
-            Path(args.device_evidence)
-        )
-        device_evidence_criteria = VN97DeviceEvidenceCriteria(
-            min_runs=args.device_evidence_min_runs,
-            max_text_prefill_p95_ms=args.max_text_prefill_p95_ms,
-            max_text_decode_p95_ms_per_token=(
-                args.max_text_decode_p95_ms_per_token
-            ),
-            max_peak_pss_kib=args.max_device_peak_pss_kib,
-            max_thermal_status=args.max_device_thermal_status,
-            max_speech_prefill_p95_ms=(
-                args.max_speech_prefill_p95_ms
-                if loaded.audio_adapter is not None
-                else None
-            ),
-            require_energy_counter=args.require_device_energy_counter,
-            max_abs_battery_energy_counter_delta_nwh=(
-                args.max_abs_battery_energy_counter_delta_nwh
-            ),
-        )
+    verified_device_evidence = []
+    for path in device_evidence_paths:
+        evidence = load_device_evidence(path)
         require_device_evidence(
-            device_evidence,
+            evidence,
             device_evidence_criteria,
-            expected_model_image_sha256=preview_model_image_sha256,
-            speech_enabled=loaded.audio_adapter is not None,
+            expected_model_image_sha256=
+                preview_model_image_sha256,
+            speech_enabled=
+                loaded.audio_adapter is not None,
         )
+        verified_device_evidence.append(
+            evidence
+        )
+
+    if release_candidate is not None:
+        expected_evidence = sorted(
+            item.evidence_sha256
+            for item in
+                release_candidate
+                .manifest
+                .device_evidence
+        )
+        actual_evidence = sorted(
+            item.evidence_sha256
+            for item in
+                verified_device_evidence
+        )
+        if actual_evidence != expected_evidence:
+            raise ValueError(
+                "M10N device evidence identities do not match VN97RC1"
+            )
+
+    device_evidence = (
+        verified_device_evidence[0]
+        if (
+            release_candidate is None
+            and len(verified_device_evidence) == 1
+        )
+        else None
+    )
 
     # Private signing material is not opened until quality, mobile-budget and
     # optional on-device evidence gates pass.
@@ -1069,7 +1146,32 @@ def main(argv: list[str] | None = None) -> int:
         "production_campaign_report_sha256": (
             production_campaign_report_sha256
         ),
-        "schema": "VN97BOOTREL5",
+        "release_candidate": (
+            None
+            if release_candidate is None
+            else {
+                "device_evidence_sha256": sorted(
+                    item.evidence_sha256
+                    for item in
+                        verified_device_evidence
+                ),
+                "manifest_sha256":
+                    release_candidate.manifest_sha256,
+                "selected_candidate_id":
+                    release_candidate
+                    .manifest
+                    .selected_candidate_id,
+                "tile_cols":
+                    release_candidate
+                    .manifest
+                    .tile_cols,
+                "tile_rows":
+                    release_candidate
+                    .manifest
+                    .tile_rows,
+            }
+        ),
+        "schema": "VN97BOOTREL6",
         "speech_enabled": loaded.audio_adapter is not None,
         "vision_enabled": loaded.vision_adapter is not None,
         "vision_runtime_budget": (
