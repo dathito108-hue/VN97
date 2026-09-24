@@ -15,7 +15,7 @@ from .p2_corpus_intake import (
     render_chat_jsonl,
     source_summary,
 )
-from .training_cli import _atomic_write
+from .corpus_io import atomic_write as _atomic_write
 
 
 _MAX_RAW_SOURCE_BYTES = 128 * 1024 * 1024
