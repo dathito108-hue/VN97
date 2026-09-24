@@ -373,6 +373,54 @@ def main() -> None:
         ).unlink()
 
     with tempfile.TemporaryDirectory() as tmp:
+        cli_workspace = Path(tmp) / "workspace"
+        SEAL.bootstrap_workspace(
+            cli_workspace
+        )
+        populate_workspace(
+            cli_workspace
+        )
+        original_probe = (
+            CLI.probe_production_environment
+        )
+        try:
+            CLI.probe_production_environment = (
+                lambda: env
+            )
+            assert CLI.main(
+                [
+                    "seal",
+                    "--workspace-root",
+                    str(cli_workspace),
+                    "--repository-root",
+                    str(ROOT),
+                ]
+            ) == 0
+        finally:
+            CLI.probe_production_environment = (
+                original_probe
+            )
+        cli_output = (
+            cli_workspace /
+            "production-run.vn97run1"
+        )
+        assert cli_output.is_file()
+        cli_manifest = (
+            RUN.load_production_run_manifest(
+                cli_output
+            )
+        )
+        assert (
+            cli_manifest.repository_commit
+            == commit
+        )
+        verify_inputs(
+            cli_manifest,
+            workspace_root=
+                cli_workspace,
+        )
+
+    with tempfile.TemporaryDirectory() as tmp:
         nonempty = Path(tmp)
         write(
             nonempty,
