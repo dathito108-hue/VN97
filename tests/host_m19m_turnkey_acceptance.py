@@ -76,6 +76,9 @@ class FakeExecutor:
         apk_version_name: str,
         package_sha256: str,
         emulator: bool = False,
+        transient_ui_failures: int = 0,
+        transient_boot_failures: int = 0,
+        transient_service_failures: int = 0,
     ) -> None:
         self.apk_version_code = (
             apk_version_code
@@ -87,6 +90,15 @@ class FakeExecutor:
             package_sha256
         )
         self.emulator = emulator
+        self.transient_ui_failures = (
+            transient_ui_failures
+        )
+        self.transient_boot_failures = (
+            transient_boot_failures
+        )
+        self.transient_service_failures = (
+            transient_service_failures
+        )
         self.installed = False
         self.service = False
         self.rebooted = False
@@ -171,6 +183,16 @@ class FakeExecutor:
                 "getprop " + key
                 in text
             ):
+                if (
+                    key == "sys.boot_completed"
+                    and self.rebooted
+                    and self.transient_boot_failures > 0
+                ):
+                    self.transient_boot_failures -= 1
+                    raise subprocess.TimeoutExpired(
+                        command,
+                        1,
+                    )
                 return subprocess.CompletedProcess(
                     command,
                     0,
@@ -278,6 +300,12 @@ class FakeExecutor:
             "uiautomator dump"
             in text
         ):
+            if self.transient_ui_failures > 0:
+                self.transient_ui_failures -= 1
+                raise subprocess.TimeoutExpired(
+                    command,
+                    1,
+                )
             return subprocess.CompletedProcess(
                 command,
                 0,
@@ -363,6 +391,12 @@ class FakeExecutor:
             "dumpsys activity services"
             in text
         ):
+            if self.transient_service_failures > 0:
+                self.transient_service_failures -= 1
+                raise subprocess.TimeoutExpired(
+                    command,
+                    1,
+                )
             payload = (
                 "ServiceRecord{123 "
                 "ai.vn97.app/.VN97FloatingAssistantService}\n"
@@ -584,6 +618,9 @@ def main() -> None:
                 final.version_name,
             package_sha256=
                 package_sha,
+            transient_ui_failures=1,
+            transient_boot_failures=1,
+            transient_service_failures=1,
         )
         adb = DEV.VN97AdbClient(
             "adb",
