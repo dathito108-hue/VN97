@@ -87,6 +87,8 @@ def _parser() -> argparse.ArgumentParser:
     seal.add_argument("--training-commit", required=True)
     seal.add_argument("--corpus-run-id", required=True)
     seal.add_argument("--training-run-id", required=True)
+    seal.add_argument("--python-version", required=True)
+    seal.add_argument("--torch-version", required=True)
     seal.add_argument("--output", required=True)
     return parser
 
@@ -111,6 +113,8 @@ def main(argv: list[str] | None = None) -> int:
         training_commit=args.training_commit,
         corpus_run_id=args.corpus_run_id,
         training_run_id=args.training_run_id,
+        python_version=args.python_version,
+        torch_version=args.torch_version,
     )
     _create_only(
         Path(args.output),
