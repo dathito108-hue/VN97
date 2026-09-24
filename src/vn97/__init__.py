@@ -226,6 +226,15 @@ from .production_run_manifest import (
     parse_production_run_receipt,
     verify_production_run_inputs,
 )
+from .production_closure import (
+    VN97ClosureObservation,
+    VN97ProductionClosureError,
+    VN97ProductionClosureReport,
+    VN97ReleaseReadinessInputs,
+    closure_phase,
+    parse_production_closure_report,
+    run_production_closure,
+)
 from .production_preflight import (
     VN97PreflightBlocker,
     VN97PreflightCandidate,
