@@ -205,6 +205,19 @@ def _download_one(
                 raise VN97P2SourceFetchError(
                     "source final URL is outside allowed HTTPS hosts"
                 )
+            encoding = response.headers.get(
+                "Content-Encoding"
+            )
+            if (
+                encoding is not None
+                and encoding.lower() not in {
+                    "identity",
+                    "",
+                }
+            ):
+                raise VN97P2SourceFetchError(
+                    "compressed source responses are not accepted"
+                )
             length = response.headers.get(
                 "Content-Length"
             )
@@ -267,7 +280,6 @@ def _download_one(
                 f"source SHA-256 mismatch: {source.source_id}"
             )
 
-        os.close(fd) if False else None
         records = _jsonl_record_count(temp)
         if records != source.expected_records:
             raise VN97P2SourceFetchError(
