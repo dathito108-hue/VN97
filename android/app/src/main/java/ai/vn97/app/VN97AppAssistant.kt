@@ -61,6 +61,14 @@ class VN97AppAssistant(
             "knowledge acquisition proposal goal must not be blank"
         }
         requireKnowledgeAcquisitionIdle()
+        application.runtimeResources
+            .requireRunnable(
+                VN97RuntimeExecutionClass
+                    .INTERACTIVE
+            )
+        check(openIfActivatedLocked()) {
+            "trusted VN97 model is not active"
+        }
         val activeModel = checkNotNull(model) {
             "trusted VN97 model is not active"
         }
@@ -233,6 +241,13 @@ class VN97AppAssistant(
         check(pendingResult == null) {
             "cannot run perception while approval is pending"
         }
+        application.runtimeResources
+            .requireRunnable(
+                VN97RuntimeExecutionClass.HEAVY
+            )
+        check(openIfActivatedLocked()) {
+            "trusted VN97 model is not active"
+        }
         val activeResources = checkNotNull(resources) {
             "trusted VN97 model is not active"
         }
@@ -267,6 +282,13 @@ class VN97AppAssistant(
         }
         check(pendingResult == null) {
             "cannot verify visual outcome while approval is pending"
+        }
+        application.runtimeResources
+            .requireRunnable(
+                VN97RuntimeExecutionClass.HEAVY
+            )
+        check(openIfActivatedLocked()) {
+            "trusted VN97 model is not active"
         }
         val activeResources = checkNotNull(resources) {
             "trusted VN97 model is not active"
