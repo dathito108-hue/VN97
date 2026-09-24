@@ -1588,9 +1588,21 @@ def _atomic_create(
             os.fsync(
                 output.fileno()
             )
-        os.replace(
-            temporary,
-            path,
+        try:
+            os.link(
+                temporary,
+                path,
+            )
+        except FileExistsError as exc:
+            raise VN97ProductionMaterializationError(
+                "final receipt output must not already exist"
+            ) from exc
+        except OSError as exc:
+            raise VN97ProductionMaterializationError(
+                "final receipt could not be published atomically"
+            ) from exc
+        os.unlink(
+            temporary
         )
         if path.read_bytes() != data:
             raise VN97ProductionMaterializationError(
