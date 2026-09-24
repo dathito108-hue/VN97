@@ -134,22 +134,14 @@ class VN97ProductionClosureReport:
     repository_commit: str
     phase: str
     environment_ready: bool
-    language_campaign_report_sha256:
-        str | None
-    production_campaign_report_sha256:
-        str | None
-    device_evidence_sha256:
-        tuple[str, ...]
-    intake_report_sha256:
-        str | None
-    release_candidate_manifest_sha256:
-        str | None
-    readiness_report_sha256:
-        str | None
-    readiness_status:
-        str | None
-    readiness_blocker_codes:
-        tuple[str, ...]
+    language_campaign_report_sha256: str | None
+    production_campaign_report_sha256: str | None
+    device_evidence_sha256: tuple[str, ...]
+    intake_report_sha256: str | None
+    release_candidate_manifest_sha256: str | None
+    readiness_report_sha256: str | None
+    readiness_status: str | None
+    readiness_blocker_codes: tuple[str, ...]
 
     def __post_init__(self) -> None:
         _require_sha256(
@@ -590,30 +582,18 @@ def parse_production_closure_report(
 
 @dataclass(frozen=True)
 class VN97ReleaseReadinessInputs:
-    publisher_private_key:
-        Path | None = None
-    validation_inputs:
-        tuple[Path, ...] = tuple()
-    speech_validation_input:
-        Path | None = None
-    vision_validation_input:
-        Path | None = None
-    output_dir:
-        Path | None = None
-    key_id:
-        str | None = None
-    capability_version:
-        int | None = None
-    source_origin:
-        str | None = None
-    source_license:
-        str | None = None
-    max_validation_loss:
-        float | None = None
-    max_speech_validation_loss:
-        float | None = None
-    max_vision_validation_loss:
-        float | None = None
+    publisher_private_key: Path | None = None
+    validation_inputs: tuple[Path, ...] = tuple()
+    speech_validation_input: Path | None = None
+    vision_validation_input: Path | None = None
+    output_dir: Path | None = None
+    key_id: str | None = None
+    capability_version: int | None = None
+    source_origin: str | None = None
+    source_license: str | None = None
+    max_validation_loss: float | None = None
+    max_speech_validation_loss: float | None = None
+    max_vision_validation_loss: float | None = None
     gradle: str = "gradle"
     apksigner: str | None = None
     aapt: str | None = None
