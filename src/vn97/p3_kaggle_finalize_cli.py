@@ -237,6 +237,10 @@ def _load_shards(
             raise VN97P3KaggleError(
                 "candidate shard is outside frozen P3 set"
             )
+        if not 0 <= result.candidate_index < len(CANDIDATES):
+            raise VN97P3KaggleError(
+                "candidate shard index is outside frozen P3 set"
+            )
         expected_candidate = CANDIDATES[
             result.candidate_index
         ]
@@ -366,6 +370,19 @@ def _load_shards(
             ):
                 raise VN97P3KaggleError(
                     "candidate checkpoint SHA-256 mismatch"
+                )
+            if (
+                loaded.config.d_model
+                != result.candidate.d_model
+                or loaded.config.n_layers
+                != result.candidate.n_layers
+                or loaded.config.d_state
+                != result.candidate.d_state
+                or loaded.config.embedding_rank
+                != result.candidate.embedding_rank
+            ):
+                raise VN97P3KaggleError(
+                    "candidate checkpoint architecture mismatch"
                 )
             row["checkpoint_sha256"] = (
                 loaded.checkpoint_sha256
