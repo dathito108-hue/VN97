@@ -1,0 +1,37 @@
+{
+  "candidates": [
+    {
+      "d_model": 256,
+      "d_state": 16,
+      "embedding_rank": 128,
+      "learning_rate": 0.0003,
+      "n_layers": 8,
+      "seed": 97
+    },
+    {
+      "d_model": 320,
+      "d_state": 24,
+      "embedding_rank": 160,
+      "learning_rate": 0.00025,
+      "n_layers": 10,
+      "seed": 98
+    },
+    {
+      "d_model": 384,
+      "d_state": 24,
+      "embedding_rank": 192,
+      "learning_rate": 0.0002,
+      "n_layers": 12,
+      "seed": 99
+    },
+    {
+      "d_model": 448,
+      "d_state": 32,
+      "embedding_rank": 224,
+      "learning_rate": 0.00018,
+      "n_layers": 12,
+      "seed": 100
+    }
+  ],
+  "schema": "VN97CAMPDEF1"
+}
