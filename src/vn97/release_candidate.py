@@ -239,9 +239,9 @@ class VN97ReleaseCandidateManifest:
             (self.tile_rows, "tile_rows"),
             (self.tile_cols, "tile_cols"),
         ):
-            if type(value) is not int or not 1 <= value <= 1024:
+            if type(value) is not int or not 1 <= value <= 256:
                 raise VN97ReleaseCandidateError(
-                    f"{label} must be integer in [1, 1024]"
+                    f"{label} must be integer in [1, 256]"
                 )
         if type(self.speech_enabled) is not bool:
             raise VN97ReleaseCandidateError(
