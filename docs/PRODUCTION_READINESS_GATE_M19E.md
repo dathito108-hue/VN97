@@ -178,6 +178,14 @@ verified by M19D/VN97APK1.
 The release plumbing is now complete through readiness, signing, build,
 verification and atomic publication.
 
+M19F now provides the canonical real-artifact intake handoff:
+
+```text
+vn97-production-intake
+  -> <intake>/release-candidate
+  -> vn97-production-release --release-candidate-dir <intake>/release-candidate
+```
+
 The repository still does not contain the real production inputs required for a
 READY report:
 
