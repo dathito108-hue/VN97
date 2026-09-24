@@ -127,7 +127,18 @@ class VN97FloatingAssistantService : Service() {
         interaction = VN97FloatingInteractionController(
             context = this,
             windowManager = windowManager,
-            assistant = (application as VN97Application).assistant,
+            assistant =
+                (application as VN97Application)
+                    .assistant,
+            beforeAssistantOpen = {
+                (application as VN97Application)
+                    .mobileRecovery
+                    .recover(
+                        VN97MobileRecoveryTrigger
+                            .EXECUTION_ENTRY
+                    )
+                    .requireActivationReady()
+            },
             anchorProvider = { layoutParams },
             publishMode = { mode, energy ->
                 view.publish(

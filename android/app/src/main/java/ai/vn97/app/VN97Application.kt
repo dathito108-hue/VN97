@@ -65,13 +65,33 @@ class VN97Application :
         VN97AppRemoteCapabilityFetch(this)
     }
 
+    val mobileRecovery: VN97MobileRecoveryCoordinator by lazy(
+        LazyThreadSafetyMode.SYNCHRONIZED
+    ) {
+        VN97MobileRecoveryCoordinator(this)
+    }
+
     val bundledBootstrap: VN97BundledBootstrap by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         VN97BundledBootstrap(this, provisioner)
     }
 
+    override fun onCreate() {
+        super.onCreate()
+        mobileRecovery
+            .scheduleProcessStartRecovery()
+    }
+
     override fun createVN97AssistantContinuationWork():
-        VN97AssistantContinuationWork =
-        autonomousWork.createContinuationWork()
+        VN97AssistantContinuationWork {
+        mobileRecovery
+            .recover(
+                VN97MobileRecoveryTrigger
+                    .EXECUTION_ENTRY
+            )
+            .requireActivationReady()
+        return autonomousWork
+            .createContinuationWork()
+    }
 
     inline fun <T> withSovereignExecution(
         block: () -> T,

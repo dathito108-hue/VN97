@@ -140,6 +140,12 @@ class VN97GameAgentService : Service() {
 
     private fun runEpisode(goal: String): VN97GameAgentSnapshot {
         val app = application as VN97Application
+        app.mobileRecovery
+            .recover(
+                VN97MobileRecoveryTrigger
+                    .EXECUTION_ENTRY
+            )
+            .requireActivationReady()
         val session =
             app.platformRuntime.gameControlPolicy.activeSessionOrNull()
                 ?: error("no active game-control authorization")
