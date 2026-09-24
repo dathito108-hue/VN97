@@ -50,16 +50,30 @@ The production intelligence profile ID is:
 The final model geometry is selected by the existing VN97 campaign and sealed-release
 gates. It is not manually declared a winner before measurement.
 
-The first CPU pilot keeps the existing conservative trainer defaults:
+The first pilot is intentionally **medium-sized**, not the smallest trainer default.
+It remains small enough to run CPU-first while being large enough to expose more realistic
+optimization, checkpoint and mobile-footprint behavior before rented GPU compute is used.
 
-- d_model 128;
-- 4 layers;
-- d_state 8;
+Canonical P2 medium-pilot profile:
+
+- d_model 192;
+- 6 layers;
+- d_state 16;
+- factorized tied embedding rank 96;
 - sequence length 256;
-- batch size 4;
-- one training epoch by default.
+- batch size 2;
+- 2 epochs;
+- maximum 2,048 training windows;
+- maximum 256 validation windows;
+- maximum 256 sealed-release windows;
+- up to 4,096 learned tokenizer tokens;
+- seed 97;
+- learning rate 3e-4.
 
-That pilot is a pipeline proof, not a production-quality claim.
+The recurrent state for batch-1 is only 73,728 bytes, while the larger layer/state
+geometry exercises the same VN97 production math more meaningfully than the old tiny
+128/4/8 pilot. This remains a pipeline/learning proof rather than a production-quality
+claim.
 
 ## P1 — Production Corpus v1
 
@@ -108,17 +122,22 @@ record counts, the canonical split hashes and a deterministic manifest identity.
 The sealed release split is evaluation-only. It must not be used for tokenizer
 learning, candidate ranking or iterative model selection.
 
-## P2 — CPU pilot
+## P2 — Medium CPU-first pilot
 
-Run the smallest canonical VN97 training path first.
+Run the canonical medium VN97 pilot before renting production GPU compute.
 
 The pilot must prove:
 
 `corpus -> VN97TK1 -> gradient updates -> decreasing/finite training loss
 -> VN97CK1 -> reload -> inference -> native/export compatibility`.
 
+The pilot uses the single candidate in `configs/p2-medium-pilot.vn97campdef1.json` and
+runs through the existing `vn97-campaign` path so training, validation, deterministic
+selection, checkpoint reload and sealed-release evaluation are all exercised together.
+
 Failure here is fixed in data/trainer/runtime before any rented GPU campaign is
-started.
+started. If the available CPU is too slow, the exact same fixed pilot may be moved to
+a short rented GPU session without changing its candidate identity or corpus.
 
 ## P3 — Language production campaign
 
