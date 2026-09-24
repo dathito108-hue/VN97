@@ -5,7 +5,13 @@ import ai.vn97.platform.VN97ControlledImprovementEvaluator
 import ai.vn97.runtime.VN97ImprovementCandidateLedger
 import ai.vn97.runtime.VN97ImprovementCandidateRecord
 import ai.vn97.runtime.VN97ImprovementCandidateSpec
+import ai.vn97.runtime.NativeActivatedInventoryModelLoader
+import ai.vn97.runtime.VN97CapabilityInventoryItem
 import ai.vn97.runtime.VN97ImprovementEvaluationRecord
+import ai.vn97.runtime.VN97ImprovementPromotionLedger
+import ai.vn97.runtime.VN97ImprovementPromotionRecord
+import ai.vn97.runtime.VN97ImprovementPromotionSpec
+import ai.vn97.runtime.VN97ImprovementPromotionState
 import ai.vn97.runtime.VN97ModelImageActivationBackend
 import ai.vn97.runtime.VN97ModelImageProvisioningSession
 import ai.vn97.runtime.VN97ModelProvisioningReview
@@ -41,8 +47,17 @@ class VN97AppProvisioner(
             application
         )
 
+    private val promotionLedger =
+        VN97ImprovementPromotionLedger(
+            java.io.File(
+                platform.capabilityRoot,
+                "self-improvement-promotions",
+            )
+        )
+
     fun recoverPending() {
         session.recover()
+        recoverPromotionAttempts()
     }
 
     fun pendingReview(): VN97ModelProvisioningReview? =
@@ -164,6 +179,436 @@ class VN97AppProvisioner(
             )
     }
 
+    fun promotePendingImprovementCandidate(
+        userApproved: Boolean,
+    ): VN97ImprovementPromotionRecord =
+        application.withSovereignExecution {
+            check(userApproved) {
+                "controlled self-improvement promotion requires explicit user approval"
+            }
+            val candidate =
+                checkNotNull(
+                    pendingImprovementCandidate()
+                ) {
+                    "no controlled self-improvement candidate is pending"
+                }
+            val evaluation =
+                checkNotNull(
+                    improvementEvaluator
+                        .loadOrNull(
+                            candidate.candidateId
+                        )
+                ) {
+                    "controlled promotion requires held-out evaluation"
+                }
+            requirePromotionEligibility(
+                candidate,
+                evaluation,
+            )
+            val review =
+                checkNotNull(
+                    session.pendingReview()
+                ) {
+                    "controlled promotion requires a current signed provisioning review"
+                }
+            check(
+                review.packageSha256 ==
+                    candidate.spec
+                        .candidatePackageSha256 &&
+                    review.capabilityVersion ==
+                        candidate.spec
+                            .candidateCapabilityVersion &&
+                    review.publisherKeyId ==
+                        candidate.spec
+                            .candidatePublisherKeyId &&
+                    review.publisherKeySha256 ==
+                        candidate.spec
+                            .candidatePublisherKeySha256 &&
+                    review.planSha256 ==
+                        candidate.spec
+                            .candidatePlanSha256
+            ) {
+                "current signed review does not match controlled candidate"
+            }
+            requireExactBaseline(candidate)
+
+            val intent =
+                promotionLedger.begin(
+                    VN97ImprovementPromotionSpec(
+                        candidateId =
+                            candidate.candidateId,
+                        evaluationId =
+                            evaluation.evaluationId,
+                        baselineActivationId =
+                            candidate.spec
+                                .baselineActivationId,
+                        baselineArtifactSha256 =
+                            candidate.spec
+                                .baselineArtifactSha256,
+                        baselinePackageSha256 =
+                            candidate.spec
+                                .baselinePackageSha256,
+                        baselineCapabilityVersion =
+                            candidate.spec
+                                .baselineCapabilityVersion,
+                        candidatePackageSha256 =
+                            candidate.spec
+                                .candidatePackageSha256,
+                        candidateArtifactSha256 =
+                            evaluation
+                                .candidateArtifactSha256,
+                        candidateCapabilityVersion =
+                            candidate.spec
+                                .candidateCapabilityVersion,
+                        candidatePlanSha256 =
+                            candidate.spec
+                                .candidatePlanSha256,
+                        candidatePublisherKeyId =
+                            candidate.spec
+                                .candidatePublisherKeyId,
+                        requestedWallTimeMillis =
+                            System.currentTimeMillis(),
+                    )
+                )
+
+            val wasOpen =
+                application.assistant
+                    .releaseForModelEvaluation()
+            try {
+                val activated =
+                    session
+                        .activateReviewedControlled(
+                            expectedPackageSha256 =
+                                candidate.spec
+                                    .candidatePackageSha256,
+                            expectedPlanSha256 =
+                                candidate.spec
+                                    .candidatePlanSha256,
+                        )
+                requireActivatedCandidate(
+                    activated,
+                    intent,
+                )
+                verifyActivatedModel(
+                    activated
+                )
+                promotionLedger
+                    .completePromoted(
+                        promotionId =
+                            intent.promotionId,
+                        activationId =
+                            activated.activationId,
+                        artifactSha256 =
+                            activated.artifactSha256,
+                    )
+            } catch (exc: Throwable) {
+                reconcileFailedPromotion(
+                    intent = intent,
+                    cause = exc,
+                )
+            } finally {
+                if (wasOpen) {
+                    application.assistant
+                        .reloadActivatedModel()
+                }
+            }
+        }
+
+    fun pendingPromotionAttempt():
+        VN97ImprovementPromotionRecord? {
+        val candidate =
+            pendingImprovementCandidate()
+                ?: return null
+        return promotionLedger
+            .pendingForCandidate(
+                candidate.candidateId
+            )
+    }
+
+    private fun requirePromotionEligibility(
+        candidate:
+            VN97ImprovementCandidateRecord,
+        evaluation:
+            VN97ImprovementEvaluationRecord,
+    ) {
+        check(
+            evaluation.decision.passed
+        ) {
+            "held-out evaluation did not pass"
+        }
+        check(
+            evaluation.candidateId ==
+                candidate.candidateId &&
+                evaluation.baselineActivationId ==
+                    candidate.spec
+                        .baselineActivationId &&
+                evaluation.baselineArtifactSha256 ==
+                    candidate.spec
+                        .baselineArtifactSha256 &&
+                evaluation.candidatePackageSha256 ==
+                    candidate.spec
+                        .candidatePackageSha256
+        ) {
+            "held-out evaluation identity does not match candidate"
+        }
+    }
+
+    private fun requireExactBaseline(
+        candidate:
+            VN97ImprovementCandidateRecord,
+    ): VN97CapabilityInventoryItem =
+        checkNotNull(
+            platform.currentModelActivation()
+        ) {
+            "controlled promotion requires active baseline"
+        }.also { active ->
+            check(
+                active.activationId ==
+                    candidate.spec
+                        .baselineActivationId &&
+                    active.artifactSha256 ==
+                        candidate.spec
+                            .baselineArtifactSha256 &&
+                    active.packageSha256 ==
+                        candidate.spec
+                            .baselinePackageSha256 &&
+                    active.capabilityVersion ==
+                        candidate.spec
+                            .baselineCapabilityVersion &&
+                    active.capabilityId ==
+                        VN97ModelImageActivationBackend
+                            .CAPABILITY_ID
+            ) {
+                "active baseline no longer matches candidate binding"
+            }
+        }
+
+    private fun requireActivatedCandidate(
+        active: VN97CapabilityInventoryItem,
+        intent:
+            VN97ImprovementPromotionRecord,
+    ) {
+        val spec = intent.spec
+        check(
+            active.capabilityId ==
+                VN97ModelImageActivationBackend
+                    .CAPABILITY_ID &&
+                active.packageSha256 ==
+                    spec.candidatePackageSha256 &&
+                active.artifactSha256 ==
+                    spec.candidateArtifactSha256 &&
+                active.capabilityVersion ==
+                    spec.candidateCapabilityVersion &&
+                active.planSha256 ==
+                    spec.candidatePlanSha256 &&
+                active.publisherKeyId ==
+                    spec.candidatePublisherKeyId
+        ) {
+            "controlled promotion activated unexpected model identity"
+        }
+    }
+
+    private fun verifyActivatedModel(
+        active: VN97CapabilityInventoryItem,
+    ) {
+        val opened =
+            checkNotNull(
+                NativeActivatedInventoryModelLoader
+                    .openOrNull(
+                        platform.capabilityRoot
+                    )
+            ) {
+                "promoted VN97 model could not be reopened"
+            }
+        opened.use { model ->
+            check(
+                model.info.modelId
+                    .joinToString("") {
+                        "%02x".format(
+                            it.toInt() and 0xff
+                        )
+                    } ==
+                    active.artifactSha256
+            ) {
+                "promoted native model identity does not match inventory"
+            }
+        }
+    }
+
+    private fun reconcileFailedPromotion(
+        intent:
+            VN97ImprovementPromotionRecord,
+        cause: Throwable,
+    ): VN97ImprovementPromotionRecord {
+        val recoveryFailure =
+            runCatching {
+                session.recover()
+            }.exceptionOrNull()
+        if (recoveryFailure != null) {
+            cause.addSuppressed(
+                recoveryFailure
+            )
+            throw cause
+        }
+
+        val current =
+            platform.currentModelActivation()
+        val spec = intent.spec
+        if (
+            current != null &&
+            current.packageSha256 ==
+                spec.candidatePackageSha256 &&
+            current.artifactSha256 ==
+                spec.candidateArtifactSha256
+        ) {
+            val candidateActivation =
+                current
+            val restored =
+                try {
+                    platform.activationCoordinator
+                        .rollback(
+                            capabilityId =
+                                VN97ModelImageActivationBackend
+                                    .CAPABILITY_ID,
+                            backend =
+                                platform.activationBackend,
+                        )
+                } catch (rollbackExc: Throwable) {
+                    cause.addSuppressed(
+                        rollbackExc
+                    )
+                    throw cause
+                }
+            checkNotNull(restored) {
+                "controlled promotion rollback removed baseline"
+            }
+            check(
+                restored.activationId ==
+                    spec.baselineActivationId &&
+                    restored.artifactSha256 ==
+                        spec.baselineArtifactSha256 &&
+                    restored.packageSha256 ==
+                        spec.baselinePackageSha256 &&
+                    restored.capabilityVersion ==
+                        spec.baselineCapabilityVersion
+            ) {
+                "controlled promotion rollback did not restore exact baseline"
+            }
+            verifyActivatedModel(restored)
+            return promotionLedger
+                .completeRolledBack(
+                    promotionId =
+                        intent.promotionId,
+                    activationId =
+                        candidateActivation
+                            .activationId,
+                    artifactSha256 =
+                        candidateActivation
+                            .artifactSha256,
+                    detail =
+                        "post-promotion verification failed; exact baseline restored: " +
+                            (
+                                cause.message ?:
+                                    cause::class.java
+                                        .simpleName
+                            ),
+                )
+        }
+
+        if (
+            current != null &&
+            current.activationId ==
+                spec.baselineActivationId &&
+            current.artifactSha256 ==
+                spec.baselineArtifactSha256 &&
+            current.packageSha256 ==
+                spec.baselinePackageSha256 &&
+            current.capabilityVersion ==
+                spec.baselineCapabilityVersion
+        ) {
+            verifyActivatedModel(current)
+            return promotionLedger
+                .completeAborted(
+                    promotionId =
+                        intent.promotionId,
+                    detail =
+                        "promotion aborted before candidate became active: " +
+                            (
+                                cause.message ?:
+                                    cause::class.java
+                                        .simpleName
+                            ),
+                    baselineStillActive =
+                        true,
+                )
+        }
+
+        throw IllegalStateException(
+            "promotion recovery found neither exact baseline nor exact candidate; manual recovery required",
+            cause,
+        )
+    }
+
+    private fun recoverPromotionAttempts() {
+        for (
+            intent in
+                promotionLedger
+                    .pendingAttempts()
+        ) {
+            val current =
+                platform.currentModelActivation()
+            val spec = intent.spec
+            when {
+                current != null &&
+                    current.packageSha256 ==
+                        spec.candidatePackageSha256 &&
+                    current.artifactSha256 ==
+                        spec.candidateArtifactSha256 &&
+                    current.capabilityVersion ==
+                        spec.candidateCapabilityVersion -> {
+                    requireActivatedCandidate(
+                        current,
+                        intent,
+                    )
+                    verifyActivatedModel(current)
+                    promotionLedger
+                        .completePromoted(
+                            promotionId =
+                                intent.promotionId,
+                            activationId =
+                                current.activationId,
+                            artifactSha256 =
+                                current.artifactSha256,
+                        )
+                }
+                current != null &&
+                    current.activationId ==
+                        spec.baselineActivationId &&
+                    current.artifactSha256 ==
+                        spec.baselineArtifactSha256 &&
+                    current.packageSha256 ==
+                        spec.baselinePackageSha256 &&
+                    current.capabilityVersion ==
+                        spec.baselineCapabilityVersion -> {
+                    verifyActivatedModel(current)
+                    promotionLedger
+                        .completeAborted(
+                            promotionId =
+                                intent.promotionId,
+                            detail =
+                                "recovered pending promotion with exact baseline still active",
+                            baselineStillActive =
+                                true,
+                        )
+                }
+                else ->
+                    throw IllegalStateException(
+                        "pending promotion recovery found divergent active model"
+                    )
+            }
+        }
+    }
+
     fun rejectImprovementCandidate(
         reason: String =
             "rejected by user before evaluation",
@@ -174,6 +619,14 @@ class VN97AppProvisioner(
             ) {
                 "no controlled self-improvement candidate is pending"
             }
+        check(
+            promotionLedger
+                .pendingForCandidate(
+                    current.candidateId
+                ) == null
+        ) {
+            "cannot reject candidate while promotion attempt is pending"
+        }
         return improvementLedger.reject(
             candidateId =
                 current.candidateId,
