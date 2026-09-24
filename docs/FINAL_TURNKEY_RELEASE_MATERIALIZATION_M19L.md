@@ -230,3 +230,21 @@ Code 1
   -> canonical evidence/intake/readiness
   -> canonical signed turnkey APK
 ```
+
+## M19M clean-device acceptance
+
+VN97FINAL1 proves the production APK was materialized and cryptographically verified.
+The canonical next physical step is:
+
+```text
+vn97-turnkey-accept \
+  --final-receipt <VN97FINAL1> \
+  --release-dir <M19L release dir> \
+  --repository-root <VN97 checkout> \
+  --serial <physical clean-device adb serial> \
+  --output <VN97ACCEPT1>
+```
+
+M19M installs only the exact VN97-production.apk, proves bundled bootstrap/READY state,
+floating service, permission readiness, one canonical autonomous goal, a real reboot and
+post-reboot persistence before emitting VN97ACCEPT1.
