@@ -150,15 +150,18 @@ class VN97PaperTradingJobService : JobService() {
                             lease =
                                 currentLease,
                             state =
-                                if (
-                                    failure == null &&
-                                    !cancellation.get()
-                                ) {
-                                    VN97ExecutionHealthState
-                                        .SUCCEEDED
-                                } else {
-                                    VN97ExecutionHealthState
-                                        .FAILED
+                                when {
+                                    failure != null ->
+                                        VN97ExecutionHealthState
+                                            .FAILED
+
+                                    cancellation.get() ->
+                                        VN97ExecutionHealthState
+                                            .CANCELLED
+
+                                    else ->
+                                        VN97ExecutionHealthState
+                                            .SUCCEEDED
                                 },
                             nowWallTimeMillis =
                                 System
