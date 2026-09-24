@@ -333,6 +333,7 @@ class VN97P2PilotRunReceipt:
     corpus_bundle_id: str
     corpus_bundle_sha256: str
     corpus_manifest_id: str
+    candidate_id: str
     pilot_receipt_sha256: str
     campaign_report_sha256: str
     checkpoint_sha256: str
@@ -358,6 +359,16 @@ class VN97P2PilotRunReceipt:
         ):
             raise VN97P2PilotHandoffError(
                 "GitHub run IDs must be decimal strings"
+            )
+        if (
+            len(self.candidate_id) != 16
+            or any(
+                ch not in "0123456789abcdef"
+                for ch in self.candidate_id
+            )
+        ):
+            raise VN97P2PilotHandoffError(
+                "candidate_id must be 16 lowercase hex"
             )
         for value, label in (
             (self.corpus_bundle_id, "corpus bundle ID"),
@@ -392,6 +403,7 @@ class VN97P2PilotRunReceipt:
     def canonical_object(self) -> dict[str, object]:
         body = {
             "campaign_report_sha256": self.campaign_report_sha256,
+            "candidate_id": self.candidate_id,
             "checkpoint_sha256": self.checkpoint_sha256,
             "corpus_bundle_id": self.corpus_bundle_id,
             "corpus_bundle_sha256": self.corpus_bundle_sha256,
@@ -461,6 +473,25 @@ def build_pilot_run_receipt(
         raise VN97P2PilotHandoffError(
             "pilot/corpus manifest identity mismatch"
         )
+    if (
+        pilot.get("corpus_manifest_sha256")
+        != corpus.corpus_manifest_sha256
+    ):
+        raise VN97P2PilotHandoffError(
+            "pilot/corpus manifest SHA-256 mismatch"
+        )
+    candidate_id = pilot.get("candidate_id")
+    if (
+        not isinstance(candidate_id, str)
+        or len(candidate_id) != 16
+        or any(
+            ch not in "0123456789abcdef"
+            for ch in candidate_id
+        )
+    ):
+        raise VN97P2PilotHandoffError(
+            "pilot candidate identity is invalid"
+        )
     if pilot.get("device") != "cpu":
         raise VN97P2PilotHandoffError(
             "GitHub P2 pilot workflow requires cpu device evidence"
@@ -504,6 +535,7 @@ def build_pilot_run_receipt(
         corpus_bundle_id=corpus.bundle_id,
         corpus_bundle_sha256=corpus.bundle_sha256,
         corpus_manifest_id=corpus.corpus_manifest_id,
+        candidate_id=candidate_id,
         pilot_receipt_sha256=_sha256_bytes(pilot_bytes),
         campaign_report_sha256=campaign_sha,
         checkpoint_sha256=checkpoint_sha,
