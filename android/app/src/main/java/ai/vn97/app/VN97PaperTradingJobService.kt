@@ -18,6 +18,7 @@ class VN97PaperTradingJobService : JobService() {
         val cancellation = AtomicBoolean(false)
         stopped = cancellation
         executor.execute {
+            var retry = false
             try {
                 val app = application as? VN97Application
                     ?: return@execute
@@ -32,9 +33,18 @@ class VN97PaperTradingJobService : JobService() {
                     expectedSessionId = sessionId,
                     stopped = cancellation,
                 )
+            } catch (_: RuntimeException) {
+                val app =
+                    application as?
+                        VN97Application
+                retry =
+                    app?.paperTrading
+                        ?.shouldSystemRetry(
+                            params.jobId
+                        ) == true
             } finally {
                 if (!cancellation.get()) {
-                    jobFinished(params, false)
+                    jobFinished(params, retry)
                 }
             }
         }
