@@ -124,6 +124,35 @@ def _verify_repository(
         raise ValueError(
             "VN97 production run requires a clean tracked Git worktree"
         )
+
+    current_runner = Path(__file__).resolve()
+    current_manifest_module = sys.modules[
+        VN97ProductionRunManifest.__module__
+    ]
+    current_manifest_file = Path(
+        current_manifest_module.__file__
+    ).resolve()
+    bound_runner = (
+        root /
+        "src/vn97/production_run_cli.py"
+    )
+    bound_manifest = (
+        root /
+        "src/vn97/production_run_manifest.py"
+    )
+    if (
+        _sha256_file(current_runner)
+        != _sha256_file(bound_runner)
+        or _sha256_file(
+            current_manifest_file
+        )
+        != _sha256_file(
+            bound_manifest
+        )
+    ):
+        raise ValueError(
+            "running M19G code does not match the repository checkout bound by VN97RUN1"
+        )
     return root
 
 
