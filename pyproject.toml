@@ -17,6 +17,7 @@ vn97-bootstrap-release = "vn97.bootstrap_release_cli:main"
 vn97-finetune = "vn97.continual_training_cli:main"
 vn97-campaign = "vn97.campaign_cli:main"
 vn97-production-campaign = "vn97.production_campaign_cli:main"
+vn97-release-candidate = "vn97.release_candidate_cli:main"
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
