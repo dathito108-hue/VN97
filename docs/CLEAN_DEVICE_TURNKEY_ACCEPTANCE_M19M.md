@@ -41,6 +41,25 @@ Before ADB work M19M:
 
 Therefore M19M cannot silently accept a different local APK or source revision.
 
+M19M also requires the M19L release directory to remain the exact four-file canonical
+bundle:
+
+```text
+VN97-production.apk
+bootstrap-release.vn97bootrel6.json
+production-readiness.vn97ready1
+release-attestation.vn97apk1
+```
+
+The release directory itself must be a real non-symlink directory. M19M re-hashes the
+VN97READY1 and VN97BOOTREL6 files against VN97FINAL1 and requires VN97APK1 to match the
+same release-candidate, bootstrap-report and embedded VN97REL1 identities. Extra,
+missing, symlinked or mutated release entries fail before any phone is touched.
+
+When `--output` is supplied, the VN97ACCEPT1 sidecar must stay outside that four-file
+release directory. An existing output path is rejected before ADB work, so physical
+acceptance is not repeated only to discover an unusable receipt destination at the end.
+
 ## Clean-device rule
 
 M19M requires `ai.vn97.app` to be absent before install.
@@ -210,6 +229,8 @@ CI can validate:
 - Android receiver compilation and manifest permission;
 - receiver source security contract;
 - strict VN97ACCEPT1/VN97SELFTEST1 parsing;
+- exact four-file M19L release-bundle binding and tamper rejection;
+- VN97ACCEPT1 sidecar placement outside the release bundle;
 - complete host orchestration with fake ADB;
 - clean install ordering;
 - emulator rejection before install;
