@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 import hashlib
 import json
-import math
 
 
 class VN97P3GPUEnvironmentError(RuntimeError):
