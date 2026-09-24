@@ -1321,7 +1321,12 @@ class VN97MainActivity : Activity() {
     private fun attachTrustedModel() {
         worker.execute {
             try {
-                app.provisioner.recoverPending()
+                app.mobileRecovery
+                    .recover(
+                        VN97MobileRecoveryTrigger
+                            .EXECUTION_ENTRY
+                    )
+                    .requireActivationReady()
                 var active = app.assistant.openIfActivated()
                 var bundled = false
                 if (!active) {
