@@ -122,8 +122,7 @@ class VN97FinalReleaseReceipt:
     version_name: str
     apk_bytes: int
     apk_sha256: str
-    signer_certificate_sha256:
-        tuple[str, ...]
+    signer_certificate_sha256: tuple[str, ...]
 
     def __post_init__(self) -> None:
         _require_hex(
