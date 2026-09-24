@@ -471,8 +471,9 @@ def main() -> None:
             is False
         )
         expected_environment_ready = (
-            torch_version
-            != "fixture-not-installed"
+            CLI._environment_ready(
+                manifest
+            )
         )
         assert (
             verify_receipt[
