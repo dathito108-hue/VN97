@@ -40,33 +40,46 @@ prepare_cache() {
     return
   fi
   rm -rf "$cache"
-  vn97-p3-kaggle-prepare     --corpus-dir "$corpus"     --output-dir "$cache"
+  vn97-p3-kaggle-prepare \
+    --corpus-dir "$corpus" \
+    --output-dir "$cache"
 }
 
 run_one() {
   local index="$1"
-  local gpu="$2"
+  local physical_gpu="$2"
   local root="$3"
   local out="$root/candidate-$index"
+
   if [[ -f "$out/candidate-report.vn97p3cand1.json" ]]; then
     echo "Reusing completed candidate $index"
     return 0
   fi
+
   rm -rf "$out"
-  vn97-p3-kaggle-cached-candidate     --cache-dir "$root/cache"     --candidate-index "$index"     --output-dir "$out"     --device "cuda:$gpu"
+  echo "candidate $index binding physical GPU $physical_gpu"
+
+  CUDA_DEVICE_ORDER=PCI_BUS_ID \
+  CUDA_VISIBLE_DEVICES="$physical_gpu" \
+  vn97-p3-kaggle-cached-candidate \
+    --cache-dir "$root/cache" \
+    --candidate-index "$index" \
+    --output-dir "$out" \
+    --device cuda:0
 }
 
 run_pair() {
   local first="$1"
   local second="$2"
   local root="$3"
+
   run_one "$first" 0 "$root" >"$root/candidate-$first.log" 2>&1 &
   local p1=$!
   run_one "$second" 1 "$root" >"$root/candidate-$second.log" 2>&1 &
   local p2=$!
 
-  echo "candidate $first -> cuda:0 pid=$p1"
-  echo "candidate $second -> cuda:1 pid=$p2"
+  echo "candidate $first -> physical cuda:0 / isolated logical cuda:0 pid=$p1"
+  echo "candidate $second -> physical cuda:1 / isolated logical cuda:0 pid=$p2"
 
   local r1=0
   local r2=0
@@ -110,6 +123,7 @@ if [[ "$MODE" == "all" ]]; then
   CORPUS="$1"
   ROOT="${2:-/kaggle/working/p3-fast}"
   mkdir -p "$ROOT"
+
   prepare_cache "$CORPUS" "$ROOT"
   run_pair 0 1 "$ROOT"
   run_pair 2 3 "$ROOT"
@@ -117,18 +131,30 @@ if [[ "$MODE" == "all" ]]; then
   FINAL="$ROOT/final"
   if [[ ! -f "$FINAL/p3-run.vn97p3run1.json" ]]; then
     rm -rf "$FINAL"
-    vn97-p3-kaggle-finalize       --corpus-dir "$CORPUS"       --candidate-dir "$ROOT/candidate-0"       --candidate-dir "$ROOT/candidate-1"       --candidate-dir "$ROOT/candidate-2"       --candidate-dir "$ROOT/candidate-3"       --output-dir "$FINAL"       --device cuda:0
+    CUDA_DEVICE_ORDER=PCI_BUS_ID \
+    CUDA_VISIBLE_DEVICES=0 \
+    vn97-p3-kaggle-finalize \
+      --corpus-dir "$CORPUS" \
+      --candidate-dir "$ROOT/candidate-0" \
+      --candidate-dir "$ROOT/candidate-1" \
+      --candidate-dir "$ROOT/candidate-2" \
+      --candidate-dir "$ROOT/candidate-3" \
+      --output-dir "$FINAL" \
+      --device cuda:0
   fi
 
   (
     cd "$FINAL"
-    find . -maxdepth 1 -type f ! -name SHA256SUMS -printf '%f\0'       | sort -z | xargs -0 sha256sum > SHA256SUMS
+    find . -maxdepth 1 -type f ! -name SHA256SUMS -printf '%f\0' \
+      | sort -z \
+      | xargs -0 sha256sum > SHA256SUMS
   )
 
   python - "$FINAL" <<'PY'
 from pathlib import Path
 import shutil
 import sys
+
 root = Path(sys.argv[1]).resolve(strict=True)
 archive = shutil.make_archive(
     "/kaggle/working/VN97-P3-final",
