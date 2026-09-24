@@ -79,7 +79,7 @@ class FakeExecutor:
         transient_ui_failures: int = 0,
         transient_boot_failures: int = 0,
         transient_service_failures: int = 0,
-        fail_pre_selftest: bool = false,
+        fail_pre_selftest: bool = False,
     ) -> None:
         self.apk_version_code = (
             apk_version_code
