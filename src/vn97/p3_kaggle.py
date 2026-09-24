@@ -173,30 +173,46 @@ class VN97P3CandidateResult:
             raise VN97P3KaggleError(
                 "candidate status is invalid"
             )
-        if (
-            self.training_steps <= 0
-            or self.training_target_tokens <= 0
-        ):
-            raise VN97P3KaggleError(
-                "candidate training metrics must contain work"
-            )
-        for value, label in (
-            (
-                self.training_mean_loss,
-                "training mean loss",
-            ),
-            (
-                self.training_final_loss,
-                "training final loss",
-            ),
-        ):
+        budget_rejected = self.status in {
+            "REJECTED_PARAMETER_BUDGET",
+            "REJECTED_MODEL_IMAGE_BUDGET",
+            "REJECTED_RECURRENT_STATE_BUDGET",
+        }
+        if budget_rejected:
             if (
-                not math.isfinite(value)
-                or value < 0.0
+                self.training_steps != 0
+                or self.training_target_tokens != 0
+                or self.training_mean_loss != 0.0
+                or self.training_final_loss != 0.0
             ):
                 raise VN97P3KaggleError(
-                    f"{label} must be finite and non-negative"
+                    "budget-rejected candidate must not claim training work"
                 )
+        else:
+            if (
+                self.training_steps <= 0
+                or self.training_target_tokens <= 0
+            ):
+                raise VN97P3KaggleError(
+                    "candidate training metrics must contain work"
+                )
+            for value, label in (
+                (
+                    self.training_mean_loss,
+                    "training mean loss",
+                ),
+                (
+                    self.training_final_loss,
+                    "training final loss",
+                ),
+            ):
+                if (
+                    not math.isfinite(value)
+                    or value < 0.0
+                ):
+                    raise VN97P3KaggleError(
+                        f"{label} must be finite and non-negative"
+                    )
         if not self.device.startswith("cuda"):
             raise VN97P3KaggleError(
                 "P3 candidate result requires CUDA"
