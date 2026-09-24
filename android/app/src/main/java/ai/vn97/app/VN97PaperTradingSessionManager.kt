@@ -280,16 +280,18 @@ class VN97PaperTradingSessionManager(
         expectedSessionId: String,
         stopped: AtomicBoolean,
     ) {
-        application.withSovereignExecution {
-            var record = store.loadOrNull(jobId) ?: return@withSovereignExecution
+        application.withSovereignExecutionBounded(
+            PAPER_LOCK_TIMEOUT_MILLIS
+        ) execution@ {
+            var record = store.loadOrNull(jobId) ?: return@execution
             if (record.sessionId != expectedSessionId) {
-                return@withSovereignExecution
+                return@execution
             }
             if (
                 record.terminal ||
                 record.state == VN97PaperTradingSessionState.PAUSED
             ) {
-                return@withSovereignExecution
+                return@execution
             }
 
             val nowMs = System.currentTimeMillis()
@@ -299,7 +301,7 @@ class VN97PaperTradingSessionManager(
                     VN97PaperTradingSessionState.COMPLETED,
                     "paper session deadline reached",
                 )
-                return@withSovereignExecution
+                return@execution
             }
             if (record.episodesAttempted >= record.maxEpisodes) {
                 finish(
@@ -307,7 +309,7 @@ class VN97PaperTradingSessionManager(
                     VN97PaperTradingSessionState.COMPLETED,
                     "paper session episode budget completed",
                 )
-                return@withSovereignExecution
+                return@execution
             }
             if (record.wakeCount >= MAX_WAKE_COUNT) {
                 finish(
@@ -315,9 +317,9 @@ class VN97PaperTradingSessionManager(
                     VN97PaperTradingSessionState.FAILED,
                     "paper session wake bound exhausted",
                 )
-                return@withSovereignExecution
+                return@execution
             }
-            if (stopped.get()) return@withSovereignExecution
+            if (stopped.get()) return@execution
 
             record = record.copy(
                 state = VN97PaperTradingSessionState.RUNNING,
@@ -345,7 +347,7 @@ class VN97PaperTradingSessionManager(
                 )
                 store.save(retry)
                 if (!stopped.get()) schedule(retry)
-                return@withSovereignExecution
+                return@execution
             }
             val reopenForeground = handoff.getOrThrow()
             try {
@@ -943,6 +945,8 @@ class VN97PaperTradingSessionManager(
         private const val MAX_WAKE_COUNT =
             VN97PaperTradingSessionRecord.MAX_WAKE_COUNT
         private const val MAX_JOB_PROBES = 128
+        private const val PAPER_LOCK_TIMEOUT_MILLIS =
+            15_000L
         private const val JOB_PREFIX = 0x60000000
         private const val JOB_MASK = 0x0fffffff
         private const val MAX_MEMORY_CONTENT_CHARS = 12 * 1024
