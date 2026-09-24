@@ -331,6 +331,35 @@ class VN97AppAssistant(
             wasOpen
         }
 
+
+    fun releaseForResourcePressure(): Boolean =
+        exclusive {
+            if (pendingResult != null) {
+                return@exclusive false
+            }
+            if (
+                knowledgeAcquisition
+                    ?.pendingReview() != null
+            ) {
+                return@exclusive false
+            }
+            val activeResources = resources
+            if (
+                activeResources != null &&
+                activeResources.session
+                    .hasActiveTurn
+            ) {
+                return@exclusive false
+            }
+            val wasOpen =
+                model != null &&
+                    resources != null
+            if (wasOpen) {
+                closeLocked()
+            }
+            wasOpen
+        }
+
     fun runVoiceTurn(
         preparedAudio: NativePreparedAudio,
         maxAdvances: Int = 8,
