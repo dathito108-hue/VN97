@@ -1,0 +1,147 @@
+name: VN97 P2 Medium Pilot
+
+on:
+  workflow_dispatch:
+    inputs:
+      corpus_run_id:
+        description: >-
+          GitHub Actions run ID that produced the sealed VN97-P2-Corpus artifact.
+        required: true
+        type: string
+      corpus_commit:
+        description: >-
+          Exact 40-hex repository commit bound by VN97P2BUNDLE1.
+        required: true
+        type: string
+      execution_acknowledgement:
+        description: >-
+          Type RUN_P2_MEDIUM_CPU_PILOT to spend GitHub Actions time on real training.
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: vn97-p2-medium-pilot
+  cancel-in-progress: false
+
+jobs:
+  medium-pilot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout exact training revision
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Require explicit training acknowledgement
+        env:
+          VN97_PILOT_ACK: ${{ inputs.execution_acknowledgement }}
+        run: |
+          set -euo pipefail
+          test "$VN97_PILOT_ACK" = "RUN_P2_MEDIUM_CPU_PILOT"
+
+      - name: Validate dispatch identities
+        env:
+          VN97_CORPUS_RUN_ID: ${{ inputs.corpus_run_id }}
+          VN97_CORPUS_COMMIT: ${{ inputs.corpus_commit }}
+        run: |
+          set -euo pipefail
+          [[ "$VN97_CORPUS_RUN_ID" =~ ^[0-9]+$ ]]
+          [[ "$VN97_CORPUS_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+
+      - name: Download exact sealed corpus artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: VN97-P2-Corpus-${{ inputs.corpus_commit }}
+          path: p2-corpus-artifact
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ inputs.corpus_run_id }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install CPU VN97 training runtime
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --upgrade pip
+          python -m pip install --disable-pip-version-check \
+            --index-url https://download.pytorch.org/whl/cpu \
+            "torch>=2.2,<3"
+          python -m pip install --disable-pip-version-check --no-deps -e .
+
+      - name: Verify corpus artifact handoff
+        env:
+          VN97_CORPUS_COMMIT: ${{ inputs.corpus_commit }}
+        run: |
+          set -euo pipefail
+          vn97-p2-pilot-handoff verify-corpus \
+            --artifact-root p2-corpus-artifact \
+            --corpus-commit "$VN97_CORPUS_COMMIT"
+
+      - name: Run real P2 medium CPU pilot
+        run: |
+          set -euo pipefail
+          vn97-medium-pilot \
+            --corpus-dir p2-corpus-artifact/corpus \
+            --output-dir p2-medium-output \
+            --device cpu
+
+      - name: Seal VN97P2RUN1
+        env:
+          VN97_CORPUS_COMMIT: ${{ inputs.corpus_commit }}
+          VN97_CORPUS_RUN_ID: ${{ inputs.corpus_run_id }}
+          VN97_TRAINING_COMMIT: ${{ github.sha }}
+          VN97_TRAINING_RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          PYTHON_VERSION="$(python -c 'import platform; print(platform.python_version())')"
+          TORCH_VERSION="$(python -c 'import torch; print(torch.__version__)')"
+          vn97-p2-pilot-handoff seal-run \
+            --artifact-root p2-corpus-artifact \
+            --corpus-commit "$VN97_CORPUS_COMMIT" \
+            --pilot-output p2-medium-output \
+            --training-commit "$VN97_TRAINING_COMMIT" \
+            --corpus-run-id "$VN97_CORPUS_RUN_ID" \
+            --training-run-id "$VN97_TRAINING_RUN_ID" \
+            --python-version "$PYTHON_VERSION" \
+            --torch-version "$TORCH_VERSION" \
+            --output p2-medium-output/pilot-run.vn97p2run1.json
+
+      - name: Assemble immutable pilot artifact
+        run: |
+          set -euo pipefail
+          mkdir -p p2-pilot-artifact/output p2-pilot-artifact/input-evidence
+          cp p2-medium-output/tokenizer.vn97tk1 p2-pilot-artifact/output/
+          cp p2-medium-output/model.vn97ck1 p2-pilot-artifact/output/
+          cp p2-medium-output/campaign-report.json p2-pilot-artifact/output/
+          cp p2-medium-output/model.vn97mi1 p2-pilot-artifact/output/
+          cp p2-medium-output/pilot.vn97pilot1.json p2-pilot-artifact/output/
+          cp p2-medium-output/pilot-run.vn97p2run1.json p2-pilot-artifact/output/
+          cp p2-corpus-artifact/evidence/p2-corpus-bundle.vn97p2bundle1.json \
+            p2-pilot-artifact/input-evidence/
+          cp p2-corpus-artifact/corpus/corpus.vn97corpus1.json \
+            p2-pilot-artifact/input-evidence/
+          (
+            cd p2-pilot-artifact
+            find output input-evidence -type f -print0 \
+              | sort -z \
+              | xargs -0 sha256sum \
+              > SHA256SUMS
+          )
+
+      - name: Upload real P2 pilot evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: VN97-P2-Pilot-${{ github.sha }}-${{ github.run_id }}
+          path: p2-pilot-artifact
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 6
