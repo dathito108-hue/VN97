@@ -13,9 +13,12 @@ from vn97 import (
     VN97Config,
     VN97ReleaseQualityError,
     VN97LanguageCore,
+    VN97ReleaseCandidateDeviceEvidence,
+    VN97ReleaseCandidateManifest,
     VN97TokenizerPackage,
     build_model_image,
     load_deployment_checkpoint_file,
+    parse_capability_package,
     save_deployment_checkpoint,
 )
 from vn97.bootstrap_release_cli import main
@@ -103,7 +106,7 @@ def test_release_cli_writes_exact_m10j_assets(tmp_path, capsys):
     )
 
     report = json.loads(capsys.readouterr().out)
-    assert report["schema"] == "VN97BOOTREL5"
+    assert report["schema"] == "VN97BOOTREL6"
     assert report["device_evidence"] is None
     assert report["speech_enabled"] is False
     assert report["speech_validation"] is None
@@ -349,7 +352,7 @@ def test_release_cli_requires_and_reports_speech_quality_for_speech_checkpoint(
     ) == 0
 
     report = json.loads(capsys.readouterr().out)
-    assert report["schema"] == "VN97BOOTREL5"
+    assert report["schema"] == "VN97BOOTREL6"
     assert report["speech_enabled"] is True
     assert report["speech_validation"]["examples"] == 1
     assert report["speech_validation"]["target_tokens"] > 0
@@ -437,6 +440,296 @@ def test_release_quality_gate_runs_before_private_key_read(tmp_path):
                 "--validation-batch-size", "1",
                 "--min-validation-target-tokens", "1",
                 "--max-validation-loss", "0.000001",
+            ]
+        )
+    assert not assets.exists()
+
+
+def _release_candidate_fixture(tmp_path):
+    checkpoint, tokenizer_path, validation = (
+        _checkpoint_and_tokenizer(tmp_path)
+    )
+    loaded = load_deployment_checkpoint_file(
+        checkpoint
+    )
+    tokenizer_bytes = tokenizer_path.read_bytes()
+    tokenizer = VN97TokenizerPackage.from_bytes(
+        tokenizer_bytes
+    )
+    tokenizer_sha = hashlib.sha256(
+        tokenizer_bytes
+    ).hexdigest()
+
+    preview = build_model_image(
+        loaded.model,
+        tokenizer=tokenizer,
+        tile_rows=4,
+        tile_cols=4,
+    )
+    model_sha = hashlib.sha256(
+        preview.data
+    ).hexdigest()
+    selected_id = "0123456789abcdef"
+
+    production = {
+        "model_image_sha256": model_sha,
+        "schema": "VN97PRODCAMP1",
+        "selected_candidate_id": selected_id,
+        "tokenizer_sha256": tokenizer_sha,
+        "unified_checkpoint_sha256":
+            loaded.checkpoint_sha256,
+    }
+    production_bytes = json.dumps(
+        production,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+
+    evidence = {
+        "battery_energy_counter_delta_nwh": 100,
+        "device": {
+            "abi": "arm64-v8a",
+            "manufacturer": "fixture",
+            "model": "fixture-phone",
+            "sdk_int": 37,
+        },
+        "model_image_sha256": model_sha,
+        "peak_pss_kib": 120000,
+        "runs": 5,
+        "schema": "VN97MOBEVID1",
+        "speech_prefill": None,
+        "text_decode_per_token": {
+            "p50_ms": 5.0,
+            "p95_ms": 6.0,
+        },
+        "text_prefill": {
+            "p50_ms": 10.0,
+            "p95_ms": 12.0,
+        },
+        "thermal_status_max": 2,
+    }
+    evidence_bytes = json.dumps(
+        evidence,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    evidence_sha = hashlib.sha256(
+        evidence_bytes
+    ).hexdigest()
+
+    candidate = tmp_path / "release-candidate"
+    candidate.mkdir()
+    (
+        candidate /
+        "model.vn97ck1"
+    ).write_bytes(checkpoint.read_bytes())
+    (
+        candidate /
+        "tokenizer.vn97tk1"
+    ).write_bytes(tokenizer_bytes)
+    (
+        candidate /
+        "production-campaign-report.json"
+    ).write_bytes(production_bytes)
+
+    evidence_dir = candidate / "device-evidence"
+    evidence_dir.mkdir()
+    (
+        evidence_dir /
+        f"001-{evidence_sha}.json"
+    ).write_bytes(evidence_bytes)
+
+    manifest = VN97ReleaseCandidateManifest(
+        selected_candidate_id=selected_id,
+        checkpoint_sha256=
+            loaded.checkpoint_sha256,
+        checkpoint_bytes=
+            checkpoint.stat().st_size,
+        tokenizer_sha256=tokenizer_sha,
+        tokenizer_bytes=len(tokenizer_bytes),
+        production_campaign_report_sha256=
+            hashlib.sha256(
+                production_bytes
+            ).hexdigest(),
+        model_image_sha256=model_sha,
+        tile_rows=4,
+        tile_cols=4,
+        speech_enabled=False,
+        vision_enabled=False,
+        speech_training_report_sha256=None,
+        vision_training_report_sha256=None,
+        device_evidence=(
+            VN97ReleaseCandidateDeviceEvidence(
+                evidence_sha256=evidence_sha,
+                manufacturer="fixture",
+                model="fixture-phone",
+                sdk_int=37,
+                abi="arm64-v8a",
+                runs=5,
+                text_prefill_p95_ms=12.0,
+                text_decode_p95_ms_per_token=6.0,
+                speech_prefill_p95_ms=None,
+                peak_pss_kib=120000,
+                thermal_status_max=2,
+                battery_energy_counter_delta_nwh=100,
+            ),
+        ),
+    )
+    manifest_bytes = manifest.to_bytes()
+    (
+        candidate /
+        "release-candidate.vn97rc1"
+    ).write_bytes(manifest_bytes)
+    return (
+        candidate,
+        validation,
+        hashlib.sha256(
+            manifest_bytes
+        ).hexdigest(),
+    )
+
+
+def test_release_cli_signs_verified_vn97rc1_candidate(
+    tmp_path,
+    capsys,
+):
+    candidate, validation, manifest_sha = (
+        _release_candidate_fixture(
+            tmp_path
+        )
+    )
+    private = cryptography.Ed25519PrivateKey.generate()
+    private_path = tmp_path / "candidate.private"
+    private_path.write_bytes(
+        private.private_bytes(
+            encoding=serialization.Encoding.Raw,
+            format=serialization.PrivateFormat.Raw,
+            encryption_algorithm=
+                serialization.NoEncryption(),
+        )
+    )
+    assets = tmp_path / "candidate-assets"
+
+    assert main(
+        [
+            "--release-candidate-dir",
+            str(candidate),
+            "--private-key",
+            str(private_path),
+            "--key-id",
+            "publisher.main",
+            "--capability-version",
+            "12",
+            "--source-origin",
+            "vn97-production-campaign",
+            "--source-license",
+            "proprietary",
+            "--assets-dir",
+            str(assets),
+            "--validation-input",
+            str(validation),
+            "--validation-format",
+            "text",
+            "--validation-sequence-length",
+            "32",
+            "--validation-batch-size",
+            "1",
+            "--min-validation-target-tokens",
+            "1",
+            "--max-validation-loss",
+            "100",
+        ]
+    ) == 0
+
+    report = json.loads(
+        capsys.readouterr().out
+    )
+    assert report["schema"] == "VN97BOOTREL6"
+    assert report["release_candidate"][
+        "manifest_sha256"
+    ] == manifest_sha
+    assert report["release_candidate"][
+        "selected_candidate_id"
+    ] == "0123456789abcdef"
+    assert report["release_candidate"][
+        "device_evidence_sha256"
+    ]
+    assert {
+        path.name
+        for path in assets.iterdir()
+    } == {
+        "model.vn97cap1",
+        "model.vn97sig1",
+        "publisher.ed25519",
+    }
+    parsed = parse_capability_package(
+        (
+            assets /
+            "model.vn97cap1"
+        ).read_bytes()
+    )
+    assert (
+        parsed.manifest.source.source_sha256
+        == manifest_sha
+    )
+    assert (
+        report["signed_source_sha256"]
+        == manifest_sha
+    )
+
+
+def test_release_candidate_tamper_fails_before_private_key_read(
+    tmp_path,
+):
+    candidate, validation, _ = (
+        _release_candidate_fixture(
+            tmp_path
+        )
+    )
+    checkpoint = (
+        candidate /
+        "model.vn97ck1"
+    )
+    checkpoint.write_bytes(
+        checkpoint.read_bytes() + b"x"
+    )
+    assets = tmp_path / "tampered-assets"
+
+    with pytest.raises(
+        Exception,
+        match="checkpoint.*VN97RC1|SHA-256",
+    ):
+        main(
+            [
+                "--release-candidate-dir",
+                str(candidate),
+                "--private-key",
+                str(
+                    tmp_path /
+                    "missing-private-key"
+                ),
+                "--key-id",
+                "publisher.main",
+                "--capability-version",
+                "12",
+                "--source-origin",
+                "vn97-production-campaign",
+                "--source-license",
+                "proprietary",
+                "--assets-dir",
+                str(assets),
+                "--validation-input",
+                str(validation),
+                "--validation-format",
+                "text",
+                "--validation-sequence-length",
+                "32",
+                "--validation-batch-size",
+                "1",
+                "--min-validation-target-tokens",
+                "1",
+                "--max-validation-loss",
+                "100",
             ]
         )
     assert not assets.exists()

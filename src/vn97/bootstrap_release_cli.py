@@ -35,6 +35,10 @@ from .speech_training import (
 from .speech_training_cli import load_speech_manifest
 from .mobile_budget import VN97MobileBudget, estimate_vn97_mobile_footprint
 from .model_image import build_model_image
+from .release_candidate import (
+    VN97LoadedReleaseCandidate,
+    load_release_candidate_directory,
+)
 from .tokenizer import VN97Tokenizer, VN97TokenizerPackage
 from .training import (
     VN97TrainingConfig,
@@ -257,6 +261,7 @@ def _load_production_campaign_report(
     checkpoint_sha256: str,
     tokenizer_sha256: str,
     model_image_sha256: str,
+    selected_candidate_id: str | None = None,
 ) -> str:
     data = _read_regular_file(
         path,
@@ -315,6 +320,14 @@ def _load_production_campaign_report(
             raise ValueError(
                 f"production campaign report {key} does not match release input"
             )
+    if (
+        selected_candidate_id is not None
+        and report.get("selected_candidate_id")
+        != selected_candidate_id
+    ):
+        raise ValueError(
+            "production campaign selected_candidate_id does not match VN97RC1"
+        )
     return hashlib.sha256(data).hexdigest()
 
 
@@ -334,8 +347,16 @@ def _parser() -> argparse.ArgumentParser:
             "Create the exact signed VN97 bootstrap assets consumed by the M10J Android app."
         )
     )
-    parser.add_argument("--checkpoint", required=True)
-    parser.add_argument("--tokenizer", required=True)
+    parser.add_argument("--checkpoint")
+    parser.add_argument("--tokenizer")
+    parser.add_argument(
+        "--release-candidate-dir",
+        help=(
+            "verified VN97RC1 candidate directory; resolves checkpoint, "
+            "tokenizer, production report, modality reports, device evidence, "
+            "and deployment tile geometry"
+        ),
+    )
     parser.add_argument("--private-key", required=True)
     parser.add_argument("--key-id", required=True)
     parser.add_argument("--capability-version", type=int, required=True)
@@ -480,8 +501,8 @@ def _parser() -> argparse.ArgumentParser:
         default=64,
     )
 
-    parser.add_argument("--tile-rows", type=int, default=16)
-    parser.add_argument("--tile-cols", type=int, default=16)
+    parser.add_argument("--tile-rows", type=int)
+    parser.add_argument("--tile-cols", type=int)
     parser.add_argument(
         "--max-model-image-bytes",
         type=int,
@@ -544,11 +565,121 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _resolve_release_inputs(
+    args: argparse.Namespace,
+) -> tuple[
+    VN97LoadedReleaseCandidate | None,
+    Path,
+    Path,
+    Path | None,
+    Path | None,
+    Path | None,
+    tuple[Path, ...],
+    int,
+    int,
+]:
+    candidate: VN97LoadedReleaseCandidate | None = None
+    if args.release_candidate_dir is not None:
+        conflicting = {
+            "--checkpoint": args.checkpoint,
+            "--tokenizer": args.tokenizer,
+            "--production-campaign-report":
+                args.production_campaign_report,
+            "--speech-training-report":
+                args.speech_training_report,
+            "--vision-training-report":
+                args.vision_training_report,
+            "--device-evidence":
+                args.device_evidence,
+        }
+        supplied = [
+            name
+            for name, value in conflicting.items()
+            if value is not None
+        ]
+        if supplied:
+            raise ValueError(
+                "--release-candidate-dir cannot be combined with: "
+                + ", ".join(supplied)
+            )
+        candidate = load_release_candidate_directory(
+            args.release_candidate_dir
+        )
+        if (
+            args.tile_rows is not None
+            and args.tile_rows
+            != candidate.manifest.tile_rows
+        ):
+            raise ValueError(
+                "--tile-rows does not match VN97RC1"
+            )
+        if (
+            args.tile_cols is not None
+            and args.tile_cols
+            != candidate.manifest.tile_cols
+        ):
+            raise ValueError(
+                "--tile-cols does not match VN97RC1"
+            )
+        return (
+            candidate,
+            candidate.checkpoint_path,
+            candidate.tokenizer_path,
+            candidate.production_campaign_report_path,
+            candidate.speech_training_report_path,
+            candidate.vision_training_report_path,
+            candidate.device_evidence_paths,
+            candidate.manifest.tile_rows,
+            candidate.manifest.tile_cols,
+        )
+
+    if args.checkpoint is None or args.tokenizer is None:
+        raise ValueError(
+            "raw release mode requires --checkpoint and --tokenizer"
+        )
+    return (
+        None,
+        Path(args.checkpoint),
+        Path(args.tokenizer),
+        (
+            None
+            if args.production_campaign_report is None
+            else Path(args.production_campaign_report)
+        ),
+        (
+            None
+            if args.speech_training_report is None
+            else Path(args.speech_training_report)
+        ),
+        (
+            None
+            if args.vision_training_report is None
+            else Path(args.vision_training_report)
+        ),
+        (
+            tuple()
+            if args.device_evidence is None
+            else (Path(args.device_evidence),)
+        ),
+        16 if args.tile_rows is None else args.tile_rows,
+        16 if args.tile_cols is None else args.tile_cols,
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
 
-    checkpoint_path = Path(args.checkpoint)
-    tokenizer_path = Path(args.tokenizer)
+    (
+        release_candidate,
+        checkpoint_path,
+        tokenizer_path,
+        production_campaign_report_path,
+        speech_training_report_path,
+        vision_training_report_path,
+        device_evidence_paths,
+        tile_rows,
+        tile_cols,
+    ) = _resolve_release_inputs(args)
     private_key_path = Path(args.private_key)
     assets_dir = Path(args.assets_dir)
 
@@ -628,13 +759,13 @@ def main(argv: list[str] | None = None) -> int:
     speech_training_report = None
     speech_training_report_sha256 = None
     if loaded.audio_adapter is not None:
-        if args.speech_training_report is None:
+        if speech_training_report_path is None:
             raise ValueError(
                 "speech-enabled VN97CK1 requires --speech-training-report"
             )
         speech_training_report, speech_training_report_sha256 = (
             _load_speech_training_report(
-                Path(args.speech_training_report),
+                speech_training_report_path,
                 checkpoint_sha256=loaded.checkpoint_sha256,
                 tokenizer_sha256=tokenizer_sha256,
             )
@@ -693,7 +824,7 @@ def main(argv: list[str] | None = None) -> int:
         )
     elif (
         args.speech_validation_input is not None
-        or args.speech_training_report is not None
+        or speech_training_report_path is not None
     ):
         raise ValueError(
             "speech release inputs were provided but VN97CK1 has no audio adapter"
@@ -704,7 +835,7 @@ def main(argv: list[str] | None = None) -> int:
     vision_training_report = None
     vision_training_report_sha256 = None
     if loaded.vision_adapter is not None:
-        if args.vision_training_report is None:
+        if vision_training_report_path is None:
             raise ValueError(
                 "vision-enabled VN97CK1 requires --vision-training-report"
             )
@@ -718,7 +849,7 @@ def main(argv: list[str] | None = None) -> int:
             )
         vision_training_report, vision_training_report_sha256 = (
             _load_vision_training_report(
-                Path(args.vision_training_report),
+                vision_training_report_path,
                 checkpoint_sha256=loaded.checkpoint_sha256,
                 tokenizer_sha256=tokenizer_sha256,
             )
@@ -760,7 +891,7 @@ def main(argv: list[str] | None = None) -> int:
         )
     elif (
         args.vision_validation_input is not None
-        or args.vision_training_report is not None
+        or vision_training_report_path is not None
     ):
         raise ValueError(
             "vision release inputs were provided but VN97CK1 has no vision adapter"
@@ -779,8 +910,8 @@ def main(argv: list[str] | None = None) -> int:
             if loaded.vision_adapter is None
             else loaded.vision_adapter.input_features
         ),
-        tile_rows=args.tile_rows,
-        tile_cols=args.tile_cols,
+        tile_rows=tile_rows,
+        tile_cols=tile_cols,
         batch_size=1,
     )
     mobile_budget = VN97MobileBudget(
@@ -799,8 +930,8 @@ def main(argv: list[str] | None = None) -> int:
         tokenizer=tokenizer,
         audio_adapter=loaded.audio_adapter,
         vision_adapter=loaded.vision_adapter,
-        tile_rows=args.tile_rows,
-        tile_cols=args.tile_cols,
+        tile_rows=tile_rows,
+        tile_cols=tile_cols,
     )
     preview_model_image_sha256 = hashlib.sha256(
         preview_image.data
@@ -809,56 +940,187 @@ def main(argv: list[str] | None = None) -> int:
     production_campaign_report_sha256 = None
     if (
         args.require_production_campaign_report
-        and args.production_campaign_report is None
+        and production_campaign_report_path is None
     ):
         raise ValueError(
             "--require-production-campaign-report needs "
             "--production-campaign-report"
         )
-    if args.production_campaign_report is not None:
+    if production_campaign_report_path is not None:
         production_campaign_report_sha256 = (
             _load_production_campaign_report(
-                Path(args.production_campaign_report),
+                production_campaign_report_path,
                 checkpoint_sha256=loaded.checkpoint_sha256,
                 tokenizer_sha256=tokenizer_sha256,
                 model_image_sha256=preview_model_image_sha256,
+                selected_candidate_id=(
+                    None
+                    if release_candidate is None
+                    else release_candidate
+                        .manifest
+                        .selected_candidate_id
+                ),
             )
         )
 
-    device_evidence = None
-    device_evidence_criteria = None
-    if args.require_device_evidence and args.device_evidence is None:
+    if release_candidate is not None:
+        manifest = release_candidate.manifest
+        if (
+            preview_model_image_sha256
+            != manifest.model_image_sha256
+        ):
+            raise ValueError(
+                "M10N reconstructed VN97MI1 does not match VN97RC1"
+            )
+        if (
+            manifest.speech_enabled
+            != (loaded.audio_adapter is not None)
+        ):
+            raise ValueError(
+                "VN97RC1 speech modality flag does not match checkpoint"
+            )
+        if (
+            manifest.vision_enabled
+            != (loaded.vision_adapter is not None)
+        ):
+            raise ValueError(
+                "VN97RC1 vision modality flag does not match checkpoint"
+            )
+        if (
+            production_campaign_report_sha256
+            != manifest.production_campaign_report_sha256
+        ):
+            raise ValueError(
+                "M10N production report identity does not match VN97RC1"
+            )
+        if (
+            speech_training_report_sha256
+            != manifest.speech_training_report_sha256
+        ):
+            raise ValueError(
+                "M10N speech report identity does not match VN97RC1"
+            )
+        if (
+            vision_training_report_sha256
+            != manifest.vision_training_report_sha256
+        ):
+            raise ValueError(
+                "M10N vision report identity does not match VN97RC1"
+            )
+
+    device_evidence_criteria = VN97DeviceEvidenceCriteria(
+        min_runs=args.device_evidence_min_runs,
+        max_text_prefill_p95_ms=args.max_text_prefill_p95_ms,
+        max_text_decode_p95_ms_per_token=(
+            args.max_text_decode_p95_ms_per_token
+        ),
+        max_peak_pss_kib=args.max_device_peak_pss_kib,
+        max_thermal_status=args.max_device_thermal_status,
+        max_speech_prefill_p95_ms=(
+            args.max_speech_prefill_p95_ms
+            if loaded.audio_adapter is not None
+            else None
+        ),
+        require_energy_counter=args.require_device_energy_counter,
+        max_abs_battery_energy_counter_delta_nwh=(
+            args.max_abs_battery_energy_counter_delta_nwh
+        ),
+    )
+    if (
+        args.require_device_evidence
+        and not device_evidence_paths
+    ):
         raise ValueError(
-            "--require-device-evidence needs --device-evidence"
+            "--require-device-evidence needs device evidence"
         )
-    if args.device_evidence is not None:
-        device_evidence = load_device_evidence(
-            Path(args.device_evidence)
-        )
-        device_evidence_criteria = VN97DeviceEvidenceCriteria(
-            min_runs=args.device_evidence_min_runs,
-            max_text_prefill_p95_ms=args.max_text_prefill_p95_ms,
-            max_text_decode_p95_ms_per_token=(
-                args.max_text_decode_p95_ms_per_token
-            ),
-            max_peak_pss_kib=args.max_device_peak_pss_kib,
-            max_thermal_status=args.max_device_thermal_status,
-            max_speech_prefill_p95_ms=(
-                args.max_speech_prefill_p95_ms
-                if loaded.audio_adapter is not None
-                else None
-            ),
-            require_energy_counter=args.require_device_energy_counter,
-            max_abs_battery_energy_counter_delta_nwh=(
-                args.max_abs_battery_energy_counter_delta_nwh
-            ),
-        )
+    verified_device_evidence = []
+    for path in device_evidence_paths:
+        evidence = load_device_evidence(path)
         require_device_evidence(
-            device_evidence,
+            evidence,
             device_evidence_criteria,
-            expected_model_image_sha256=preview_model_image_sha256,
-            speech_enabled=loaded.audio_adapter is not None,
+            expected_model_image_sha256=
+                preview_model_image_sha256,
+            speech_enabled=
+                loaded.audio_adapter is not None,
         )
+        verified_device_evidence.append(
+            evidence
+        )
+
+    if release_candidate is not None:
+        expected_evidence = {
+            item.evidence_sha256: item
+            for item in
+                release_candidate
+                .manifest
+                .device_evidence
+        }
+        actual_evidence = {
+            item.evidence_sha256: item
+            for item in
+                verified_device_evidence
+        }
+        if (
+            set(actual_evidence)
+            != set(expected_evidence)
+        ):
+            raise ValueError(
+                "M10N device evidence identities do not match VN97RC1"
+            )
+        for digest, expected_item in expected_evidence.items():
+            actual_item = actual_evidence[digest]
+            actual_summary = (
+                actual_item.manufacturer,
+                actual_item.model,
+                actual_item.sdk_int,
+                actual_item.abi,
+                actual_item.runs,
+                actual_item.text_prefill.p95_ms,
+                actual_item
+                    .text_decode_per_token
+                    .p95_ms,
+                (
+                    None
+                    if actual_item.speech_prefill is None
+                    else actual_item
+                        .speech_prefill
+                        .p95_ms
+                ),
+                actual_item.peak_pss_kib,
+                actual_item.thermal_status_max,
+                actual_item
+                    .battery_energy_counter_delta_nwh,
+            )
+            expected_summary = (
+                expected_item.manufacturer,
+                expected_item.model,
+                expected_item.sdk_int,
+                expected_item.abi,
+                expected_item.runs,
+                expected_item.text_prefill_p95_ms,
+                expected_item
+                    .text_decode_p95_ms_per_token,
+                expected_item.speech_prefill_p95_ms,
+                expected_item.peak_pss_kib,
+                expected_item.thermal_status_max,
+                expected_item
+                    .battery_energy_counter_delta_nwh,
+            )
+            if actual_summary != expected_summary:
+                raise ValueError(
+                    "M10N device evidence summary does not match VN97RC1: "
+                    + digest
+                )
+
+    device_evidence = (
+        verified_device_evidence[0]
+        if (
+            release_candidate is None
+            and len(verified_device_evidence) == 1
+        )
+        else None
+    )
 
     # Private signing material is not opened until quality, mobile-budget and
     # optional on-device evidence gates pass.
@@ -873,9 +1135,14 @@ def main(argv: list[str] | None = None) -> int:
         args.key_id,
         private_key,
     )
+    signed_source_sha256 = (
+        loaded.checkpoint_sha256
+        if release_candidate is None
+        else release_candidate.manifest_sha256
+    )
     source = CapabilitySource(
         args.source_origin,
-        loaded.checkpoint_sha256,
+        signed_source_sha256,
         args.source_license,
     )
 
@@ -887,8 +1154,8 @@ def main(argv: list[str] | None = None) -> int:
         source=source,
         capability_version=args.capability_version,
         signer=signer,
-        tile_rows=args.tile_rows,
-        tile_cols=args.tile_cols,
+        tile_rows=tile_rows,
+        tile_cols=tile_cols,
     )
     if bundle.model_image_sha256 != preview_model_image_sha256:
         raise RuntimeError(
@@ -947,7 +1214,34 @@ def main(argv: list[str] | None = None) -> int:
         "production_campaign_report_sha256": (
             production_campaign_report_sha256
         ),
-        "schema": "VN97BOOTREL5",
+        "release_candidate": (
+            None
+            if release_candidate is None
+            else {
+                "device_evidence_sha256": sorted(
+                    item.evidence_sha256
+                    for item in
+                        verified_device_evidence
+                ),
+                "manifest_sha256":
+                    release_candidate.manifest_sha256,
+                "selected_candidate_id":
+                    release_candidate
+                    .manifest
+                    .selected_candidate_id,
+                "tile_cols":
+                    release_candidate
+                    .manifest
+                    .tile_cols,
+                "tile_rows":
+                    release_candidate
+                    .manifest
+                    .tile_rows,
+            }
+        ),
+        "schema": "VN97BOOTREL6",
+        "signed_source_sha256":
+            signed_source_sha256,
         "speech_enabled": loaded.audio_adapter is not None,
         "vision_enabled": loaded.vision_adapter is not None,
         "vision_runtime_budget": (

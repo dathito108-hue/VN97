@@ -184,6 +184,10 @@ M10N still reconstructs VN97MI1 and verifies release quality before signing.
 M19B therefore adds a pre-signing evidence handoff rather than weakening any
 existing release gate.
 
+M19C consumes this directory directly through `--release-candidate-dir`,
+re-verifies every bound identity/evidence file, and signs the VN97RC1 manifest
+SHA into VN97CAP1 provenance before emitting the Android bootstrap assets.
+
 ## Current repository status
 
 At the time M19B is implemented, neither `main` nor the historical M10R/M11C

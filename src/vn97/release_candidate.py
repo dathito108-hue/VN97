@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
 import json
 import math
+import os
+from pathlib import Path
+import stat
 from typing import Any
 
 
@@ -235,9 +239,9 @@ class VN97ReleaseCandidateManifest:
             (self.tile_rows, "tile_rows"),
             (self.tile_cols, "tile_cols"),
         ):
-            if type(value) is not int or not 1 <= value <= 1024:
+            if type(value) is not int or not 1 <= value <= 256:
                 raise VN97ReleaseCandidateError(
-                    f"{label} must be integer in [1, 1024]"
+                    f"{label} must be integer in [1, 256]"
                 )
         if type(self.speech_enabled) is not bool:
             raise VN97ReleaseCandidateError(
@@ -518,3 +522,349 @@ def parse_release_candidate_manifest(
         raise VN97ReleaseCandidateError(
             str(exc)
         ) from exc
+
+
+@dataclass(frozen=True)
+class VN97LoadedReleaseCandidate:
+    root: Path
+    manifest: VN97ReleaseCandidateManifest
+    manifest_sha256: str
+    checkpoint_path: Path
+    tokenizer_path: Path
+    production_campaign_report_path: Path
+    speech_training_report_path: Path | None
+    vision_training_report_path: Path | None
+    device_evidence_paths: tuple[Path, ...]
+
+
+def _read_candidate_file(
+    path: Path,
+    *,
+    max_bytes: int,
+    label: str,
+) -> bytes:
+    flags = os.O_RDONLY | getattr(
+        os,
+        "O_NOFOLLOW",
+        0,
+    )
+    try:
+        fd = os.open(path, flags)
+    except OSError as exc:
+        raise VN97ReleaseCandidateError(
+            f"{label} could not be opened safely"
+        ) from exc
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode):
+            raise VN97ReleaseCandidateError(
+                f"{label} must be a regular file"
+            )
+        if not 0 < info.st_size <= max_bytes:
+            raise VN97ReleaseCandidateError(
+                f"{label} byte size is outside bounds"
+            )
+        out = bytearray()
+        while len(out) < info.st_size:
+            chunk = os.read(
+                fd,
+                min(
+                    1024 * 1024,
+                    info.st_size - len(out),
+                ),
+            )
+            if not chunk:
+                break
+            out.extend(chunk)
+        after = os.fstat(fd)
+        if (
+            len(out) != info.st_size
+            or after.st_size != info.st_size
+            or after.st_ino != info.st_ino
+            or after.st_dev != info.st_dev
+        ):
+            raise VN97ReleaseCandidateError(
+                f"{label} changed while being read"
+            )
+        return bytes(out)
+    finally:
+        os.close(fd)
+
+
+def _require_candidate_file_identity(
+    path: Path,
+    *,
+    expected_bytes: int | None,
+    expected_sha256: str,
+    max_bytes: int,
+    label: str,
+) -> None:
+    flags = os.O_RDONLY | getattr(
+        os,
+        "O_NOFOLLOW",
+        0,
+    )
+    try:
+        fd = os.open(path, flags)
+    except OSError as exc:
+        raise VN97ReleaseCandidateError(
+            f"{label} could not be opened safely"
+        ) from exc
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode):
+            raise VN97ReleaseCandidateError(
+                f"{label} must be a regular file"
+            )
+        if not 0 < info.st_size <= max_bytes:
+            raise VN97ReleaseCandidateError(
+                f"{label} byte size is outside bounds"
+            )
+        if (
+            expected_bytes is not None
+            and info.st_size != expected_bytes
+        ):
+            raise VN97ReleaseCandidateError(
+                f"{label} byte size does not match VN97RC1"
+            )
+        digest = hashlib.sha256()
+        read_bytes = 0
+        while read_bytes < info.st_size:
+            chunk = os.read(
+                fd,
+                min(
+                    1024 * 1024,
+                    info.st_size - read_bytes,
+                ),
+            )
+            if not chunk:
+                break
+            read_bytes += len(chunk)
+            digest.update(chunk)
+        after = os.fstat(fd)
+        if (
+            read_bytes != info.st_size
+            or after.st_size != info.st_size
+            or after.st_ino != info.st_ino
+            or after.st_dev != info.st_dev
+        ):
+            raise VN97ReleaseCandidateError(
+                f"{label} changed while being verified"
+            )
+        if digest.hexdigest() != expected_sha256:
+            raise VN97ReleaseCandidateError(
+                f"{label} SHA-256 does not match VN97RC1"
+            )
+    finally:
+        os.close(fd)
+
+
+def load_release_candidate_directory(
+    path: str | os.PathLike[str],
+) -> VN97LoadedReleaseCandidate:
+    root = Path(path)
+    try:
+        info = os.lstat(root)
+    except OSError as exc:
+        raise VN97ReleaseCandidateError(
+            "release candidate directory is unavailable"
+        ) from exc
+    if (
+        stat.S_ISLNK(info.st_mode)
+        or not stat.S_ISDIR(info.st_mode)
+    ):
+        raise VN97ReleaseCandidateError(
+            "release candidate root must be a real directory"
+        )
+
+    manifest_path = root / "release-candidate.vn97rc1"
+    manifest_bytes = _read_candidate_file(
+        manifest_path,
+        max_bytes=MAX_MANIFEST_BYTES,
+        label="VN97RC1 manifest",
+    )
+    manifest = parse_release_candidate_manifest(
+        manifest_bytes
+    )
+    manifest_sha256 = hashlib.sha256(
+        manifest_bytes
+    ).hexdigest()
+
+    expected_top = {
+        "device-evidence",
+        "model.vn97ck1",
+        "production-campaign-report.json",
+        "release-candidate.vn97rc1",
+        "tokenizer.vn97tk1",
+    }
+    if manifest.speech_enabled:
+        expected_top.add(
+            "speech-training-report.json"
+        )
+    if manifest.vision_enabled:
+        expected_top.add(
+            "vision-training-report.json"
+        )
+    actual_top = {
+        entry.name
+        for entry in root.iterdir()
+    }
+    if actual_top != expected_top:
+        raise VN97ReleaseCandidateError(
+            "release candidate directory entries do not match VN97RC1"
+        )
+
+    checkpoint_path = root / "model.vn97ck1"
+    tokenizer_path = root / "tokenizer.vn97tk1"
+    production_report_path = (
+        root /
+        "production-campaign-report.json"
+    )
+    _require_candidate_file_identity(
+        checkpoint_path,
+        expected_bytes=manifest.checkpoint_bytes,
+        expected_sha256=manifest.checkpoint_sha256,
+        max_bytes=2 * 1024 * 1024 * 1024,
+        label="release candidate checkpoint",
+    )
+    _require_candidate_file_identity(
+        tokenizer_path,
+        expected_bytes=manifest.tokenizer_bytes,
+        expected_sha256=manifest.tokenizer_sha256,
+        max_bytes=64 * 1024 * 1024,
+        label="release candidate tokenizer",
+    )
+    _require_candidate_file_identity(
+        production_report_path,
+        expected_bytes=None,
+        expected_sha256=
+            manifest.production_campaign_report_sha256,
+        max_bytes=4 * 1024 * 1024,
+        label="release candidate production report",
+    )
+
+    speech_path: Path | None = None
+    if manifest.speech_enabled:
+        speech_path = (
+            root /
+            "speech-training-report.json"
+        )
+        assert (
+            manifest
+            .speech_training_report_sha256
+            is not None
+        )
+        _require_candidate_file_identity(
+            speech_path,
+            expected_bytes=None,
+            expected_sha256=
+                manifest
+                .speech_training_report_sha256,
+            max_bytes=4 * 1024 * 1024,
+            label="release candidate speech report",
+        )
+
+    vision_path: Path | None = None
+    if manifest.vision_enabled:
+        vision_path = (
+            root /
+            "vision-training-report.json"
+        )
+        assert (
+            manifest
+            .vision_training_report_sha256
+            is not None
+        )
+        _require_candidate_file_identity(
+            vision_path,
+            expected_bytes=None,
+            expected_sha256=
+                manifest
+                .vision_training_report_sha256,
+            max_bytes=4 * 1024 * 1024,
+            label="release candidate vision report",
+        )
+
+    evidence_root = root / "device-evidence"
+    try:
+        evidence_info = os.lstat(
+            evidence_root
+        )
+    except OSError as exc:
+        raise VN97ReleaseCandidateError(
+            "release candidate device-evidence directory is unavailable"
+        ) from exc
+    if (
+        stat.S_ISLNK(evidence_info.st_mode)
+        or not stat.S_ISDIR(
+            evidence_info.st_mode
+        )
+    ):
+        raise VN97ReleaseCandidateError(
+            "release candidate device-evidence must be a real directory"
+        )
+
+    ordered = sorted(
+        manifest.device_evidence,
+        key=lambda item:
+            item.evidence_sha256,
+    )
+    expected_names = [
+        (
+            f"{index:03d}-"
+            f"{item.evidence_sha256}.json"
+        )
+        for index, item in enumerate(
+            ordered,
+            start=1,
+        )
+    ]
+    actual_names = sorted(
+        entry.name
+        for entry in evidence_root.iterdir()
+    )
+    if actual_names != expected_names:
+        raise VN97ReleaseCandidateError(
+            "release candidate device-evidence entries do not match VN97RC1"
+        )
+
+    evidence_paths: list[Path] = []
+    for name, item in zip(
+        expected_names,
+        ordered,
+        strict=True,
+    ):
+        evidence_path = (
+            evidence_root /
+            name
+        )
+        _require_candidate_file_identity(
+            evidence_path,
+            expected_bytes=None,
+            expected_sha256=
+                item.evidence_sha256,
+            max_bytes=1024 * 1024,
+            label="release candidate device evidence",
+        )
+        evidence_paths.append(
+            evidence_path
+        )
+
+    return VN97LoadedReleaseCandidate(
+        root=root,
+        manifest=manifest,
+        manifest_sha256=
+            manifest_sha256,
+        checkpoint_path=
+            checkpoint_path,
+        tokenizer_path=
+            tokenizer_path,
+        production_campaign_report_path=
+            production_report_path,
+        speech_training_report_path=
+            speech_path,
+        vision_training_report_path=
+            vision_path,
+        device_evidence_paths=
+            tuple(evidence_paths),
+    )
