@@ -23,6 +23,7 @@ enum class VN97ExecutionHealthState {
     FAILED,
     TIMED_OUT,
     ABANDONED,
+    CANCELLED,
 }
 
 data class VN97ExecutionHealthRecord(
@@ -198,6 +199,18 @@ object VN97ExecutionHealthPolicy {
                     nowWallTimeMillis,
                 suppressUntilWallTimeMillis =
                     0L,
+                detail = boundedDetail,
+            )
+        }
+        if (
+            state ==
+                VN97ExecutionHealthState
+                    .CANCELLED
+        ) {
+            return running.copy(
+                state = state,
+                updatedWallTimeMillis =
+                    nowWallTimeMillis,
                 detail = boundedDetail,
             )
         }
