@@ -1,0 +1,13 @@
+{
+  "candidates": [
+    {
+      "d_model": 192,
+      "d_state": 16,
+      "embedding_rank": 96,
+      "learning_rate": 0.0003,
+      "n_layers": 6,
+      "seed": 97
+    }
+  ],
+  "schema": "VN97CAMPDEF1"
+}
