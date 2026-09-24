@@ -60,7 +60,6 @@ class VN97AppAssistant(
         require(goal.isNotBlank()) {
             "knowledge acquisition proposal goal must not be blank"
         }
-        requireKnowledgeAcquisitionIdle()
         application.runtimeResources
             .requireRunnable(
                 VN97RuntimeExecutionClass
@@ -69,6 +68,7 @@ class VN97AppAssistant(
         check(openIfActivatedLocked()) {
             "trusted VN97 model is not active"
         }
+        requireKnowledgeAcquisitionIdle()
         val activeModel = checkNotNull(model) {
             "trusted VN97 model is not active"
         }
