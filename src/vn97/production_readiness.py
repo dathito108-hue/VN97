@@ -361,10 +361,19 @@ def _read_publisher_private_key_shape(
         return False
     try:
         info = os.fstat(fd)
-        data = os.read(
-            fd,
-            min(info.st_size, 257),
-        )
+        out = bytearray()
+        while len(out) < info.st_size:
+            chunk = os.read(
+                fd,
+                min(
+                    257 - len(out),
+                    info.st_size - len(out),
+                ),
+            )
+            if not chunk:
+                break
+            out.extend(chunk)
+        data = bytes(out)
         after = os.fstat(fd)
     finally:
         os.close(fd)
@@ -973,15 +982,14 @@ def evaluate_production_readiness(
         "VN97_RELEASE_KEYSTORE"
     )
     if not keystore_raw:
-        checks["android_keystore"] = False
-        if not missing_env:
-            blockers.append(
-                VN97ReadinessBlocker(
-                    code="android_keystore.missing",
-                    domain="signing",
-                    message="Android release keystore is required.",
-                )
-            )
+        _block(
+            blockers,
+            checks,
+            "android_keystore",
+            "android_keystore.missing",
+            "signing",
+            "Android release keystore is required.",
+        )
     else:
         keystore = Path(keystore_raw)
         if not _safe_regular_file(
