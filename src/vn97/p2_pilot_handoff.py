@@ -341,6 +341,39 @@ class VN97P2PilotRunReceipt:
     profile_sha256: str
     device: str
 
+    def __post_init__(self) -> None:
+        _require_commit(
+            self.training_commit,
+            label="training commit",
+        )
+        _require_commit(
+            self.corpus_commit,
+            label="corpus commit",
+        )
+        if (
+            not self.corpus_run_id.isdigit()
+            or not self.training_run_id.isdigit()
+        ):
+            raise VN97P2PilotHandoffError(
+                "GitHub run IDs must be decimal strings"
+            )
+        for value, label in (
+            (self.corpus_bundle_id, "corpus bundle ID"),
+            (self.corpus_bundle_sha256, "corpus bundle SHA-256"),
+            (self.corpus_manifest_id, "corpus manifest ID"),
+            (self.pilot_receipt_sha256, "pilot receipt SHA-256"),
+            (self.campaign_report_sha256, "campaign report SHA-256"),
+            (self.checkpoint_sha256, "checkpoint SHA-256"),
+            (self.tokenizer_sha256, "tokenizer SHA-256"),
+            (self.model_image_sha256, "model image SHA-256"),
+            (self.profile_sha256, "profile SHA-256"),
+        ):
+            _require_sha256(value, label=label)
+        if self.device != "cpu":
+            raise VN97P2PilotHandoffError(
+                "GitHub P2 run receipt requires cpu device"
+            )
+
     def canonical_object(self) -> dict[str, object]:
         body = {
             "campaign_report_sha256": self.campaign_report_sha256,
