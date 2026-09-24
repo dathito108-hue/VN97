@@ -370,8 +370,18 @@ def prepare_source(
     *,
     raw_sha256: str,
     raw_bytes: int,
+    max_records: int | None = None,
 ) -> VN97P2PreparedSource:
     spec = source_spec(source_id)
+    selection_limit = (
+        spec.max_records
+        if max_records is None
+        else max_records
+    )
+    if selection_limit <= 0:
+        raise VN97P2CorpusIntakeError(
+            "max_records override must be positive"
+        )
     accepted: list[
         tuple[str, str, tuple[dict[str, str], ...]]
     ] = []
@@ -414,7 +424,7 @@ def prepare_source(
         )
 
     accepted.sort(key=lambda item: item[0])
-    accepted = accepted[: spec.max_records]
+    accepted = accepted[: selection_limit]
     accepted_fp = {
         item[0] for item in accepted
     }
