@@ -18,6 +18,7 @@ from .device_evidence_campaign import (
     ANDROID_ACTIVITY,
     ANDROID_PACKAGE,
     VN97AdbClient,
+    VN97PhysicalEvidenceCampaignError,
     _ensure_physical_device,
 )
 from .production_materialization import (
@@ -1279,7 +1280,10 @@ def _wait_turnkey_ui_ready(
                 and turnkey_hidden
             ):
                 return latest
-        except VN97TurnkeyAcceptanceError:
+        except (
+            VN97TurnkeyAcceptanceError,
+            VN97PhysicalEvidenceCampaignError,
+        ):
             pass
         time.sleep(1.0)
     detail = (
@@ -1308,20 +1312,23 @@ def _wait_service(
         + timeout_seconds
     )
     while time.monotonic() < deadline:
-        output = adb.text(
-            serial,
-            [
-                "shell",
-                "dumpsys",
-                "activity",
-                "services",
-                (
-                    ANDROID_PACKAGE
-                    + "/.VN97FloatingAssistantService"
-                ),
-            ],
-            check=False,
-        )
+        try:
+            output = adb.text(
+                serial,
+                [
+                    "shell",
+                    "dumpsys",
+                    "activity",
+                    "services",
+                    (
+                        ANDROID_PACKAGE
+                        + "/.VN97FloatingAssistantService"
+                    ),
+                ],
+                check=False,
+            )
+        except VN97PhysicalEvidenceCampaignError:
+            output = ""
         if (
             "VN97FloatingAssistantService"
             in output
@@ -1446,16 +1453,19 @@ def _wait_for_reboot(
     )
     latest_boot: str | None = None
     while time.monotonic() < deadline:
-        boot_completed = adb.text(
-            serial,
-            [
-                "shell",
-                "getprop",
-                "sys.boot_completed",
-            ],
-            timeout=10.0,
-            check=False,
-        ).strip()
+        try:
+            boot_completed = adb.text(
+                serial,
+                [
+                    "shell",
+                    "getprop",
+                    "sys.boot_completed",
+                ],
+                timeout=10.0,
+                check=False,
+            ).strip()
+        except VN97PhysicalEvidenceCampaignError:
+            boot_completed = ""
         if boot_completed == "1":
             try:
                 latest_boot = (
