@@ -1381,6 +1381,7 @@ class VN97MainActivity : Activity() {
                             )
                         }
                         render(next)
+                        refreshVisualButtons()
                         provisioningView.text =
                             if (bundled) {
                                 "Bundled signed VN97 model verified and activated."
