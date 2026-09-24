@@ -26,8 +26,8 @@ def main() -> None:
     for value in required:
         assert value in script, value
 
-    assert "git -C "$REPO_DIR" checkout --detach" in script
-    assert "git -C "$REPO_DIR" diff --quiet" in script
+    assert 'git -C "$REPO_DIR" checkout --detach' in script
+    assert 'git -C "$REPO_DIR" diff --quiet' in script
     assert "training commit mismatch after checkout" in script
     assert "VN97CORPUS1 identity mismatch" in script
     assert "output directory must be new or empty" in script
