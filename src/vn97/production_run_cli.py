@@ -21,6 +21,9 @@ from .production_intake import (
     inspect_production_campaign_directory,
     parse_production_intake_report,
 )
+from .production_preflight import (
+    run_production_preflight,
+)
 from .production_run_manifest import (
     VN97ProductionRunManifest,
     VN97ProductionRunReceipt,
@@ -133,6 +136,12 @@ def _verify_repository(
     current_manifest_file = Path(
         current_manifest_module.__file__
     ).resolve()
+    current_preflight_module = sys.modules[
+        run_production_preflight.__module__
+    ]
+    current_preflight_file = Path(
+        current_preflight_module.__file__
+    ).resolve()
     bound_runner = (
         root /
         "src/vn97/production_run_cli.py"
@@ -140,6 +149,10 @@ def _verify_repository(
     bound_manifest = (
         root /
         "src/vn97/production_run_manifest.py"
+    )
+    bound_preflight = (
+        root /
+        "src/vn97/production_preflight.py"
     )
     if (
         _sha256_file(current_runner)
@@ -149,6 +162,12 @@ def _verify_repository(
         )
         != _sha256_file(
             bound_manifest
+        )
+        or _sha256_file(
+            current_preflight_file
+        )
+        != _sha256_file(
+            bound_preflight
         )
     ):
         raise ValueError(
@@ -439,6 +458,7 @@ def _canonical_receipt(
     repository_commit: str,
     device_evidence_ready: bool,
     environment_ready: bool,
+    preflight_report_sha256: str | None,
     language_report_sha256: str | None,
     production_report_sha256: str | None,
     intake_report_sha256: str | None,
@@ -454,6 +474,8 @@ def _canonical_receipt(
             environment_ready,
         device_evidence_ready=
             device_evidence_ready,
+        preflight_report_sha256=
+            preflight_report_sha256,
         language_campaign_report_sha256=
             language_report_sha256,
         production_campaign_report_sha256=
@@ -537,6 +559,7 @@ def _parser() -> argparse.ArgumentParser:
         "--stage",
         choices=(
             "verify",
+            "preflight",
             "language",
             "production",
             "train",
@@ -549,6 +572,12 @@ def _parser() -> argparse.ArgumentParser:
         "--receipt",
         help=(
             "optional new path for deterministic VN97RUNEXEC1 sidecar"
+        ),
+    )
+    parser.add_argument(
+        "--preflight-report",
+        help=(
+            "optional new path for canonical VN97PREFLIGHT1 when this stage runs preflight"
         ),
     )
     return parser
@@ -619,6 +648,7 @@ def main(
                     evidence_ready,
                 environment_ready=
                     environment_ready,
+                preflight_report_sha256=None,
                 language_report_sha256=None,
                 production_report_sha256=None,
                 intake_report_sha256=None,
@@ -667,6 +697,89 @@ def main(
             label=
                 "production intake output",
         )
+    elif args.stage == "production":
+        _require_absent(
+            resolved
+            .production_output_dir,
+            label=
+                "production campaign output",
+        )
+        _require_absent(
+            resolved
+            .intake_output_dir,
+            label=
+                "production intake output",
+        )
+
+    preflight_bytes: bytes | None = None
+    preflight_sha256: str | None = None
+    if args.stage in {
+        "preflight",
+        "language",
+        "production",
+        "train",
+        "all",
+    }:
+        preflight = run_production_preflight(
+            manifest,
+            resolved,
+        )
+        preflight_bytes = preflight.to_bytes()
+        preflight_sha256 = hashlib.sha256(
+            preflight_bytes
+        ).hexdigest()
+        if args.preflight_report:
+            _write_receipt(
+                Path(args.preflight_report),
+                preflight_bytes,
+            )
+        if args.stage == "preflight":
+            receipt = _canonical_receipt(
+                manifest=manifest,
+                stage="preflight",
+                repository_commit=
+                    manifest.repository_commit,
+                device_evidence_ready=
+                    evidence_ready,
+                environment_ready=
+                    environment_ready,
+                preflight_report_sha256=
+                    preflight_sha256,
+                language_report_sha256=None,
+                production_report_sha256=None,
+                intake_report_sha256=None,
+                release_candidate_manifest_sha256=None,
+            )
+            if args.receipt:
+                _write_receipt(
+                    Path(args.receipt),
+                    receipt,
+                )
+            print(
+                preflight_bytes.decode(
+                    "utf-8"
+                )
+            )
+            return 0 if preflight.ready else 2
+        if not preflight.ready:
+            codes = ",".join(
+                item.code
+                for item in preflight.blockers
+            )
+            raise RuntimeError(
+                "VN97 zero-compute production preflight BLOCKED: "
+                + codes
+            )
+    elif args.preflight_report:
+        raise ValueError(
+            "--preflight-report is only valid for preflight/language/production/train/all stages"
+        )
+
+    if args.stage in {
+        "language",
+        "train",
+        "all",
+    }:
         _run_module(
             repository_root,
             "vn97.campaign_cli",
@@ -688,19 +801,6 @@ def main(
         "train",
         "all",
     }:
-        if args.stage == "production":
-            _require_absent(
-                resolved
-                .production_output_dir,
-                label=
-                    "production campaign output",
-            )
-            _require_absent(
-                resolved
-                .intake_output_dir,
-                label=
-                    "production intake output",
-            )
         _run_module(
             repository_root,
             "vn97.production_campaign_cli",
@@ -799,6 +899,8 @@ def main(
             evidence_ready,
         environment_ready=
             environment_ready,
+        preflight_report_sha256=
+            preflight_sha256,
         language_report_sha256=
             language.report_sha256,
         production_report_sha256=(

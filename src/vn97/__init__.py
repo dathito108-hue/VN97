@@ -217,6 +217,14 @@ from .production_run_manifest import (
     parse_production_run_receipt,
     verify_production_run_inputs,
 )
+from .production_preflight import (
+    VN97PreflightBlocker,
+    VN97PreflightCandidate,
+    VN97ProductionPreflightError,
+    VN97ProductionPreflightReport,
+    parse_production_preflight_report,
+    run_production_preflight,
+)
 from .production_readiness import (
     VN97ProductionReadinessError,
     VN97ProductionReadinessReport,
