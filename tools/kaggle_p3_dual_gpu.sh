@@ -40,7 +40,9 @@ prepare_cache() {
     return
   fi
   rm -rf "$cache"
-  vn97-p3-kaggle-prepare     --corpus-dir "$corpus"     --output-dir "$cache"
+  vn97-p3-kaggle-prepare \
+    --corpus-dir "$corpus" \
+    --output-dir "$cache"
 }
 
 run_one() {
@@ -54,10 +56,18 @@ run_one() {
   fi
   rm -rf "$out"
 
-  # Give this process exactly one physical GPU. Inside the isolated process
-  # that device is always cuda:0, which avoids cross-process CUDA indexing
-  # ambiguity on notebook hosts.
-  CUDA_VISIBLE_DEVICES="$physical_gpu"   OMP_NUM_THREADS="${VN97_CPU_THREADS_PER_GPU:-2}"   MKL_NUM_THREADS="${VN97_CPU_THREADS_PER_GPU:-2}"   vn97-p3-kaggle-cached-candidate     --cache-dir "$root/cache"     --candidate-index "$index"     --output-dir "$out"     --device cuda:0
+  # Pin one concurrent candidate to one physical T4. The pair launcher starts
+  # two processes at the same time, so physical GPU 0 and GPU 1 are both busy.
+  # CPU threads concurrently stage/prefetch batches for each GPU.
+  CUDA_VISIBLE_DEVICES="$physical_gpu" \
+  OMP_NUM_THREADS="${VN97_CPU_THREADS_PER_GPU:-2}" \
+  MKL_NUM_THREADS="${VN97_CPU_THREADS_PER_GPU:-2}" \
+  vn97-p3-kaggle-cached-candidate \
+    --cache-dir "$root/cache" \
+    --candidate-index "$index" \
+    --output-dir "$out" \
+    --device cuda:0 \
+    --cpu-prefetch-workers "${VN97_CPU_PREFETCH_WORKERS:-1}"
 }
 
 run_pair() {
@@ -70,16 +80,19 @@ run_pair() {
   run_one "$second" 1 "$root" >"$root/candidate-$second.log" 2>&1 &
   local p2=$!
 
-  echo "candidate $first -> physical GPU 0 (isolated cuda:0) pid=$p1"
-  echo "candidate $second -> physical GPU 1 (isolated cuda:0) pid=$p2"
+  echo "candidate $first -> physical GPU 0 pid=$p1"
+  echo "candidate $second -> physical GPU 1 pid=$p2"
   echo "CPU support threads per GPU process: ${VN97_CPU_THREADS_PER_GPU:-2}"
+  echo "CPU prefetch workers per GPU process: ${VN97_CPU_PREFETCH_WORKERS:-1}"
 
   local monitor_pid=""
   if command -v nvidia-smi >/dev/null 2>&1; then
     (
       while kill -0 "$p1" 2>/dev/null || kill -0 "$p2" 2>/dev/null; do
         echo "---- GPU MONITOR $(date -u +%Y-%m-%dT%H:%M:%SZ) ----"
-        nvidia-smi           --query-gpu=index,name,utilization.gpu,memory.used,memory.total           --format=csv,noheader,nounits || true
+        nvidia-smi \
+          --query-gpu=index,name,utilization.gpu,memory.used,memory.total \
+          --format=csv,noheader,nounits || true
         sleep 20
       done
     ) &
@@ -140,7 +153,14 @@ if [[ "$MODE" == "all" ]]; then
   FINAL="$ROOT/final"
   if [[ ! -f "$FINAL/p3-run.vn97p3run1.json" ]]; then
     rm -rf "$FINAL"
-    vn97-p3-kaggle-finalize       --corpus-dir "$CORPUS"       --candidate-dir "$ROOT/candidate-0"       --candidate-dir "$ROOT/candidate-1"       --candidate-dir "$ROOT/candidate-2"       --candidate-dir "$ROOT/candidate-3"       --output-dir "$FINAL"       --device cuda:0
+    vn97-p3-kaggle-finalize \
+      --corpus-dir "$CORPUS" \
+      --candidate-dir "$ROOT/candidate-0" \
+      --candidate-dir "$ROOT/candidate-1" \
+      --candidate-dir "$ROOT/candidate-2" \
+      --candidate-dir "$ROOT/candidate-3" \
+      --output-dir "$FINAL" \
+      --device cuda:0
   fi
 
   (
