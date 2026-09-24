@@ -226,6 +226,15 @@ from .production_run_manifest import (
     parse_production_run_receipt,
     verify_production_run_inputs,
 )
+from .turnkey_acceptance import (
+    VN97AcceptanceDevice,
+    VN97TurnkeyAcceptanceError,
+    VN97TurnkeyAcceptanceReceipt,
+    VN97TurnkeySelfTest,
+    parse_turnkey_acceptance_receipt,
+    parse_turnkey_selftest,
+    run_clean_device_acceptance,
+)
 from .production_materialization import (
     VN97FinalReleaseReceipt,
     VN97FinalValidationConfig,
