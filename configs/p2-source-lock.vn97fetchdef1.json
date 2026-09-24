@@ -4,7 +4,7 @@
     {
       "download_url": "https://huggingface.co/datasets/hoanghai2110/vietnamese-dataset/resolve/321a852edc7e9d36e8456fb7d7df583b520645a9/hypermamba_data.jsonl?download=true",
       "expected_bytes": null,
-      "expected_records": 2417,
+      "expected_records": 2009,
       "expected_sha256": null,
       "filename": "hypermamba_data.jsonl",
       "license": "Apache-2.0",
