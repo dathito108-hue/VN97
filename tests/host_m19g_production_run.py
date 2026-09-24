@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.metadata
 import importlib.util
 import json
 from pathlib import Path
+import platform
 import subprocess
 import sys
 import tempfile
@@ -226,8 +228,30 @@ def build_manifest(
         transcript="release speech",
     )
 
+    try:
+        torch_version = (
+            importlib.metadata.version(
+                "torch"
+            )
+        )
+    except (
+        importlib.metadata.PackageNotFoundError,
+        ValueError,
+    ):
+        torch_version = (
+            "fixture-not-installed"
+        )
+
     return Manifest(
         repository_commit=commit,
+        python_version=
+            platform.python_version(),
+        torch_version=
+            torch_version,
+        platform_system=
+            platform.system(),
+        platform_machine=
+            platform.machine(),
         campaign_definition=
             bound_file(
                 workspace,
@@ -430,6 +454,16 @@ def main() -> None:
                 "device_evidence_ready"
             ]
             is False
+        )
+        expected_environment_ready = (
+            torch_version
+            != "fixture-not-installed"
+        )
+        assert (
+            verify_receipt[
+                "environment_ready"
+            ]
+            is expected_environment_ready
         )
 
         expect_failure(
