@@ -180,7 +180,7 @@ def load_records(
             ) from exc
 
         for line_number, line in enumerate(
-            text.splitlines(),
+            text.split("\n"),
             start=1,
         ):
             if not line.strip():

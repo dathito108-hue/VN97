@@ -380,7 +380,7 @@ def verify_corpus_artifact(
             1
             for line in (
                 corpus_dir / f"{split}.jsonl"
-            ).read_bytes().splitlines()
+            ).read_bytes().split(b"\n")
             if line.strip()
         )
         expected_sha = _require_sha256(

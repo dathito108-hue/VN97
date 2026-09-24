@@ -79,7 +79,7 @@ def _load_jsonl(data: bytes, *, label: str) -> list[object]:
             f"{label} must be UTF-8 JSONL"
         ) from exc
     rows: list[object] = []
-    for line_number, line in enumerate(text.splitlines(), start=1):
+    for line_number, line in enumerate(text.split("\n"), start=1):
         if not line.strip():
             continue
         try:

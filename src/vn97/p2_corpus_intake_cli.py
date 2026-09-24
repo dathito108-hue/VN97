@@ -79,7 +79,7 @@ def _load_jsonl(data: bytes, *, label: str) -> list[object]:
 
     records: list[object] = []
     for line_number, line in enumerate(
-        text.splitlines(),
+        text.split("\n"),
         start=1,
     ):
         if not line.strip():

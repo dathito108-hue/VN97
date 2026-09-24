@@ -512,7 +512,7 @@ def verify_p2_corpus_chain(
                 f"{split} split identity mismatch"
             )
         records = sum(
-            1 for line in data.splitlines() if line.strip()
+            1 for line in data.split(b"\n") if line.strip()
         )
         if records != spec["records"]:
             raise VN97P2CorpusBundleError(
