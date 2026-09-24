@@ -4,7 +4,6 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
-import shutil
 import sys
 
 import torch
@@ -31,8 +30,13 @@ from .p3_kaggle import (
 from .p3_language_campaign import (
     BATCH_SIZE,
     CANDIDATES,
+    MAX_MODEL_IMAGE_BYTES,
+    MAX_PARAMETERS,
+    MAX_RECURRENT_STATE_BYTES,
     MAX_RELEASE_WINDOWS,
+    MAX_VALIDATION_LOSS,
     MIN_TARGET_TOKENS,
+    MIN_VALIDATION_ACCURACY,
     RELEASE_MAX_VALIDATION_LOSS,
     RELEASE_MIN_VALIDATION_ACCURACY,
     SEQUENCE_LENGTH,
@@ -43,7 +47,7 @@ from .p3_language_campaign import (
     profile_sha256,
 )
 from .p3_language_campaign_cli import (
-    _manifest_release_sha256 if False else _validate_corpus,
+    _validate_corpus,
 )
 from .tokenizer import (
     VN97Tokenizer,
@@ -612,15 +616,15 @@ def main(
             "deployment_tile_rows":
                 TILE_ROWS,
             "max_model_image_bytes":
-                128 * 1024 * 1024,
+                MAX_MODEL_IMAGE_BYTES,
             "max_parameters":
-                50_000_000,
+                MAX_PARAMETERS,
             "max_recurrent_state_bytes":
-                8 * 1024 * 1024,
+                MAX_RECURRENT_STATE_BYTES,
             "max_validation_loss":
-                6.76,
+                MAX_VALIDATION_LOSS,
             "min_top1_accuracy":
-                0.052,
+                MIN_VALIDATION_ACCURACY,
             "min_validation_target_tokens":
                 MIN_TARGET_TOKENS,
             "release_max_validation_loss":
@@ -659,7 +663,10 @@ def main(
     )
 
     checkpoint_bytes = (
-        selected_checkpoint_path.read_bytes()
+        _read_bounded_regular_file(
+            selected_checkpoint_path,
+            max_bytes=512 * 1024 * 1024,
+        )
     )
     _atomic_write(
         output / "tokenizer.vn97tk1",
