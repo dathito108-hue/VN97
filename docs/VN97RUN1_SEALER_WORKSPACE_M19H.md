@@ -27,6 +27,7 @@ vn97-production-seal bootstrap
 vn97-production-seal seal
   -> production-run.vn97run1
 vn97-production-run --stage verify
+vn97-production-run --stage preflight
 vn97-production-run --stage train
   -> exact VN97PRODCAMP1 model image
   -> collect real VN97MOBEVID1 on physical phones
@@ -306,6 +307,15 @@ The target must not already exist.
 After writing, the CLI reloads the exact bytes through the strict
 `load_production_run_manifest()` parser and requires the parsed object to equal
 the verified in-memory manifest.
+
+M19I then provides the next zero-training-compute gate:
+
+```text
+vn97-production-run --stage preflight
+```
+
+Running `--stage train` also invokes that same preflight automatically before
+any language or speech training subprocess.
 
 ## Manifest immutability
 
