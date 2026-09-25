@@ -6,8 +6,11 @@ import hashlib
 import io
 import json
 import math
+import os
 from pathlib import Path
 import random
+import stat
+import tempfile
 import time
 from typing import Any, Iterator
 
@@ -39,6 +42,8 @@ _REQUIRED_CACHE_FILES = {
 }
 _MAX_MANIFEST_BYTES = 4 * 1024 * 1024
 _MAX_TENSOR_FILE_BYTES = 512 * 1024 * 1024
+_MAX_RESUME_CHECKPOINT_BYTES = 2 * 1024 * 1024 * 1024
+_RESUME_SCHEMA = "VN97P3RESUME1"
 
 
 def _canonical_json(value: object) -> bytes:
@@ -357,6 +362,550 @@ def _iter_prefetched_cpu_batches(
                 next_batch += 1
 
 
+def _resume_metadata_path(
+    checkpoint_path: Path,
+) -> Path:
+    return checkpoint_path.with_name(
+        "progress.vn97p3resume1.json"
+    )
+
+
+def _atomic_torch_save(
+    path: Path,
+    payload: object,
+) -> None:
+    if path.is_symlink():
+        raise VN97P3TensorCacheError(
+            "resume checkpoint target must not be a symlink"
+        )
+    parent = path.parent
+    parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+    if parent.is_symlink():
+        raise VN97P3TensorCacheError(
+            "resume checkpoint parent must not be a symlink"
+        )
+
+    fd, temp_name = tempfile.mkstemp(
+        prefix=f".{path.name}.",
+        suffix=".tmp",
+        dir=parent,
+    )
+    os.close(fd)
+    temp_path = Path(temp_name)
+    try:
+        torch.save(
+            payload,
+            temp_path,
+        )
+        with temp_path.open("rb+") as stream:
+            stream.flush()
+            os.fsync(stream.fileno())
+        if path.is_symlink():
+            raise VN97P3TensorCacheError(
+                "resume checkpoint target became a symlink"
+            )
+        os.replace(
+            temp_path,
+            path,
+        )
+        dir_fd = os.open(
+            parent.resolve(strict=True),
+            os.O_RDONLY
+            | getattr(
+                os,
+                "O_DIRECTORY",
+                0,
+            ),
+        )
+        try:
+            os.fsync(dir_fd)
+        finally:
+            os.close(dir_fd)
+    finally:
+        temp_path.unlink(
+            missing_ok=True
+        )
+
+
+def _load_torch_checkpoint(
+    path: Path,
+) -> object:
+    flags = (
+        os.O_RDONLY
+        | getattr(
+            os,
+            "O_NOFOLLOW",
+            0,
+        )
+    )
+    try:
+        fd = os.open(
+            path,
+            flags,
+        )
+    except OSError as exc:
+        raise VN97P3TensorCacheError(
+            "resume checkpoint could not be opened safely"
+        ) from exc
+    try:
+        info = os.fstat(fd)
+        if (
+            not stat.S_ISREG(
+                info.st_mode
+            )
+            or info.st_size <= 0
+            or info.st_size
+            > _MAX_RESUME_CHECKPOINT_BYTES
+        ):
+            raise VN97P3TensorCacheError(
+                "resume checkpoint file bounds are invalid"
+            )
+        with os.fdopen(
+            fd,
+            "rb",
+            closefd=True,
+        ) as stream:
+            fd = -1
+            try:
+                return torch.load(
+                    stream,
+                    map_location="cpu",
+                    weights_only=True,
+                )
+            except Exception as exc:
+                raise VN97P3TensorCacheError(
+                    "resume checkpoint could not be decoded"
+                ) from exc
+    finally:
+        if fd >= 0:
+            os.close(fd)
+
+
+def _encode_python_rng_state(
+    state: tuple[
+        int,
+        tuple[int, ...],
+        float | None,
+    ],
+) -> list[object]:
+    return [
+        int(state[0]),
+        [
+            int(value)
+            for value in state[1]
+        ],
+        state[2],
+    ]
+
+
+def _decode_python_rng_state(
+    value: object,
+) -> tuple[
+    int,
+    tuple[int, ...],
+    float | None,
+]:
+    if (
+        not isinstance(value, list)
+        or len(value) != 3
+        or type(value[0]) is not int
+        or not isinstance(
+            value[1],
+            list,
+        )
+        or any(
+            type(item) is not int
+            for item in value[1]
+        )
+        or (
+            value[2] is not None
+            and type(value[2])
+            is not float
+        )
+    ):
+        raise VN97P3TensorCacheError(
+            "resume Python RNG state is invalid"
+        )
+    return (
+        value[0],
+        tuple(value[1]),
+        value[2],
+    )
+
+
+def _write_resume_progress(
+    checkpoint_path: Path,
+    *,
+    resume_identity: str,
+    epoch_index: int,
+    next_batch_index: int,
+    steps: int,
+    total_steps: int,
+    trained_tokens: int,
+    final_loss: float,
+) -> None:
+    percent = (
+        100.0
+        * steps
+        / total_steps
+        if total_steps > 0
+        else 0.0
+    )
+    body = {
+        "epoch_index": epoch_index,
+        "final_loss": final_loss,
+        "next_batch_index":
+            next_batch_index,
+        "percent": percent,
+        "resume_identity":
+            resume_identity,
+        "schema":
+            "VN97P3RESUMEPROGRESS1",
+        "steps": steps,
+        "total_steps": total_steps,
+        "trained_tokens":
+            trained_tokens,
+    }
+    _atomic_write(
+        _resume_metadata_path(
+            checkpoint_path
+        ),
+        _canonical_json(body)
+        + b"\n",
+    )
+
+
+def _save_resume_checkpoint(
+    checkpoint_path: Path,
+    *,
+    resume_identity: str,
+    model: VN97LanguageCore,
+    optimizer: torch.optim.Optimizer,
+    rng: random.Random,
+    epoch_index: int,
+    next_batch_index: int,
+    epoch_indices: list[int],
+    steps: int,
+    total_steps: int,
+    trained_tokens: int,
+    loss_sum: float,
+    loss_count: int,
+    final_loss: float,
+    resolved_device: torch.device,
+) -> None:
+    payload = {
+        "cuda_rng_state":
+            torch.cuda.get_rng_state(
+                resolved_device
+            ).cpu(),
+        "epoch_index":
+            epoch_index,
+        "epoch_indices":
+            list(epoch_indices),
+        "final_loss":
+            final_loss,
+        "loss_count":
+            loss_count,
+        "loss_sum":
+            loss_sum,
+        "model_state":
+            model.state_dict(),
+        "next_batch_index":
+            next_batch_index,
+        "optimizer_state":
+            optimizer.state_dict(),
+        "python_rng_state":
+            _encode_python_rng_state(
+                rng.getstate()
+            ),
+        "resume_identity":
+            resume_identity,
+        "schema":
+            _RESUME_SCHEMA,
+        "steps":
+            steps,
+        "torch_rng_state":
+            torch.get_rng_state(),
+        "trained_tokens":
+            trained_tokens,
+    }
+    _atomic_torch_save(
+        checkpoint_path,
+        payload,
+    )
+    _write_resume_progress(
+        checkpoint_path,
+        resume_identity=
+            resume_identity,
+        epoch_index=epoch_index,
+        next_batch_index=
+            next_batch_index,
+        steps=steps,
+        total_steps=total_steps,
+        trained_tokens=
+            trained_tokens,
+        final_loss=final_loss,
+    )
+
+
+def _load_resume_checkpoint(
+    checkpoint_path: Path,
+    *,
+    expected_identity: str,
+    model: VN97LanguageCore,
+    optimizer: torch.optim.Optimizer,
+    rng: random.Random,
+    resolved_device: torch.device,
+    config: VN97TrainingConfig,
+    window_count: int,
+    total_steps: int,
+) -> dict[str, object]:
+    value = _load_torch_checkpoint(
+        checkpoint_path
+    )
+    expected_keys = {
+        "cuda_rng_state",
+        "epoch_index",
+        "epoch_indices",
+        "final_loss",
+        "loss_count",
+        "loss_sum",
+        "model_state",
+        "next_batch_index",
+        "optimizer_state",
+        "python_rng_state",
+        "resume_identity",
+        "schema",
+        "steps",
+        "torch_rng_state",
+        "trained_tokens",
+    }
+    if (
+        not isinstance(value, dict)
+        or set(value)
+        != expected_keys
+        or value.get("schema")
+        != _RESUME_SCHEMA
+        or value.get(
+            "resume_identity"
+        )
+        != expected_identity
+    ):
+        raise VN97P3TensorCacheError(
+            "resume checkpoint identity/schema mismatch"
+        )
+
+    epoch_index = value[
+        "epoch_index"
+    ]
+    next_batch_index = value[
+        "next_batch_index"
+    ]
+    steps = value["steps"]
+    trained_tokens = value[
+        "trained_tokens"
+    ]
+    loss_count = value[
+        "loss_count"
+    ]
+    loss_sum = value[
+        "loss_sum"
+    ]
+    final_loss = value[
+        "final_loss"
+    ]
+    epoch_indices = value[
+        "epoch_indices"
+    ]
+
+    if (
+        type(epoch_index) is not int
+        or not 0
+        <= epoch_index
+        <= config.epochs
+        or type(next_batch_index)
+        is not int
+        or next_batch_index < 0
+        or type(steps) is not int
+        or not 0 <= steps
+        <= total_steps
+        or type(trained_tokens)
+        is not int
+        or trained_tokens < 0
+        or type(loss_count)
+        is not int
+        or loss_count != steps
+        or not isinstance(
+            loss_sum,
+            (int, float),
+        )
+        or not math.isfinite(
+            float(loss_sum)
+        )
+        or not isinstance(
+            final_loss,
+            (int, float),
+        )
+        or (
+            steps > 0
+            and not math.isfinite(
+                float(final_loss)
+            )
+        )
+        or not isinstance(
+            epoch_indices,
+            list,
+        )
+        or any(
+            type(item) is not int
+            or not 0
+            <= item
+            < window_count
+            for item
+            in epoch_indices
+        )
+    ):
+        raise VN97P3TensorCacheError(
+            "resume checkpoint counters are invalid"
+        )
+
+    steps_per_epoch = math.ceil(
+        window_count
+        / config.batch_size
+    )
+    if (
+        epoch_index
+        == config.epochs
+        and (
+            next_batch_index != 0
+            or epoch_indices
+        )
+    ):
+        raise VN97P3TensorCacheError(
+            "completed resume checkpoint has invalid epoch state"
+        )
+    if epoch_index < config.epochs:
+        if epoch_indices:
+            if (
+                len(epoch_indices)
+                != window_count
+                or next_batch_index
+                > steps_per_epoch
+            ):
+                raise VN97P3TensorCacheError(
+                    "active resume checkpoint has invalid epoch indices"
+                )
+            expected_steps = (
+                epoch_index
+                * steps_per_epoch
+                + next_batch_index
+            )
+        else:
+            if next_batch_index != 0:
+                raise VN97P3TensorCacheError(
+                    "epoch-boundary resume checkpoint has invalid batch index"
+                )
+            expected_steps = (
+                epoch_index
+                * steps_per_epoch
+            )
+        if steps != expected_steps:
+            raise VN97P3TensorCacheError(
+                "resume checkpoint step/epoch position mismatch"
+            )
+
+    model_state = value[
+        "model_state"
+    ]
+    optimizer_state = value[
+        "optimizer_state"
+    ]
+    if (
+        not isinstance(
+            model_state,
+            dict,
+        )
+        or not isinstance(
+            optimizer_state,
+            dict,
+        )
+        or not isinstance(
+            value[
+                "torch_rng_state"
+            ],
+            torch.Tensor,
+        )
+        or not isinstance(
+            value[
+                "cuda_rng_state"
+            ],
+            torch.Tensor,
+        )
+    ):
+        raise VN97P3TensorCacheError(
+            "resume checkpoint tensor state is invalid"
+        )
+
+    model.load_state_dict(
+        model_state,
+        strict=True,
+    )
+    optimizer.load_state_dict(
+        optimizer_state
+    )
+    for state in optimizer.state.values():
+        for key, item in list(
+            state.items()
+        ):
+            if isinstance(
+                item,
+                torch.Tensor,
+            ):
+                state[key] = item.to(
+                    resolved_device
+                )
+    rng.setstate(
+        _decode_python_rng_state(
+            value[
+                "python_rng_state"
+            ]
+        )
+    )
+    torch.set_rng_state(
+        value[
+            "torch_rng_state"
+        ].cpu()
+    )
+    torch.cuda.set_rng_state(
+        value[
+            "cuda_rng_state"
+        ].cpu(),
+        resolved_device,
+    )
+
+    return {
+        "epoch_index":
+            epoch_index,
+        "epoch_indices":
+            epoch_indices,
+        "final_loss":
+            float(final_loss),
+        "loss_count":
+            loss_count,
+        "loss_sum":
+            float(loss_sum),
+        "next_batch_index":
+            next_batch_index,
+        "steps":
+            steps,
+        "trained_tokens":
+            trained_tokens,
+    }
+
+
 def train_vn97_from_tensors(
     model: VN97LanguageCore,
     input_ids: torch.Tensor,
@@ -368,6 +917,9 @@ def train_vn97_from_tensors(
     micro_batch_size: int | None = None,
     progress_label: str = "candidate",
     progress_interval_steps: int = 50,
+    resume_checkpoint_path: Path | None = None,
+    resume_identity: str | None = None,
+    checkpoint_interval_steps: int = 250,
 ) -> VN97TrainingResult:
     if not isinstance(model, VN97LanguageCore):
         raise TypeError("model must be VN97LanguageCore")
@@ -384,6 +936,35 @@ def train_vn97_from_tensors(
     if progress_interval_steps <= 0:
         raise VN97P3TensorCacheError(
             "progress_interval_steps must be positive"
+        )
+    if checkpoint_interval_steps <= 0:
+        raise VN97P3TensorCacheError(
+            "checkpoint_interval_steps must be positive"
+        )
+    if (
+        resume_checkpoint_path
+        is None
+    ) != (
+        resume_identity is None
+    ):
+        raise VN97P3TensorCacheError(
+            "resume checkpoint path and identity must be provided together"
+        )
+    if (
+        resume_identity is not None
+        and (
+            len(resume_identity)
+            != 64
+            or any(
+                ch
+                not in "0123456789abcdef"
+                for ch
+                in resume_identity
+            )
+        )
+    ):
+        raise VN97P3TensorCacheError(
+            "resume identity must be lowercase SHA-256"
         )
     if not progress_label:
         raise VN97P3TensorCacheError(
@@ -423,9 +1004,11 @@ def train_vn97_from_tensors(
     )
 
     rng = random.Random(config.seed)
-    losses: list[float] = []
     trained_tokens = 0
     steps = 0
+    loss_sum = 0.0
+    loss_count = 0
+    final_loss = math.nan
     window_count = int(input_ids.shape[0])
     steps_per_epoch = math.ceil(
         window_count / config.batch_size
@@ -433,12 +1016,117 @@ def train_vn97_from_tensors(
     total_steps = (
         steps_per_epoch * config.epochs
     )
+    resumed_steps = 0
+    resume_epoch_index = 0
+    resume_next_batch_index = 0
+    resume_epoch_indices: list[int] = []
+
+    if (
+        resume_checkpoint_path
+        is not None
+        and resume_checkpoint_path.exists()
+    ):
+        state = _load_resume_checkpoint(
+            resume_checkpoint_path,
+            expected_identity=
+                str(resume_identity),
+            model=model,
+            optimizer=optimizer,
+            rng=rng,
+            resolved_device=resolved,
+            config=config,
+            window_count=window_count,
+            total_steps=total_steps,
+        )
+        resume_epoch_index = int(
+            state["epoch_index"]
+        )
+        resume_next_batch_index = int(
+            state[
+                "next_batch_index"
+            ]
+        )
+        resume_epoch_indices = list(
+            state["epoch_indices"]
+        )
+        steps = int(
+            state["steps"]
+        )
+        trained_tokens = int(
+            state[
+                "trained_tokens"
+            ]
+        )
+        loss_sum = float(
+            state["loss_sum"]
+        )
+        loss_count = int(
+            state["loss_count"]
+        )
+        final_loss = float(
+            state["final_loss"]
+        )
+        resumed_steps = steps
+        print(
+            "VN97 P3 RESUME "
+            f"{progress_label} "
+            f"step={steps}/{total_steps} "
+            f"percent={100.0 * steps / total_steps:.2f}",
+            flush=True,
+        )
+
     progress_started = time.monotonic()
 
-    for epoch_index in range(config.epochs):
-        indices = list(range(window_count))
-        if config.shuffle:
-            rng.shuffle(indices)
+    if resume_epoch_index == config.epochs:
+        if (
+            steps != total_steps
+            or loss_count <= 0
+            or trained_tokens <= 0
+            or not math.isfinite(
+                final_loss
+            )
+        ):
+            raise VN97P3TensorCacheError(
+                "completed resume checkpoint has incomplete training counters"
+            )
+        return VN97TrainingResult(
+            steps=steps,
+            target_tokens=
+                trained_tokens,
+            mean_loss=(
+                loss_sum
+                / loss_count
+            ),
+            final_loss=final_loss,
+        )
+
+    for epoch_index in range(
+        resume_epoch_index,
+        config.epochs,
+    ):
+        if (
+            epoch_index
+            == resume_epoch_index
+            and resume_epoch_indices
+        ):
+            indices = (
+                resume_epoch_indices
+            )
+            batch_index = (
+                resume_next_batch_index
+            )
+        else:
+            indices = list(
+                range(window_count)
+            )
+            if config.shuffle:
+                rng.shuffle(indices)
+            batch_index = 0
+
+        remaining_indices = indices[
+            batch_index
+            * config.batch_size:
+        ]
 
         for (
             cpu_inputs,
@@ -446,7 +1134,7 @@ def train_vn97_from_tensors(
         ) in _iter_prefetched_cpu_batches(
             input_ids,
             labels,
-            indices=indices,
+            indices=remaining_indices,
             batch_size=config.batch_size,
             workers=cpu_prefetch_workers,
         ):
@@ -578,9 +1266,12 @@ def train_vn97_from_tensors(
                 logical_loss_sum
                 / logical_targets
             )
-            losses.append(value)
+            loss_sum += value
+            loss_count += 1
+            final_loss = value
             trained_tokens += logical_targets
             steps += 1
+            batch_index += 1
 
             if (
                 steps == 1
@@ -592,8 +1283,14 @@ def train_vn97_from_tensors(
                     - progress_started,
                     1e-9,
                 )
+                session_steps = max(
+                    steps
+                    - resumed_steps,
+                    1,
+                )
                 steps_per_second = (
-                    steps / elapsed
+                    session_steps
+                    / elapsed
                 )
                 remaining_steps = max(
                     total_steps - steps,
@@ -611,8 +1308,8 @@ def train_vn97_from_tensors(
                     / total_steps
                 )
                 running_mean_loss = (
-                    sum(losses)
-                    / len(losses)
+                    loss_sum
+                    / loss_count
                 )
                 print(
                     "VN97 P3 PROGRESS "
@@ -627,21 +1324,108 @@ def train_vn97_from_tensors(
                     flush=True,
                 )
 
+            if (
+                resume_checkpoint_path
+                is not None
+                and (
+                    steps
+                    % checkpoint_interval_steps
+                    == 0
+                )
+            ):
+                _save_resume_checkpoint(
+                    resume_checkpoint_path,
+                    resume_identity=
+                        str(
+                            resume_identity
+                        ),
+                    model=model,
+                    optimizer=optimizer,
+                    rng=rng,
+                    epoch_index=
+                        epoch_index,
+                    next_batch_index=
+                        batch_index,
+                    epoch_indices=
+                        indices,
+                    steps=steps,
+                    total_steps=
+                        total_steps,
+                    trained_tokens=
+                        trained_tokens,
+                    loss_sum=
+                        loss_sum,
+                    loss_count=
+                        loss_count,
+                    final_loss=
+                        final_loss,
+                    resolved_device=
+                        resolved,
+                )
+                print(
+                    "VN97 P3 CHECKPOINT "
+                    f"{progress_label} "
+                    f"step={steps}/{total_steps} "
+                    f"path={resume_checkpoint_path}",
+                    flush=True,
+                )
+
+        if (
+            resume_checkpoint_path
+            is not None
+        ):
+            _save_resume_checkpoint(
+                resume_checkpoint_path,
+                resume_identity=
+                    str(resume_identity),
+                model=model,
+                optimizer=optimizer,
+                rng=rng,
+                epoch_index=
+                    epoch_index + 1,
+                next_batch_index=0,
+                epoch_indices=[],
+                steps=steps,
+                total_steps=
+                    total_steps,
+                trained_tokens=
+                    trained_tokens,
+                loss_sum=loss_sum,
+                loss_count=
+                    loss_count,
+                final_loss=
+                    final_loss,
+                resolved_device=
+                    resolved,
+            )
+
+        resume_epoch_indices = []
+        resume_next_batch_index = 0
+
     model.eval()
     if (
-        not losses
+        loss_count <= 0
         or steps <= 0
         or trained_tokens <= 0
+        or not math.isfinite(
+            final_loss
+        )
     ):
         raise RuntimeError(
             "VN97 tensor training completed without supervised updates"
         )
+    if steps != total_steps:
+        raise RuntimeError(
+            "VN97 tensor training ended before all logical steps completed"
+        )
     return VN97TrainingResult(
         steps=steps,
         target_tokens=trained_tokens,
-        mean_loss=sum(losses)
-        / len(losses),
-        final_loss=losses[-1],
+        mean_loss=(
+            loss_sum
+            / loss_count
+        ),
+        final_loss=final_loss,
     )
 
 
