@@ -45,20 +45,45 @@ prepare_cache() {
     --output-dir "$cache"
 }
 
+micro_batch_for() {
+  local index="$1"
+  local specific_var="VN97_MICRO_BATCH_SIZE_$index"
+  local specific="${!specific_var:-}"
+
+  if [[ -n "${VN97_MICRO_BATCH_SIZE:-}" ]]; then
+    echo "$VN97_MICRO_BATCH_SIZE"
+    return
+  fi
+  if [[ -n "$specific" ]]; then
+    echo "$specific"
+    return
+  fi
+
+  case "$index" in
+    0) echo 2 ;;
+    1|2|3) echo 1 ;;
+    *) echo 1 ;;
+  esac
+}
+
 run_one() {
   local index="$1"
   local physical_gpu="$2"
   local root="$3"
   local out="$root/candidate-$index"
+  local micro_batch
+  micro_batch="$(micro_batch_for "$index")"
+
   if [[ -f "$out/candidate-report.vn97p3cand1.json" ]]; then
     echo "Reusing completed candidate $index"
     return 0
   fi
   rm -rf "$out"
 
-  # Pin one concurrent candidate to one physical T4. The pair launcher starts
-  # two processes at the same time, so physical GPU 0 and GPU 1 are both busy.
-  # CPU threads concurrently stage/prefetch batches for each GPU.
+  echo "candidate $index runtime: physical_gpu=$physical_gpu micro_batch=$micro_batch" >&2
+
+  # One process is pinned to each physical T4. CPU threads concurrently
+  # stage/prefetch the next logical batch for that GPU.
   CUDA_VISIBLE_DEVICES="$physical_gpu" \
   OMP_NUM_THREADS="${VN97_CPU_THREADS_PER_GPU:-2}" \
   MKL_NUM_THREADS="${VN97_CPU_THREADS_PER_GPU:-2}" \
@@ -68,7 +93,7 @@ run_one() {
     --output-dir "$out" \
     --device cuda:0 \
     --cpu-prefetch-workers "${VN97_CPU_PREFETCH_WORKERS:-1}" \
-    --micro-batch-size "${VN97_MICRO_BATCH_SIZE:-2}"
+    --micro-batch-size "$micro_batch"
 }
 
 run_pair() {
@@ -81,11 +106,11 @@ run_pair() {
   run_one "$second" 1 "$root" >"$root/candidate-$second.log" 2>&1 &
   local p2=$!
 
-  echo "candidate $first -> physical GPU 0 pid=$p1"
-  echo "candidate $second -> physical GPU 1 pid=$p2"
+  echo "candidate $first -> physical GPU 0 pid=$p1 micro_batch=$(micro_batch_for "$first")"
+  echo "candidate $second -> physical GPU 1 pid=$p2 micro_batch=$(micro_batch_for "$second")"
   echo "CPU support threads per GPU process: ${VN97_CPU_THREADS_PER_GPU:-2}"
   echo "CPU prefetch workers per GPU process: ${VN97_CPU_PREFETCH_WORKERS:-1}"
-  echo "GPU micro-batch size: ${VN97_MICRO_BATCH_SIZE:-2} (logical batch remains 8)"
+  echo "logical batch remains 8"
 
   local monitor_pid=""
   if command -v nvidia-smi >/dev/null 2>&1; then
@@ -101,10 +126,46 @@ run_pair() {
     monitor_pid=$!
   fi
 
-  local r1=0
-  local r2=0
-  wait "$p1" || r1=$?
-  wait "$p2" || r2=$?
+  local first_done=""
+  local first_status=0
+  set +e
+  wait -n -p first_done "$p1" "$p2"
+  first_status=$?
+  set -e
+
+  if [[ "$first_status" -ne 0 ]]; then
+    echo "candidate process failed early: pid=$first_done status=$first_status" >&2
+    kill "$p1" "$p2" 2>/dev/null || true
+    wait "$p1" 2>/dev/null || true
+    wait "$p2" 2>/dev/null || true
+    if [[ -n "$monitor_pid" ]]; then
+      kill "$monitor_pid" 2>/dev/null || true
+      wait "$monitor_pid" 2>/dev/null || true
+    fi
+    echo "===== candidate $first log =====" >&2
+    cat "$root/candidate-$first.log" >&2 || true
+    echo "===== candidate $second log =====" >&2
+    cat "$root/candidate-$second.log" >&2 || true
+    exit 20
+  fi
+
+  local remaining_pid=""
+  local remaining_index=""
+  if [[ "$first_done" == "$p1" ]]; then
+    remaining_pid="$p2"
+    remaining_index="$second"
+  else
+    remaining_pid="$p1"
+    remaining_index="$first"
+  fi
+
+  echo "candidate process pid=$first_done completed successfully; waiting for candidate $remaining_index"
+
+  local remaining_status=0
+  set +e
+  wait "$remaining_pid"
+  remaining_status=$?
+  set -e
 
   if [[ -n "$monitor_pid" ]]; then
     kill "$monitor_pid" 2>/dev/null || true
@@ -114,10 +175,10 @@ run_pair() {
   cat "$root/candidate-$first.log"
   cat "$root/candidate-$second.log"
 
-  [[ "$r1" -eq 0 && "$r2" -eq 0 ]] || {
-    echo "candidate pair failed: first=$r1 second=$r2" >&2
+  if [[ "$remaining_status" -ne 0 ]]; then
+    echo "candidate $remaining_index failed: status=$remaining_status" >&2
     exit 20
-  }
+  fi
 }
 
 if [[ "$MODE" == "prepare" ]]; then
