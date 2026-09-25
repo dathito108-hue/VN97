@@ -1,67 +1,67 @@
-name: VN97 Android APK M10I
+name: VN97 P3 resumable checkpoints
 
 on:
   push:
     branches:
-      - m10i-reproducible-apk-cold-start
-      - m10j-turnkey-bootstrap
+      - p3-resumable-candidate-checkpoints
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  build-apk:
+  host-contract:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 10
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
-          distribution: temurin
-          java-version: "17"
+          python-version: "3.12"
 
-      - name: Set up Gradle 9.6.0
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: "9.6.0"
-
-      - name: Install pinned Android packages
-        shell: bash
-        env:
-          ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+      - name: Compile resume path
         run: |
-          TOOLS_ZIP="$RUNNER_TEMP/android-cmdline-tools.zip"
-          TOOLS_DIR="$RUNNER_TEMP/android-cmdline-tools"
-          curl -fsSL             "https://dl.google.com/android/repository/commandlinetools-linux-12266719_latest.zip"             -o "$TOOLS_ZIP"
-          rm -rf "$TOOLS_DIR"
-          mkdir -p "$TOOLS_DIR"
-          unzip -q "$TOOLS_ZIP" -d "$TOOLS_DIR"
-          SDKMANAGER="$TOOLS_DIR/cmdline-tools/bin/sdkmanager"
-          test -x "$SDKMANAGER"
-          yes | "$SDKMANAGER" --sdk_root="$ANDROID_SDK_ROOT" --licenses >/dev/null || true
-          "$SDKMANAGER"             --sdk_root="$ANDROID_SDK_ROOT"             --channel=3             "platforms;android-37.0"             "build-tools;36.0.0"             "ndk;28.2.13676358"             "cmake;3.22.1"
+          python -m py_compile \
+            src/vn97/p3_tensor_cache.py \
+            src/vn97/p3_kaggle_cached_candidate_cli.py
 
-      - name: Build VN97 debug APK
-        shell: bash
+      - name: Validate resume checkpoint contract
         run: |
-          gradle -p android             --no-daemon             --stacktrace             :app:assembleDebug
+          bash -n tools/kaggle_p3_dual_gpu.sh
+          python - <<'PY'
+          import ast
+          from pathlib import Path
 
-      - name: Verify APK
-        shell: bash
-        run: |
-          APK="android/app/build/outputs/apk/debug/app-debug.apk"
-          test -f "$APK"
-          sha256sum "$APK"
-          ls -lh "$APK"
+          cache = Path("src/vn97/p3_tensor_cache.py").read_text()
+          cli = Path("src/vn97/p3_kaggle_cached_candidate_cli.py").read_text()
+          launcher = Path("tools/kaggle_p3_dual_gpu.sh").read_text()
 
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: VN97-debug-apk
-          path: android/app/build/outputs/apk/debug/app-debug.apk
-          if-no-files-found: error
-          retention-days: 7
+          tree = ast.parse(cache)
+          fn = next(
+              node for node in tree.body
+              if isinstance(node, ast.FunctionDef)
+              and node.name == "train_vn97_from_tensors"
+          )
+          kwonly = {arg.arg for arg in fn.args.kwonlyargs}
+          assert "resume_checkpoint_path" in kwonly
+          assert "resume_identity" in kwonly
+          assert "checkpoint_interval_steps" in kwonly
+
+          assert 'VN97P3RESUME1' in cache
+          assert '_atomic_torch_save' in cache
+          assert 'optimizer.state_dict()' in cache
+          assert 'torch.cuda.get_rng_state' in cache
+          assert 'torch.cuda.set_rng_state' in cache
+          assert 'python_rng_state' in cache
+          assert 'epoch_indices' in cache
+          assert 'next_batch_index' in cache
+          assert 'weights_only=True' in cache
+
+          assert '--resume-dir' in cli
+          assert '--checkpoint-interval-steps' in cli
+          assert 'VN97P3RESUMECONTRACT1' in cli
+
+          assert 'state.vn97p3resume1.pt' in launcher
+          assert 'VN97_CHECKPOINT_INTERVAL_STEPS' in launcher
+          assert '--resume-dir "$resume"' in launcher
+          PY
