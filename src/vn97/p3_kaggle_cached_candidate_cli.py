@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 from pathlib import Path
+import shutil
 import sys
 import time
 
@@ -180,6 +182,15 @@ def _parser() -> argparse.ArgumentParser:
         type=int,
         default=50,
     )
+    parser.add_argument(
+        "--resume-dir",
+        default=None,
+    )
+    parser.add_argument(
+        "--checkpoint-interval-steps",
+        type=int,
+        default=250,
+    )
     return parser
 
 
@@ -192,6 +203,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.progress_interval_steps <= 0:
         raise VN97P3KaggleError(
             "progress-interval-steps must be positive"
+        )
+    if args.checkpoint_interval_steps <= 0:
+        raise VN97P3KaggleError(
+            "checkpoint-interval-steps must be positive"
         )
     if (
         args.micro_batch_size <= 0
@@ -382,6 +397,104 @@ def main(argv: list[str] | None = None) -> int:
         max_windows=MAX_TRAIN_WINDOWS,
     )
 
+    resume_dir: Path | None = None
+    resume_checkpoint_path: Path | None = None
+    resume_identity: str | None = None
+    if args.resume_dir is not None:
+        resume_dir = Path(
+            args.resume_dir
+        )
+        if resume_dir.is_symlink():
+            raise VN97P3KaggleError(
+                "resume-dir must not be a symlink"
+            )
+        resume_dir.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+        if (
+            not resume_dir.is_dir()
+            or resume_dir.is_symlink()
+        ):
+            raise VN97P3KaggleError(
+                "resume-dir must be a real directory"
+            )
+        resume_dir = (
+            resume_dir.resolve(
+                strict=True
+            )
+        )
+        allowed_resume_files = {
+            "state.vn97p3resume1.pt",
+            "progress.vn97p3resume1.json",
+        }
+        unexpected = {
+            item.name
+            for item
+            in resume_dir.iterdir()
+            if item.name
+            not in allowed_resume_files
+        }
+        if unexpected:
+            raise VN97P3KaggleError(
+                "resume-dir contains unexpected files"
+            )
+
+        resume_contract = {
+            "batch_size":
+                BATCH_SIZE,
+            "cache_id":
+                manifest["cache_id"],
+            "candidate_id":
+                candidate.candidate_id,
+            "candidate_index":
+                args.candidate_index,
+            "corpus_manifest_id":
+                corpus_manifest_id,
+            "epochs":
+                EPOCHS,
+            "learning_rate":
+                candidate.learning_rate,
+            "max_grad_norm":
+                1.0,
+            "micro_batch_size":
+                args.micro_batch_size,
+            "profile_sha256":
+                profile_sha256(),
+            "schema":
+                "VN97P3RESUMECONTRACT1",
+            "seed":
+                candidate.seed,
+            "sequence_length":
+                SEQUENCE_LENGTH,
+            "tokenizer_sha256":
+                tokenizer_sha256,
+            "training_dataset_sha256":
+                str(
+                    train_spec[
+                        "dataset_sha256"
+                    ]
+                ),
+            "weight_decay":
+                0.01,
+        }
+        resume_identity = (
+            hashlib.sha256(
+                b"VN97P3RESUME1\0"
+                + json.dumps(
+                    resume_contract,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    allow_nan=False,
+                ).encode("utf-8")
+            ).hexdigest()
+        )
+        resume_checkpoint_path = (
+            resume_dir
+            / "state.vn97p3resume1.pt"
+        )
+
     started = time.time()
     print(
         "P3 GPU TRAIN "
@@ -407,6 +520,12 @@ def main(argv: list[str] | None = None) -> int:
             f"candidate={args.candidate_index}",
         progress_interval_steps=
             args.progress_interval_steps,
+        resume_checkpoint_path=
+            resume_checkpoint_path,
+        resume_identity=
+            resume_identity,
+        checkpoint_interval_steps=
+            args.checkpoint_interval_steps,
     )
     evaluation = evaluate_vn97_from_tensors(
         model,
@@ -483,6 +602,20 @@ def main(argv: list[str] | None = None) -> int:
         output / "candidate-report.vn97p3cand1.json",
         result.to_bytes(),
     )
+
+    if resume_dir is not None:
+        try:
+            shutil.rmtree(
+                resume_dir
+            )
+        except OSError as exc:
+            print(
+                "VN97 P3 WARNING "
+                "candidate completed but resume-dir cleanup failed: "
+                f"{exc}",
+                file=sys.stderr,
+                flush=True,
+            )
 
     print(
         "VN97P3CAND1 "
