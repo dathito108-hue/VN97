@@ -71,14 +71,21 @@ run_one() {
   local physical_gpu="$2"
   local root="$3"
   local out="$root/candidate-$index"
+  local resume="$root/resume/candidate-$index"
   local micro_batch
   micro_batch="$(micro_batch_for "$index")"
 
   if [[ -f "$out/candidate-report.vn97p3cand1.json" ]]; then
+    rm -rf "$resume"
     echo "Reusing completed candidate $index"
     return 0
   fi
   rm -rf "$out"
+  mkdir -p "$resume"
+
+  if [[ -f "$resume/state.vn97p3resume1.pt" ]]; then
+    echo "Resuming candidate $index from $resume/state.vn97p3resume1.pt" >&2
+  fi
 
   echo "candidate $index runtime: physical_gpu=$physical_gpu micro_batch=$micro_batch" >&2
 
@@ -94,7 +101,9 @@ run_one() {
     --device cuda:0 \
     --cpu-prefetch-workers "${VN97_CPU_PREFETCH_WORKERS:-1}" \
     --micro-batch-size "$micro_batch" \
-    --progress-interval-steps "${VN97_PROGRESS_INTERVAL_STEPS:-50}"
+    --progress-interval-steps "${VN97_PROGRESS_INTERVAL_STEPS:-50}" \
+    --resume-dir "$resume" \
+    --checkpoint-interval-steps "${VN97_CHECKPOINT_INTERVAL_STEPS:-250}"
 }
 
 run_pair() {
@@ -113,6 +122,7 @@ run_pair() {
   echo "CPU prefetch workers per GPU process: ${VN97_CPU_PREFETCH_WORKERS:-1}"
   echo "logical batch remains 8"
   echo "progress interval: ${VN97_PROGRESS_INTERVAL_STEPS:-50} logical steps"
+  echo "resume checkpoint interval: ${VN97_CHECKPOINT_INTERVAL_STEPS:-250} logical steps"
 
   local monitor_pid=""
   if command -v nvidia-smi >/dev/null 2>&1; then
