@@ -400,7 +400,8 @@ def _atomic_torch_save(
             payload,
             temp_path,
         )
-        with temp_path.open("rb") as stream:
+        with temp_path.open("rb+") as stream:
+            stream.flush()
             os.fsync(stream.fileno())
         if path.is_symlink():
             raise VN97P3TensorCacheError(
@@ -786,19 +787,35 @@ def _load_resume_checkpoint(
         raise VN97P3TensorCacheError(
             "completed resume checkpoint has invalid epoch state"
         )
-    if (
-        epoch_index
-        < config.epochs
-        and (
-            len(epoch_indices)
-            != window_count
-            or next_batch_index
-            > steps_per_epoch
-        )
-    ):
-        raise VN97P3TensorCacheError(
-            "active resume checkpoint has invalid epoch indices"
-        )
+    if epoch_index < config.epochs:
+        if epoch_indices:
+            if (
+                len(epoch_indices)
+                != window_count
+                or next_batch_index
+                > steps_per_epoch
+            ):
+                raise VN97P3TensorCacheError(
+                    "active resume checkpoint has invalid epoch indices"
+                )
+            expected_steps = (
+                epoch_index
+                * steps_per_epoch
+                + next_batch_index
+            )
+        else:
+            if next_batch_index != 0:
+                raise VN97P3TensorCacheError(
+                    "epoch-boundary resume checkpoint has invalid batch index"
+                )
+            expected_steps = (
+                epoch_index
+                * steps_per_epoch
+            )
+        if steps != expected_steps:
+            raise VN97P3TensorCacheError(
+                "resume checkpoint step/epoch position mismatch"
+            )
 
     model_state = value[
         "model_state"
@@ -839,6 +856,17 @@ def _load_resume_checkpoint(
     optimizer.load_state_dict(
         optimizer_state
     )
+    for state in optimizer.state.values():
+        for key, item in list(
+            state.items()
+        ):
+            if isinstance(
+                item,
+                torch.Tensor,
+            ):
+                state[key] = item.to(
+                    resolved_device
+                )
     rng.setstate(
         _decode_python_rng_state(
             value[
