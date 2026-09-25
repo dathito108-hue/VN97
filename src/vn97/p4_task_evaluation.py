@@ -17,7 +17,11 @@ from .deployment_checkpoint import (
     VN97LoadedDeploymentCheckpoint,
     load_deployment_checkpoint_file,
 )
-from .p3_language_campaign import profile_sha256
+from .p3_language_campaign import (
+    CANDIDATES,
+    candidate_ids,
+    profile_sha256,
+)
 from .tokenizer import VN97Tokenizer, VN97TokenizerPackage
 from .training_cli import _read_bounded_regular_file
 
@@ -466,6 +470,62 @@ def verify_p3_final_artifact(
         raise VN97P4EvaluationError(
             "P3 checkpoint/tokenizer vocabulary mismatch"
         )
+
+    ids = candidate_ids()
+    if selected_candidate_id not in ids:
+        raise VN97P4EvaluationError(
+            "P3 selected candidate is outside the frozen candidate set"
+        )
+    candidate = CANDIDATES[
+        ids.index(
+            selected_candidate_id
+        )
+    ]
+    if (
+        checkpoint.config.d_model
+        != int(candidate["d_model"])
+        or checkpoint.config.n_layers
+        != int(candidate["n_layers"])
+        or checkpoint.config.d_state
+        != int(candidate["d_state"])
+        or checkpoint.config.embedding_rank
+        != candidate["embedding_rank"]
+    ):
+        raise VN97P4EvaluationError(
+            "P3 checkpoint geometry does not match the selected candidate"
+        )
+
+    for field in (
+        "validation_mean_loss",
+        "validation_top1_accuracy",
+        "release_mean_loss",
+        "release_top1_accuracy",
+    ):
+        value = p3_run.get(field)
+        if (
+            isinstance(value, bool)
+            or not isinstance(
+                value,
+                (int, float),
+            )
+            or not math.isfinite(
+                float(value)
+            )
+        ):
+            raise VN97P4EvaluationError(
+                f"P3 run {field} is invalid"
+            )
+    for field in (
+        "validation_top1_accuracy",
+        "release_top1_accuracy",
+    ):
+        value = float(
+            p3_run[field]
+        )
+        if not 0.0 <= value <= 1.0:
+            raise VN97P4EvaluationError(
+                f"P3 run {field} must be in [0, 1]"
+            )
 
     return VN97P3FinalArtifact(
         root=resolved,
