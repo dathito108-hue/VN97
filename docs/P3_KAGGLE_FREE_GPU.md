@@ -73,6 +73,40 @@ print(torch.cuda.is_available())
 print(torch.cuda.get_device_name(0) if torch.cuda.is_available() else "NO CUDA")
 ```
 
+## Resumable candidate checkpoints
+
+The dual-T4 launcher now keeps one rolling training checkpoint per unfinished
+candidate under:
+
+```text
+<work-root>/resume/candidate-N/
+  state.vn97p3resume1.pt
+  progress.vn97p3resume1.json
+```
+
+By default the state is replaced atomically every 250 logical optimizer steps and
+at every epoch boundary. It contains the model, AdamW optimizer, Python/Torch/CUDA
+RNG states, current epoch ordering, next logical batch, loss accumulators and
+training counters.
+
+The checkpoint is identity-bound to the exact candidate, VN97P3CACHE1,
+tokenizer/profile/training dataset and micro-batch contract. A stale or mismatched
+checkpoint is rejected instead of silently resumed.
+
+If a kernel or GPU process stops and the working files survive, rerun the same
+`all` or `pair` command. The launcher detects the rolling state and continues
+from the last saved logical step. Completed candidates are still skipped.
+
+The default interval can be changed with:
+
+```bash
+export VN97_CHECKPOINT_INTERVAL_STEPS=250
+```
+
+Smaller values reduce lost work after an interruption but increase checkpoint I/O.
+A resume checkpoint only helps when its files survive the interruption. Keep Kaggle
+file persistence enabled or preserve the work-root before ending/resetting a session.
+
 ## Candidate sessions
 
 Run exactly one candidate per session.
