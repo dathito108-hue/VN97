@@ -93,7 +93,8 @@ run_one() {
     --output-dir "$out" \
     --device cuda:0 \
     --cpu-prefetch-workers "${VN97_CPU_PREFETCH_WORKERS:-1}" \
-    --micro-batch-size "$micro_batch"
+    --micro-batch-size "$micro_batch" \
+    --progress-interval-steps "${VN97_PROGRESS_INTERVAL_STEPS:-50}"
 }
 
 run_pair() {
@@ -111,6 +112,7 @@ run_pair() {
   echo "CPU support threads per GPU process: ${VN97_CPU_THREADS_PER_GPU:-2}"
   echo "CPU prefetch workers per GPU process: ${VN97_CPU_PREFETCH_WORKERS:-1}"
   echo "logical batch remains 8"
+  echo "progress interval: ${VN97_PROGRESS_INTERVAL_STEPS:-50} logical steps"
 
   local monitor_pid=""
   if command -v nvidia-smi >/dev/null 2>&1; then
@@ -120,6 +122,16 @@ run_pair() {
         nvidia-smi \
           --query-gpu=index,name,utilization.gpu,memory.used,memory.total \
           --format=csv,noheader,nounits || true
+
+        for idx in "$first" "$second"; do
+          log="$root/candidate-$idx.log"
+          if [[ -f "$log" ]]; then
+            line="$(grep 'VN97 P3 PROGRESS' "$log" | tail -n 1 || true)"
+            if [[ -n "$line" ]]; then
+              echo "$line"
+            fi
+          fi
+        done
         sleep 20
       done
     ) &

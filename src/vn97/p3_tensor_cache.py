@@ -8,6 +8,7 @@ import json
 import math
 from pathlib import Path
 import random
+import time
 from typing import Any, Iterator
 
 import torch
@@ -365,6 +366,8 @@ def train_vn97_from_tensors(
     device: str | torch.device,
     cpu_prefetch_workers: int = 1,
     micro_batch_size: int | None = None,
+    progress_label: str = "candidate",
+    progress_interval_steps: int = 50,
 ) -> VN97TrainingResult:
     if not isinstance(model, VN97LanguageCore):
         raise TypeError("model must be VN97LanguageCore")
@@ -377,6 +380,14 @@ def train_vn97_from_tensors(
     ):
         raise VN97P3TensorCacheError(
             "training tensor cache shape is invalid"
+        )
+    if progress_interval_steps <= 0:
+        raise VN97P3TensorCacheError(
+            "progress_interval_steps must be positive"
+        )
+    if not progress_label:
+        raise VN97P3TensorCacheError(
+            "progress_label must not be empty"
         )
     if micro_batch_size is None:
         micro_batch_size = config.batch_size
@@ -416,8 +427,15 @@ def train_vn97_from_tensors(
     trained_tokens = 0
     steps = 0
     window_count = int(input_ids.shape[0])
+    steps_per_epoch = math.ceil(
+        window_count / config.batch_size
+    )
+    total_steps = (
+        steps_per_epoch * config.epochs
+    )
+    progress_started = time.monotonic()
 
-    for _epoch in range(config.epochs):
+    for epoch_index in range(config.epochs):
         indices = list(range(window_count))
         if config.shuffle:
             rng.shuffle(indices)
@@ -563,6 +581,51 @@ def train_vn97_from_tensors(
             losses.append(value)
             trained_tokens += logical_targets
             steps += 1
+
+            if (
+                steps == 1
+                or steps % progress_interval_steps == 0
+                or steps == total_steps
+            ):
+                elapsed = max(
+                    time.monotonic()
+                    - progress_started,
+                    1e-9,
+                )
+                steps_per_second = (
+                    steps / elapsed
+                )
+                remaining_steps = max(
+                    total_steps - steps,
+                    0,
+                )
+                eta_seconds = (
+                    remaining_steps
+                    / steps_per_second
+                    if steps_per_second > 0.0
+                    else math.inf
+                )
+                percent = (
+                    100.0
+                    * steps
+                    / total_steps
+                )
+                running_mean_loss = (
+                    sum(losses)
+                    / len(losses)
+                )
+                print(
+                    "VN97 P3 PROGRESS "
+                    f"{progress_label} "
+                    f"epoch={epoch_index + 1}/{config.epochs} "
+                    f"step={steps}/{total_steps} "
+                    f"percent={percent:.2f} "
+                    f"elapsed_s={elapsed:.1f} "
+                    f"eta_s={eta_seconds:.1f} "
+                    f"loss={value:.6f} "
+                    f"mean_loss={running_mean_loss:.6f}",
+                    flush=True,
+                )
 
     model.eval()
     if (
