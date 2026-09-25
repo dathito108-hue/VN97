@@ -175,6 +175,11 @@ def _parser() -> argparse.ArgumentParser:
         type=int,
         default=2,
     )
+    parser.add_argument(
+        "--progress-interval-steps",
+        type=int,
+        default=50,
+    )
     return parser
 
 
@@ -183,6 +188,10 @@ def main(argv: list[str] | None = None) -> int:
     if not 0 <= args.cpu_prefetch_workers <= 8:
         raise VN97P3KaggleError(
             "cpu-prefetch-workers must be in [0, 8]"
+        )
+    if args.progress_interval_steps <= 0:
+        raise VN97P3KaggleError(
+            "progress-interval-steps must be positive"
         )
     if (
         args.micro_batch_size <= 0
@@ -394,6 +403,10 @@ def main(argv: list[str] | None = None) -> int:
             args.cpu_prefetch_workers,
         micro_batch_size=
             args.micro_batch_size,
+        progress_label=
+            f"candidate={args.candidate_index}",
+        progress_interval_steps=
+            args.progress_interval_steps,
     )
     evaluation = evaluate_vn97_from_tensors(
         model,
