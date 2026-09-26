@@ -1,0 +1,27 @@
+name: VN97 P5D2 Disk Fix Validate
+
+on:
+  push:
+    branches:
+      - p5d2-disk-pressure-hardening
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - name: Shell syntax
+        run: bash -n tools/kaggle_p5d2_distill.sh
+      - name: Disk hardening contract
+        run: |
+          grep -q 'MIN_FREE_BYTES' tools/kaggle_p5d2_distill.sh
+          grep -q 'PYTHONPATH=' tools/kaggle_p5d2_distill.sh
+          grep -q 'python -m vn97.p5d_behavioral_distillation_cli' tools/kaggle_p5d2_distill.sh
+          if grep -q 'pip install.*-e .' tools/kaggle_p5d2_distill.sh; then
+            echo "editable install must not run in P5D2 launcher"
+            exit 1
+          fi
