@@ -44,6 +44,7 @@ from .p5c_alignment import (
     CHECKPOINT_INTERVAL_STEPS,
     CORE_LR,
     LEXICAL_LR,
+    LEXICAL_WARMUP_STEPS,
     LOGICAL_BATCH_SIZE,
     MAX_GRAD_NORM,
     MAX_TRAIN_WINDOWS,
@@ -647,9 +648,12 @@ def main(
         weight_decay=
             WEIGHT_DECAY,
     )
+    # FP16 backward overflowed on the transplanted recurrent core before the
+    # first optimizer step. P5C v2 deliberately trains in FP32. A disabled
+    # GradScaler is retained only so resume serialization stays simple.
     scaler = torch.amp.GradScaler(
         "cuda",
-        enabled=True,
+        enabled=False,
     )
 
     identity = _sha256(
@@ -659,6 +663,8 @@ def main(
                     CORE_LR,
                 "lexical_lr":
                     LEXICAL_LR,
+                "lexical_warmup_steps":
+                    LEXICAL_WARMUP_STEPS,
                 "logical_batch_size":
                     LOGICAL_BATCH_SIZE,
                 "max_train_windows":
@@ -745,9 +751,22 @@ def main(
         f"windows={len(train_windows)} "
         f"steps={total_steps} "
         f"resume_step={start_step} "
+        f"sequence_length={SEQUENCE_LENGTH} "
+        f"precision=fp32 "
+        f"lexical_warmup_steps={LEXICAL_WARMUP_STEPS} "
         f"lexical_lr={LEXICAL_LR} "
         f"core_lr={CORE_LR}",
         flush=True,
+    )
+
+    for parameter in core_params:
+        parameter.requires_grad_(
+            start_step >= LEXICAL_WARMUP_STEPS
+        )
+    optimizer.param_groups[1]["lr"] = (
+        CORE_LR
+        if start_step >= LEXICAL_WARMUP_STEPS
+        else 0.0
     )
 
     model.train()
@@ -757,6 +776,21 @@ def main(
         start_step,
         total_steps,
     ):
+        if step == LEXICAL_WARMUP_STEPS:
+            for parameter in core_params:
+                parameter.requires_grad_(
+                    True
+                )
+            optimizer.param_groups[1]["lr"] = (
+                CORE_LR
+            )
+            print(
+                "VN97 P5C CORE UNFREEZE "
+                f"step={step}/{total_steps} "
+                f"core_lr={CORE_LR}",
+                flush=True,
+            )
+
         begin = (
             step
             * LOGICAL_BATCH_SIZE
@@ -795,33 +829,29 @@ def main(
                 )
             )
 
-            with torch.autocast(
-                device_type="cuda",
-                dtype=torch.float16,
-            ):
-                logits, _ = (
-                    model.forward_sequential_reference(
-                        inputs
-                    )
+            logits, _ = (
+                model.forward_sequential_reference(
+                    inputs
                 )
-                token_loss_sum = (
-                    F.cross_entropy(
-                        logits.reshape(
-                            -1,
-                            logits.shape[-1],
-                        ),
-                        labels.reshape(
-                            -1
-                        ),
-                        ignore_index=
-                            IGNORE_INDEX,
-                        reduction="sum",
-                    )
+            )
+            token_loss_sum = (
+                F.cross_entropy(
+                    logits.reshape(
+                        -1,
+                        logits.shape[-1],
+                    ),
+                    labels.reshape(
+                        -1
+                    ),
+                    ignore_index=
+                        IGNORE_INDEX,
+                    reduction="sum",
                 )
-                loss = (
-                    token_loss_sum
-                    / logical_targets
-                )
+            )
+            loss = (
+                token_loss_sum
+                / logical_targets
+            )
 
             if not bool(
                 torch.isfinite(
@@ -832,9 +862,7 @@ def main(
                     "P5C loss became non-finite"
                 )
 
-            scaler.scale(
-                loss
-            ).backward()
+            loss.backward()
 
             logical_loss_sum += float(
                 token_loss_sum
@@ -850,9 +878,6 @@ def main(
                 loss,
             )
 
-        scaler.unscale_(
-            optimizer
-        )
         grad_norm = (
             torch.nn.utils
             .clip_grad_norm_(
@@ -871,10 +896,7 @@ def main(
                 "P5C gradient norm became non-finite"
             )
 
-        scaler.step(
-            optimizer
-        )
-        scaler.update()
+        optimizer.step()
 
         cumulative_loss_sum += (
             logical_loss_sum
@@ -915,7 +937,7 @@ def main(
                 f"eta_s={eta:.1f} "
                 f"batch_loss={logical_loss_sum / logical_targets:.6f} "
                 f"mean_loss={cumulative_loss_sum / cumulative_target_tokens:.6f} "
-                f"scale={float(scaler.get_scale()):.1f}",
+                f"phase={'lexical_warmup' if completed <= LEXICAL_WARMUP_STEPS else 'full_alignment'}",
                 flush=True,
             )
 
@@ -1138,8 +1160,12 @@ def main(
                 / cumulative_target_tokens,
             "lexical_lr":
                 LEXICAL_LR,
+            "lexical_warmup_steps":
+                LEXICAL_WARMUP_STEPS,
             "logical_batch_size":
                 LOGICAL_BATCH_SIZE,
+            "precision":
+                "fp32",
             "steps":
                 total_steps,
             "target_tokens":
