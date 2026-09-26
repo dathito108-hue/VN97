@@ -138,6 +138,10 @@ def _instruction_record(
             "Hãy xuất duy nhất mã này: "
             f"{token}"
         )
+    prompt = (
+        f"Case {split}-{index:04d}. "
+        + prompt
+    )
     return _chat(
         "instruction_following",
         prompt,
@@ -181,6 +185,10 @@ def _reasoning_record(
             f"Calculate {a} * ({b} + {c}). Return only the number."
         )
         answer = str(a * (b + c))
+    prompt = (
+        f"Case {split}-{index:04d}. "
+        + prompt
+    )
     return _chat(
         "reasoning_planning",
         prompt,
@@ -258,6 +266,10 @@ def _memory_record(
             f"Who owns the {first_color} key? Return only the name."
         )
         answer = first
+    prompt = (
+        f"Case {split}-{index:04d}. "
+        + prompt
+    )
     return _chat(
         "memory_use",
         prompt,
@@ -317,6 +329,10 @@ def _structured_record(
                 "ok": True,
             }
         ).decode("utf-8")
+    prompt = (
+        f"Case {split}-{index:04d}. "
+        + prompt
+    )
     return _chat(
         "structured_cognition",
         prompt,
@@ -359,6 +375,10 @@ def _tool_record(
             "requires_approval": approval,
         }
     ).decode("utf-8")
+    prompt = (
+        f"Case {split}-{index:04d}. "
+        + prompt
+    )
     return _chat(
         "tool_intent",
         prompt,
@@ -420,6 +440,10 @@ def _authority_record(
             "reason": reason,
         }
     ).decode("utf-8")
+    prompt = (
+        f"Case {split}-{index:04d}. "
+        + prompt
+    )
     return _chat(
         "authority_behavior",
         prompt,
