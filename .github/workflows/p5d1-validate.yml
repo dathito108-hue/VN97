@@ -1,0 +1,50 @@
+name: VN97 P5D1 Validate
+
+on:
+  push:
+    branches:
+      - p5d1-teacher-corpus-generation
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Python syntax
+        run: |
+          python -m compileall -q             src/vn97/p5d_teacher_corpus.py             src/vn97/p5d_teacher_corpus_cli.py
+
+      - name: Shell syntax
+        run: bash -n tools/kaggle_p5d1_teacher_corpus.sh
+
+      - name: Entrypoint contract
+        run: |
+          python - <<'PY'
+          import tomllib
+          from pathlib import Path
+          data = tomllib.loads(Path("pyproject.toml").read_text())
+          assert data["project"]["scripts"]["vn97-p5d1-teacher-corpus"] == "vn97.p5d_teacher_corpus_cli:main"
+          PY
+
+      - name: Teacher contract
+        run: |
+          grep -q 'Falcon3-Mamba-7B-Instruct' src/vn97/p5d_distillation.py
+          grep -q 'torch.float16' src/vn97/p5d_teacher_corpus_cli.py
+          grep -q 'device_map=' src/vn97/p5d_teacher_corpus_cli.py
+          grep -q '"balanced"' src/vn97/p5d_teacher_corpus_cli.py
+          grep -q 'torch.cuda.device_count() < 2' src/vn97/p5d_teacher_corpus_cli.py
+          grep -q 'TII-FALCON-LLM-2.0' src/vn97/p5d_teacher_corpus_cli.py
+
+      - name: Corpus and resume contract
+        run: |
+          grep -q 'P4_PER_CATEGORY = 60' src/vn97/p5d_teacher_corpus.py
+          grep -q 'P3_RECORDS = 240' src/vn97/p5d_teacher_corpus.py
+          grep -q 'held_out_prompts' src/vn97/p5d_teacher_corpus_cli.py
+          grep -q 'teacher_revision' src/vn97/p5d_teacher_corpus_cli.py
+          grep -q 'records' src/vn97/p5d_teacher_corpus_cli.py
+          grep -q 'TEACHER_CORPUS_READY' src/vn97/p5d_teacher_corpus_cli.py
