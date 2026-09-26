@@ -46,12 +46,29 @@ class VN97CognitionOutputError(CognitionContractError):
 class VN97InferenceLimits:
     max_prompt_tokens: int = 4096
     max_output_utf8_bytes: int = 64 * 1024
+    repetition_penalty: float = 1.0
+    no_repeat_ngram_size: int = 0
 
     def __post_init__(self) -> None:
         if self.max_prompt_tokens <= 0:
             raise ValueError("max_prompt_tokens must be positive")
         if self.max_output_utf8_bytes <= 0:
             raise ValueError("max_output_utf8_bytes must be positive")
+        if (
+            not math.isfinite(self.repetition_penalty)
+            or self.repetition_penalty < 1.0
+        ):
+            raise ValueError(
+                "repetition_penalty must be finite and >= 1.0"
+            )
+        if (
+            type(self.no_repeat_ngram_size) is not int
+            or self.no_repeat_ngram_size < 0
+            or self.no_repeat_ngram_size > 32
+        ):
+            raise ValueError(
+                "no_repeat_ngram_size must be in [0, 32]"
+            )
 
 
 @dataclass(frozen=True)
@@ -93,6 +110,73 @@ class VN97InferenceEngine(Protocol):
         vector_dim: int,
     ) -> tuple[float, ...]:
         ...
+
+
+def _no_repeat_banned_tokens(
+    generated: list[int],
+    ngram_size: int,
+) -> set[int]:
+    if ngram_size <= 0:
+        return set()
+    if ngram_size == 1:
+        return set(generated)
+    if len(generated) < ngram_size:
+        return set()
+
+    prefix_size = ngram_size - 1
+    current_prefix = tuple(
+        generated[-prefix_size:]
+    )
+    banned: set[int] = set()
+    limit = len(generated) - ngram_size + 1
+    for start in range(limit):
+        prefix = tuple(
+            generated[
+                start:
+                start + prefix_size
+            ]
+        )
+        if prefix == current_prefix:
+            banned.add(
+                generated[
+                    start + prefix_size
+                ]
+            )
+    return banned
+
+
+def _select_greedy_token(
+    logits: torch.Tensor,
+    generated: list[int],
+    *,
+    repetition_penalty: float,
+    no_repeat_ngram_size: int,
+) -> int:
+    scores = logits[:, -1].clone()
+
+    if repetition_penalty > 1.0 and generated:
+        for token_id in set(generated):
+            value = scores[0, token_id]
+            scores[0, token_id] = torch.where(
+                value < 0,
+                value * repetition_penalty,
+                value / repetition_penalty,
+            )
+
+    banned = _no_repeat_banned_tokens(
+        generated,
+        no_repeat_ngram_size,
+    )
+    for token_id in banned:
+        scores[0, token_id] = -torch.inf
+
+    if not bool(torch.isfinite(scores).any()):
+        raise VN97InferenceContractError(
+            "generation constraints removed every token"
+        )
+    return int(
+        scores.argmax(dim=-1).item()
+    )
 
 
 class TorchVN97InferenceEngine:
@@ -157,10 +241,13 @@ class TorchVN97InferenceEngine:
         generated: list[int] = []
 
         for _ in range(max_new_tokens):
-            token = int(
-                logits[:, -1]
-                .argmax(dim=-1)
-                .item()
+            token = _select_greedy_token(
+                logits,
+                generated,
+                repetition_penalty=
+                    self.limits.repetition_penalty,
+                no_repeat_ngram_size=
+                    self.limits.no_repeat_ngram_size,
             )
             if token == self.tokenizer.eos_id:
                 break
