@@ -88,8 +88,8 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--numeric-copy-records", type=int, default=1400)
     parser.add_argument("--anchor-records", type=int, default=1600)
     parser.add_argument("--p3-replay-records", type=int, default=1200)
-    parser.add_argument("--batch-size", type=int, default=4)
-    parser.add_argument("--preserve-batch-size", type=int, default=8)
+    parser.add_argument("--batch-size", type=int, default=2)
+    parser.add_argument("--preserve-batch-size", type=int, default=2)
     parser.add_argument("--learning-rate", type=float, default=2e-6)
     parser.add_argument("--weight-decay", type=float, default=0.01)
     parser.add_argument("--max-grad-norm", type=float, default=1.0)
@@ -774,6 +774,9 @@ def main(
         )
     )
 
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
     print(
         "VN97 P4E-N BASELINE "
         f"canonical={before['passed']}/{before['task_count']} "
@@ -935,6 +938,15 @@ def main(
             + str(
                 args.preserve_weight
             )
+            + "\0"
+            + str(
+                args.batch_size
+            )
+            + "\0"
+            + str(
+                args.preserve_batch_size
+            )
+            + "\0memory_safe_detached_negative_v1"
         ).encode("utf-8")
     )
 
@@ -1064,32 +1076,64 @@ def main(
             set_to_none=True
         )
 
-        (
-            correct_scores,
-            correct_ce,
-        ) = _scores_and_ce(
-            model,
-            correct_batch,
-            pad_token_id=
-                tokenizer.pad_id,
-            device=args.device,
-        )
-        (
-            negative_scores,
-            _negative_ce,
-        ) = _scores_and_ce(
-            model,
-            negative_batch,
-            pad_token_id=
-                tokenizer.pad_id,
-            device=args.device,
-        )
+        # Memory-safe ordering for 16 GB-class GPUs:
+        # 1) preserve loss backward immediately so its recurrent graph can die;
+        # 2) score hard negatives without gradients;
+        # 3) keep gradients only for the correct-answer path and ranking term.
         (
             _preserve_scores,
             preserve_ce,
         ) = _scores_and_ce(
             model,
             preserve_batch,
+            pad_token_id=
+                tokenizer.pad_id,
+            device=args.device,
+        )
+        preserve_loss = (
+            args.preserve_weight
+            * preserve_ce
+        )
+        if not bool(
+            torch.isfinite(
+                preserve_loss
+            )
+        ):
+            raise VN97P4ENError(
+                "P4E-N preservation loss is non-finite"
+            )
+        preserve_loss.backward()
+        preserve_value = float(
+            preserve_ce.detach().item()
+        )
+        del (
+            _preserve_scores,
+            preserve_ce,
+            preserve_loss,
+        )
+
+        with torch.no_grad():
+            (
+                negative_scores,
+                _negative_ce,
+            ) = _scores_and_ce(
+                model,
+                negative_batch,
+                pad_token_id=
+                    tokenizer.pad_id,
+                device=args.device,
+            )
+            negative_scores = (
+                negative_scores.detach()
+            )
+            del _negative_ce
+
+        (
+            correct_scores,
+            correct_ce,
+        ) = _scores_and_ce(
+            model,
+            correct_batch,
             pad_token_id=
                 tokenizer.pad_id,
             device=args.device,
@@ -1103,38 +1147,55 @@ def main(
             )
         ).mean()
 
-        loss = (
+        reason_loss = (
             correct_ce
             + args.ranking_weight
             * rank_loss
-            + args.preserve_weight
-            * preserve_ce
         )
 
         if not bool(
             torch.isfinite(
-                loss
+                reason_loss
             )
         ):
             raise VN97P4ENError(
-                "P4E-N training produced non-finite loss"
+                "P4E-N reasoning loss is non-finite"
             )
 
-        loss.backward()
+        reason_loss.backward()
         torch.nn.utils.clip_grad_norm_(
             model.parameters(),
             args.max_grad_norm,
         )
         optimizer.step()
 
-        cumulative_loss += float(
-            loss.detach().item()
+        loss_value = (
+            float(
+                reason_loss.detach().item()
+            )
+            + args.preserve_weight
+            * preserve_value
         )
-        cumulative_rank_loss += float(
+        rank_value = float(
             rank_loss.detach().item()
         )
-        cumulative_preserve_loss += float(
-            preserve_ce.detach().item()
+
+        cumulative_loss += (
+            loss_value
+        )
+        cumulative_rank_loss += (
+            rank_value
+        )
+        cumulative_preserve_loss += (
+            preserve_value
+        )
+
+        del (
+            negative_scores,
+            correct_scores,
+            correct_ce,
+            rank_loss,
+            reason_loss,
         )
 
         completed = step + 1
@@ -1169,9 +1230,9 @@ def main(
                 f"percent={100.0 * completed / total_steps:.2f} "
                 f"elapsed_s={elapsed:.1f} "
                 f"eta_s={eta:.1f} "
-                f"loss={float(loss.detach().item()):.6f} "
-                f"rank_loss={float(rank_loss.detach().item()):.6f} "
-                f"preserve_loss={float(preserve_ce.detach().item()):.6f}",
+                f"loss={loss_value:.6f} "
+                f"rank_loss={rank_value:.6f} "
+                f"preserve_loss={preserve_value:.6f}",
                 flush=True,
             )
 
