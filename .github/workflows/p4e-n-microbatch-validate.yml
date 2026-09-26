@@ -1,0 +1,33 @@
+name: VN97 P4E-N Microbatch Validate
+
+on:
+  push:
+    branches:
+      - p4e-n-single-sample-microbatch
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Python syntax
+        run: python -m compileall -q src/vn97/p4_sequence_ranking_repair_cli.py
+
+      - name: Single-sample execution contract
+        run: |
+          grep -q 'zip(' src/vn97/p4_sequence_ranking_repair_cli.py
+          grep -q '\[example\]' src/vn97/p4_sequence_ranking_repair_cli.py
+          grep -q 'correct_total_tokens' src/vn97/p4_sequence_ranking_repair_cli.py
+          grep -q 'preserve_total_tokens' src/vn97/p4_sequence_ranking_repair_cli.py
+          grep -q 'torch.cuda.empty_cache()' src/vn97/p4_sequence_ranking_repair_cli.py
+          grep -q 'memory_safe_detached_negative_v1' src/vn97/p4_sequence_ranking_repair_cli.py
+
+      - name: Resume compatibility
+        run: |
+          grep -q 'default=2' src/vn97/p4_sequence_ranking_repair_cli.py
+          grep -q 'state.p4en.pt' src/vn97/p4_sequence_ranking_repair_cli.py
