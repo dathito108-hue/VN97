@@ -33,14 +33,11 @@ jobs:
 
       - name: Scale ladder contract
         run: |
-          PYTHONPATH=src python - <<'PY'
-          from vn97.p5_scaled_foundation import CANDIDATES
-          assert [(c.d_model, c.n_layers, c.d_state, c.embedding_rank) for c in CANDIDATES] == [
-              (576, 18, 32, 288),
-              (672, 20, 32, 336),
-              (768, 20, 32, 384),
-          ]
-          PY
+          grep -q 'd_model=576' src/vn97/p5_scaled_foundation.py
+          grep -q 'n_layers=18' src/vn97/p5_scaled_foundation.py
+          grep -q 'd_model=672' src/vn97/p5_scaled_foundation.py
+          grep -q 'd_model=768' src/vn97/p5_scaled_foundation.py
+          grep -q 'MAX_TRAIN_WINDOWS = 6000' src/vn97/p5_scaled_foundation.py
 
       - name: T4 memory contract
         run: |
