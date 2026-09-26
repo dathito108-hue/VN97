@@ -1,0 +1,52 @@
+name: VN97 P4E-N Sequential Validate
+
+on:
+  push:
+    branches:
+      - p4e-n-low-memory-sequential-scan
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Python syntax
+        run: |
+          python -m compileall -q             src/vn97/model.py             src/vn97/p4_sequence_ranking_repair_cli.py
+
+      - name: Parallel/sequential numerical equivalence
+        run: |
+          python - <<'PY'
+          import torch
+          from vn97.config import VN97Config
+          from vn97.model import VN97LanguageCore
+
+          torch.manual_seed(97)
+          model = VN97LanguageCore(
+              VN97Config(
+                  vocab_size=64,
+                  d_model=16,
+                  n_layers=2,
+                  d_state=4,
+                  embedding_rank=8,
+              )
+          )
+          ids = torch.randint(0, 64, (1, 19))
+          model.eval()
+          parallel, _ = model(ids)
+          sequential, _ = model.forward_sequential_reference(ids)
+          max_diff = (parallel - sequential).abs().max().item()
+          print("max_diff", max_diff)
+          assert max_diff < 1e-4
+          PY
+
+      - name: Training path contract
+        run: |
+          grep -q 'forward_sequential_reference' src/vn97/p4_sequence_ranking_repair_cli.py
+          grep -q 'memory_safe_detached_negative_v1' src/vn97/p4_sequence_ranking_repair_cli.py
+          grep -q 'state.p4en.pt' src/vn97/p4_sequence_ranking_repair_cli.py
