@@ -5,6 +5,7 @@ from dataclasses import asdict
 import hashlib
 import json
 import math
+import os
 from pathlib import Path
 import random
 import sys
@@ -251,29 +252,88 @@ def _evaluate_fp32(
     }
 
 
+def _safe_torch_save(
+    payload: object,
+    path: Path,
+) -> None:
+    """Write a large torch artifact atomically using the legacy stream format.
+
+    P5D2 v1 attempted to serialize a 309M FP32 model plus the full AdamW state
+    for both candidates at the same step. Each resume file exceeded ~3 GiB and
+    two simultaneous zip writers failed on Kaggle with basic_ios/iostream
+    errors. The legacy stream avoids the zip central-directory failure mode,
+    and fsync makes the rename boundary explicit.
+    """
+    temp = path.with_suffix(
+        path.suffix + ".tmp"
+    )
+    temp.unlink(
+        missing_ok=True
+    )
+    with temp.open("wb") as handle:
+        torch.save(
+            payload,
+            handle,
+            _use_new_zipfile_serialization=False,
+        )
+        handle.flush()
+        os.fsync(
+            handle.fileno()
+        )
+    temp.replace(
+        path
+    )
+
+
+def _light_resume_state(
+    model: VN97LanguageCore,
+) -> dict[str, torch.Tensor]:
+    """Return a compact FP16 CPU snapshot for restart-only checkpoints.
+
+    The live training model remains FP32. On resume, tensors are copied back
+    into the FP32 parameters. Optimizer moments are deliberately not persisted;
+    restarting AdamW at a checkpoint is preferable to multi-gigabyte resume
+    files that fail to write on the Kaggle filesystem.
+    """
+    state: dict[
+        str,
+        torch.Tensor,
+    ] = {}
+    for name, tensor in model.state_dict().items():
+        value = tensor.detach().cpu()
+        if value.is_floating_point():
+            value = value.to(
+                dtype=torch.float16
+            )
+        state[name] = value
+    return state
+
+
 def _save_resume(
     path: Path,
     *,
     identity: str,
     model: VN97LanguageCore,
-    optimizer: torch.optim.Optimizer,
     next_step: int,
     loss_sum: float,
     target_tokens: int,
-) -> None:
-    temp = path.with_suffix(path.suffix + ".tmp")
-    torch.save(
+) -> int:
+    state = _light_resume_state(
+        model
+    )
+    _safe_torch_save(
         {
+            "format": "VN97P5D2LIGHT1",
             "identity": identity,
             "loss_sum": loss_sum,
-            "model": model.state_dict(),
+            "model": state,
             "next_step": next_step,
-            "optimizer": optimizer.state_dict(),
+            "optimizer_state": "reset_on_resume",
             "target_tokens": target_tokens,
         },
-        temp,
+        path,
     )
-    temp.replace(path)
+    return path.stat().st_size
 
 
 def _load_resume(
@@ -281,7 +341,6 @@ def _load_resume(
     *,
     identity: str,
     model: VN97LanguageCore,
-    optimizer: torch.optim.Optimizer,
 ) -> tuple[int, float, int]:
     if not path.exists():
         return 0, 0.0, 0
@@ -292,13 +351,34 @@ def _load_resume(
         weights_only=False,
     )
     if payload.get("identity") != identity:
-        raise VN97P5D2Error("P5D2 resume identity mismatch")
-    model.load_state_dict(payload["model"])
-    optimizer.load_state_dict(payload["optimizer"])
+        raise VN97P5D2Error(
+            "P5D2 resume identity mismatch"
+        )
+    if "model" not in payload:
+        raise VN97P5D2Error(
+            "P5D2 resume checkpoint has no model state"
+        )
+    model.load_state_dict(
+        payload["model"]
+    )
+    next_step = int(
+        payload["next_step"]
+    )
+    print(
+        "VN97 P5D2 RESUME "
+        f"step={next_step} "
+        "optimizer_state=reset "
+        f"format={payload.get('format', 'legacy-full')}",
+        flush=True,
+    )
     return (
-        int(payload["next_step"]),
-        float(payload["loss_sum"]),
-        int(payload["target_tokens"]),
+        next_step,
+        float(
+            payload["loss_sum"]
+        ),
+        int(
+            payload["target_tokens"]
+        ),
     )
 
 
@@ -337,7 +417,7 @@ def _write_float_artifact(
 ) -> str:
     artifact_path = output / "student-float.pt"
     temp = artifact_path.with_suffix(".pt.tmp")
-    torch.save(
+    _safe_torch_save(
         {
             "candidate": candidate.canonical_object(),
             "candidate_index": candidate_index,
@@ -349,9 +429,8 @@ def _write_float_artifact(
             "state_dict": model.state_dict(),
             "tokenizer_sha256": hashlib.sha256(tokenizer_bytes).hexdigest(),
         },
-        temp,
+        artifact_path,
     )
-    temp.replace(artifact_path)
     return _sha256(artifact_path)
 
 
@@ -501,7 +580,6 @@ def main(argv: list[str] | None = None) -> int:
         resume_path,
         identity=identity,
         model=model,
-        optimizer=optimizer,
     )
 
     order = list(range(len(train_windows)))
@@ -591,15 +669,28 @@ def main(argv: list[str] | None = None) -> int:
                 flush=True,
             )
 
+        checkpoint_offset = (
+            0
+            if args.candidate_index == 0
+            else CHECKPOINT_INTERVAL_STEPS // 2
+        )
+        checkpoint_due = (
+            completed >= checkpoint_offset
+            and (
+                completed
+                - checkpoint_offset
+            )
+            % CHECKPOINT_INTERVAL_STEPS
+            == 0
+        )
         if (
-            completed % CHECKPOINT_INTERVAL_STEPS == 0
+            checkpoint_due
             and completed < total_steps
         ):
-            _save_resume(
+            checkpoint_bytes = _save_resume(
                 resume_path,
                 identity=identity,
                 model=model,
-                optimizer=optimizer,
                 next_step=completed,
                 loss_sum=cumulative_loss,
                 target_tokens=cumulative_targets,
@@ -608,6 +699,8 @@ def main(argv: list[str] | None = None) -> int:
                 "VN97 P5D2 CHECKPOINT "
                 f"candidate={args.candidate_index} "
                 f"step={completed}/{total_steps} "
+                f"bytes={checkpoint_bytes} "
+                "optimizer_state=reset_on_resume "
                 f"path={resume_path}",
                 flush=True,
             )

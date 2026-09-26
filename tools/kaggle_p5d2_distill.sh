@@ -63,9 +63,16 @@ for IDX in 0 1; do
     if [[ -d "$FINAL" && ! -f "$FINAL/p5d2-report.json" ]]; then
       rm -rf "$FINAL"
     fi
+    # A failed torch.save can leave a multi-gigabyte partial temp file behind.
+    # It is never a valid resume checkpoint and must not consume the next run's
+    # disk budget.
+    rm -f "$WORK/state.p5d2.pt.tmp"
   fi
 done
 rm -f /kaggle/working/p5d2-selection.json
+
+echo "P5D2 disk status before launch:"
+df -h /kaggle/working || true
 
 run_candidate() {
   local IDX="$1"
