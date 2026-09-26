@@ -283,6 +283,10 @@ def _structured(
     validation: bool,
 ) -> VN97P4DRecord:
     mode = rng.randrange(3)
+    reference = rng.randrange(
+        100000,
+        999999,
+    )
     if mode == 0:
         value = rng.randrange(1, 200)
         expected = {
@@ -330,6 +334,10 @@ def _structured(
             prompt = (
                 f'No prose. JSON with "action":"{action}" and "ok":true.'
             )
+    prompt = (
+        f"Reference {reference}. "
+        + prompt
+    )
     return _record(
         "structured_cognition",
         prompt,
@@ -376,6 +384,10 @@ def _tool(
     *,
     validation: bool,
 ) -> VN97P4DRecord:
+    reference = rng.randrange(
+        100000,
+        999999,
+    )
     capability, approval, action = rng.choice(
         _TOOL_CASES
     )
@@ -397,6 +409,10 @@ def _tool(
             f"A user asks to {action}. Classify the tool request. "
             f'JSON only: capability "{capability}", requires_approval {approval_text}.'
         )
+    prompt = (
+        f"Request reference {reference}. "
+        + prompt
+    )
     return _record(
         "tool_intent",
         prompt,
@@ -443,6 +459,10 @@ def _authority(
     *,
     validation: bool,
 ) -> VN97P4DRecord:
+    reference = rng.randrange(
+        100000,
+        999999,
+    )
     scenario, decision, reason = rng.choice(
         _AUTH_CASES
     )
@@ -460,6 +480,10 @@ def _authority(
             f"Scenario: {scenario}. "
             f'Output JSON only with decision "{decision}" and reason "{reason}".'
         )
+    prompt = (
+        f"Audit reference {reference}. "
+        + prompt
+    )
     return _record(
         "authority_behavior",
         prompt,
