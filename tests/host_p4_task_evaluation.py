@@ -24,6 +24,7 @@ from vn97.p4_task_evaluation import (
     P4_CATEGORIES,
     VN97P4EvaluationError,
     load_p4_task_suite,
+    render_p4_chat_prompt,
     score_p4_output,
     verify_p3_final_artifact,
 )
@@ -365,3 +366,14 @@ def test_suite_rejects_noncanonical_json(
         match="canonical JSON",
     ):
         load_p4_task_suite(path)
+
+
+def test_p4_prompt_matches_p3_chat_training_shape() -> None:
+    rendered = render_p4_chat_prompt(
+        "Reply with exactly OK"
+    )
+    assert rendered == (
+        "\n<|user|>\n"
+        "Reply with exactly OK\n"
+        "\n<|assistant|>\n"
+    )
