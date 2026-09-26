@@ -1,0 +1,31 @@
+name: VN97 P4E-I Anchor Fix Validate
+
+on:
+  push:
+    branches:
+      - p4e-i-fix-anchor-replay
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Syntax
+        run: python -m py_compile src/vn97/p4_numeric_arithmetic_curriculum.py
+
+      - name: Anchor replay contract
+        run: |
+          grep -q 'anchor_forbidden' src/vn97/p4_numeric_arithmetic_curriculum.py
+          grep -q 'in p4e_g_training()' src/vn97/p4_numeric_arithmetic_curriculum.py
+          python - <<'PY'
+          from pathlib import Path
+          text = Path("src/vn97/p4_numeric_arithmetic_curriculum.py").read_text()
+          block = text.split("anchors = [", 1)[1].split("anchors.sort(", 1)[0]
+          assert "not in blocked" not in block
+          assert "not in anchor_forbidden" in block
+          PY

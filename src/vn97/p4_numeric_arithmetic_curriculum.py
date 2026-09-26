@@ -274,6 +274,18 @@ def numeric_arithmetic_training() -> tuple[
         _arithmetic_record,
     )
 
+    # Anchor replay intentionally reuses earlier non-reasoning
+    # P4E-G training examples to preserve already acquired capability.
+    # They must NOT be filtered by `blocked`, because `blocked`
+    # deliberately contains all P4E-G training prompts to keep the
+    # newly generated numeric/arithmetic records disjoint from them.
+    anchor_forbidden = {
+        item.prompt
+        for item in (
+            *p4d_validation(),
+            *numeric_copy_validation(),
+        )
+    }
     anchors = [
         item
         for item
@@ -281,7 +293,7 @@ def numeric_arithmetic_training() -> tuple[
         if item.category
         != "reasoning_planning"
         and item.prompt
-        not in blocked
+        not in anchor_forbidden
         and item.prompt
         not in seen
     ]
