@@ -25,6 +25,10 @@ from .memory import MemoryKind
 from .model import VN97LanguageCore
 from .planner import MemoryContext, PlanStepSpec, StepKind
 from .tokenizer import VN97Tokenizer
+from .training import (
+    VN97ChatMessage,
+    encode_chat_completion_prompt,
+)
 from .chat_boundary import recover_chat_response_text
 
 
@@ -219,21 +223,31 @@ class TorchVN97InferenceEngine:
         return token_ids
 
     @torch.inference_mode()
-    def generate_text(
+    def _generate_from_token_ids(
         self,
-        prompt: str,
+        token_ids: list[int] | tuple[int, ...],
         *,
         max_new_tokens: int,
     ) -> str:
         if max_new_tokens <= 0:
             raise ValueError("max_new_tokens must be positive")
-        token_ids = self._encode_prompt(prompt)
         if not token_ids:
             raise VN97InferenceContractError("encoded prompt is empty")
+        if len(token_ids) > self.limits.max_prompt_tokens:
+            raise VN97InferenceContractError(
+                "prompt exceeds VN97 inference token budget"
+            )
+        if any(
+            token < 0 or token >= self.tokenizer.vocab_size
+            for token in token_ids
+        ):
+            raise VN97InferenceContractError(
+                "prompt contains token outside tokenizer vocabulary"
+            )
 
         device = self._device()
         input_ids = torch.tensor(
-            [token_ids],
+            [list(token_ids)],
             dtype=torch.long,
             device=device,
         )
@@ -285,6 +299,34 @@ class TorchVN97InferenceEngine:
                 "model output exceeds UTF-8 byte budget"
             )
         return text
+
+    @torch.inference_mode()
+    def generate_text(
+        self,
+        prompt: str,
+        *,
+        max_new_tokens: int,
+    ) -> str:
+        return self._generate_from_token_ids(
+            self._encode_prompt(prompt),
+            max_new_tokens=max_new_tokens,
+        )
+
+    @torch.inference_mode()
+    def generate_chat_completion(
+        self,
+        messages: tuple[VN97ChatMessage, ...],
+        *,
+        max_new_tokens: int,
+    ) -> str:
+        token_ids = encode_chat_completion_prompt(
+            self.tokenizer,
+            messages,
+        )
+        return self._generate_from_token_ids(
+            token_ids,
+            max_new_tokens=max_new_tokens,
+        )
 
     @torch.inference_mode()
     def embed_text(
