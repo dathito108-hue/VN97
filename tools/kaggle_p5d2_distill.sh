@@ -49,10 +49,26 @@ print(
 )
 PY
 
-python -m pip install --disable-pip-version-check --no-deps -e .
-
+export PYTHONPATH="$REPO_ROOT/src:${PYTHONPATH:-}"
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 export TOKENIZERS_PARALLELISM=false
+
+MIN_FREE_BYTES=$((5 * 1024 * 1024 * 1024))
+FREE_BYTES="$(df -PB1 /kaggle/working | awk 'NR==2 {print $4}')"
+if [[ -z "$FREE_BYTES" || "$FREE_BYTES" -lt "$MIN_FREE_BYTES" ]]; then
+  echo "P5D2 requires at least 5 GiB free in /kaggle/working."
+  echo "Current disk status:"
+  df -h /kaggle/working || true
+  echo "Safe cleanup candidates after P5D1:"
+  echo "  /kaggle/working/hf-cache"
+  echo "  /kaggle/working/p5d2-c0-work"
+  echo "  /kaggle/working/p5d2-c1-work"
+  echo "  /kaggle/working/p5d2-c0-final"
+  echo "  /kaggle/working/p5d2-c1-final"
+  echo "  /kaggle/working/p5d2-c0.log"
+  echo "  /kaggle/working/p5d2-c1.log"
+  exit 3
+fi
 
 for IDX in 0 1; do
   WORK="/kaggle/working/p5d2-c${IDX}-work"
@@ -86,7 +102,16 @@ run_candidate() {
     return 0
   fi
 
-  CUDA_VISIBLE_DEVICES="$PHYSICAL_GPU"     vn97-p5d2-distill       --teacher-corpus-dir "$P5D1_DIR"       --vn97-tokenizer "$TOKENIZER"       --p3-corpus-dir "$P3_DIR"       --candidate-index "$IDX"       --work-dir "$WORK"       --output-dir "$FINAL"       --device cuda:0       2>&1 | tee "$LOG"
+  CUDA_VISIBLE_DEVICES="$PHYSICAL_GPU" \
+    python -m vn97.p5d_behavioral_distillation_cli \
+      --teacher-corpus-dir "$P5D1_DIR" \
+      --vn97-tokenizer "$TOKENIZER" \
+      --p3-corpus-dir "$P3_DIR" \
+      --candidate-index "$IDX" \
+      --work-dir "$WORK" \
+      --output-dir "$FINAL" \
+      --device cuda:0 \
+      2>&1 | tee "$LOG"
 }
 
 run_candidate 0 0 &
