@@ -1,0 +1,40 @@
+name: VN97 P4E-L Validate
+
+on:
+  push:
+    branches:
+      - p4e-l-arithmetic-mechanism-audit
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Python syntax
+        run: |
+          python -m compileall -q \
+            src/vn97/p4_arithmetic_mechanism_audit_cli.py
+
+      - name: Shell syntax
+        run: bash -n tools/kaggle_p4e_arithmetic_mechanism_audit.sh
+
+      - name: Entrypoint contract
+        run: |
+          python - <<'PY'
+          import tomllib
+          from pathlib import Path
+          data = tomllib.loads(Path("pyproject.toml").read_text())
+          assert data["project"]["scripts"]["vn97-p4e-arithmetic-mechanism-audit"] == "vn97.p4_arithmetic_mechanism_audit_cli:main"
+          PY
+
+      - name: Mechanism audit markers
+        run: |
+          grep -q 'rank1_but_decode_fail' src/vn97/p4_arithmetic_mechanism_audit_cli.py
+          grep -q 'mean_logprob' src/vn97/p4_arithmetic_mechanism_audit_cli.py
+          grep -q 'normalized_pass' src/vn97/p4_arithmetic_mechanism_audit_cli.py
+          grep -q 'first_token_rank' src/vn97/p4_arithmetic_mechanism_audit_cli.py
