@@ -1,0 +1,48 @@
+name: VN97 P5C Validate
+
+on:
+  push:
+    branches:
+      - p5c-short-alignment-calibration
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Python syntax
+        run: |
+          python -m compileall -q             src/vn97/p5c_alignment.py             src/vn97/p5c_alignment_cli.py
+
+      - name: Shell syntax
+        run: bash -n tools/kaggle_p5c_alignment.sh
+
+      - name: Entrypoint contract
+        run: |
+          python - <<'PY'
+          import tomllib
+          from pathlib import Path
+          data = tomllib.loads(Path("pyproject.toml").read_text())
+          assert data["project"]["scripts"]["vn97-p5c-align"] == "vn97.p5c_alignment_cli:main"
+          PY
+
+      - name: Short alignment contract
+        run: |
+          grep -q 'MAX_TRAIN_WINDOWS = 2400' src/vn97/p5c_alignment.py
+          grep -q 'LEXICAL_LR = 5e-5' src/vn97/p5c_alignment.py
+          grep -q 'CORE_LR = 1e-5' src/vn97/p5c_alignment.py
+          grep -q 'forward_sequential_reference' src/vn97/p5c_alignment_cli.py
+          grep -q 'GradScaler' src/vn97/p5c_alignment_cli.py
+          grep -q 'state.p5c.pt' src/vn97/p5c_alignment_cli.py
+
+      - name: Parent and held-out gates
+        run: |
+          grep -q 'TRANSPLANT_READY_FOR_ALIGNMENT' src/vn97/p5c_alignment_cli.py
+          grep -q 'held_out_expressions' src/vn97/p5c_alignment_cli.py
+          grep -q 'ELIGIBLE_FOR_P5D' src/vn97/p5c_alignment_cli.py
+          grep -q 'numeric_copy' src/vn97/p5c_alignment_cli.py
