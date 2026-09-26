@@ -84,7 +84,27 @@ export HF_HOME="$HF_CACHE"
 export TOKENIZERS_PARALLELISM=false
 export PIP_NO_CACHE_DIR=1
 
-python -m pip install --disable-pip-version-check --no-cache-dir -q   "transformers>=4.46,<5"   "accelerate>=0.34"   "huggingface_hub>=0.24"   safetensors   sentencepiece
+python -m pip install --disable-pip-version-check --no-cache-dir -q \
+  "transformers==4.46.1" \
+  "tokenizers==0.20.3" \
+  "accelerate>=0.34,<2" \
+  "huggingface_hub>=0.24,<1" \
+  safetensors \
+  sentencepiece
+
+python - <<'PY'
+import tokenizers
+import transformers
+print(
+    "P5D3A HF STACK "
+    f"transformers={transformers.__version__} "
+    f"tokenizers={tokenizers.__version__}"
+)
+if transformers.__version__ != "4.46.1":
+    raise SystemExit("P5D3A transformers compatibility pin was not applied")
+if tokenizers.__version__ != "0.20.3":
+    raise SystemExit("P5D3A tokenizers compatibility pin was not applied")
+PY
 
 python -m vn97.p5d3_teacher_features_cli   --p5d1-dir "$P5D1_DIR"   --work-dir "$WORK"   --output-dir "$FINAL"   --progress-interval 10   --accept-teacher-license TII-FALCON-LLM-2.0
 
