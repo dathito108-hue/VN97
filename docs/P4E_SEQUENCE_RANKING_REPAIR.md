@@ -91,3 +91,25 @@ The P4E-N v2 trainer is specifically hardened for 16 GB-class GPUs:
 
 This preserves the sequence-ranking objective while avoiding the three
 simultaneous recurrent graphs that caused the original Tesla T4 OOM.
+
+
+## T4 v3 single-sample microbatch execution
+
+A second Kaggle T4 run reached checkpoint step 100/900 but later exhausted
+VRAM once full optimizer state and gradients were resident.
+
+The v3 execution path keeps the same logical batch sizes and therefore remains
+resume-compatible with the v2 `state.p4en.pt` checkpoint. Internally, each
+logical batch is evaluated one sample at a time:
+
+- preservation examples are backpropagated individually with exact
+  target-token weighting;
+- each hard negative is scored individually under `no_grad`;
+- each correct answer is backpropagated individually with exact
+  target-token CE weighting and per-pair ranking averaging;
+- gradients accumulate across the logical batch and one optimizer step is
+  performed at the original boundary;
+- CUDA cache is released between recurrent microbatches.
+
+This lowers peak recurrent activation memory without changing the intended
+logical loss or step numbering.

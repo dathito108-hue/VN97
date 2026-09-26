@@ -1076,109 +1076,217 @@ def main(
             set_to_none=True
         )
 
-        # Memory-safe ordering for 16 GB-class GPUs:
-        # 1) preserve loss backward immediately so its recurrent graph can die;
-        # 2) score hard negatives without gradients;
-        # 3) keep gradients only for the correct-answer path and ranking term.
-        (
-            _preserve_scores,
-            preserve_ce,
-        ) = _scores_and_ce(
-            model,
-            preserve_batch,
-            pad_token_id=
-                tokenizer.pad_id,
-            device=args.device,
-        )
-        preserve_loss = (
-            args.preserve_weight
-            * preserve_ce
-        )
-        if not bool(
-            torch.isfinite(
-                preserve_loss
+        # T4-safe single-sample microbatching while preserving the logical
+        # batch objective and resume identity. Each recurrent graph is
+        # backpropagated/released before the next sample is evaluated.
+        preserve_total_tokens = sum(
+            sum(
+                1
+                for enabled
+                in example.target_mask[1:]
+                if enabled
             )
-        ):
+            for example
+            in preserve_batch
+        )
+        if preserve_total_tokens <= 0:
             raise VN97P4ENError(
-                "P4E-N preservation loss is non-finite"
+                "P4E-N preservation batch has no supervised targets"
             )
-        preserve_loss.backward()
-        preserve_value = float(
-            preserve_ce.detach().item()
-        )
-        del (
-            _preserve_scores,
-            preserve_ce,
-            preserve_loss,
-        )
 
-        with torch.no_grad():
+        preserve_weighted_sum = 0.0
+        for example in preserve_batch:
+            target_count = sum(
+                1
+                for enabled
+                in example.target_mask[1:]
+                if enabled
+            )
             (
-                negative_scores,
-                _negative_ce,
+                _preserve_scores,
+                preserve_ce,
             ) = _scores_and_ce(
                 model,
-                negative_batch,
+                [example],
                 pad_token_id=
                     tokenizer.pad_id,
                 device=args.device,
             )
-            negative_scores = (
-                negative_scores.detach()
+            scale = (
+                args.preserve_weight
+                * target_count
+                / preserve_total_tokens
             )
-            del _negative_ce
+            preserve_component = (
+                preserve_ce
+                * scale
+            )
+            if not bool(
+                torch.isfinite(
+                    preserve_component
+                )
+            ):
+                raise VN97P4ENError(
+                    "P4E-N preservation loss is non-finite"
+                )
+            preserve_component.backward()
+            preserve_weighted_sum += (
+                float(
+                    preserve_ce.detach().item()
+                )
+                * target_count
+            )
+            del (
+                _preserve_scores,
+                preserve_ce,
+                preserve_component,
+            )
 
-        (
-            correct_scores,
-            correct_ce,
-        ) = _scores_and_ce(
-            model,
-            correct_batch,
-            pad_token_id=
-                tokenizer.pad_id,
-            device=args.device,
+        preserve_value = (
+            preserve_weighted_sum
+            / preserve_total_tokens
         )
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
-        rank_loss = F.softplus(
-            args.ranking_margin
-            - (
-                correct_scores
-                - negative_scores
+        correct_total_tokens = sum(
+            sum(
+                1
+                for enabled
+                in example.target_mask[1:]
+                if enabled
             )
-        ).mean()
-
-        reason_loss = (
-            correct_ce
-            + args.ranking_weight
-            * rank_loss
+            for example
+            in correct_batch
         )
-
-        if not bool(
-            torch.isfinite(
-                reason_loss
-            )
-        ):
+        if correct_total_tokens <= 0:
             raise VN97P4ENError(
-                "P4E-N reasoning loss is non-finite"
+                "P4E-N reasoning batch has no supervised targets"
             )
 
-        reason_loss.backward()
+        correct_weighted_sum = 0.0
+        rank_sum = 0.0
+        pair_count = len(
+            correct_batch
+        )
+        if pair_count <= 0:
+            raise VN97P4ENError(
+                "P4E-N reasoning batch is empty"
+            )
+
+        for (
+            correct_example,
+            negative_example,
+        ) in zip(
+            correct_batch,
+            negative_batch,
+            strict=True,
+        ):
+            with torch.no_grad():
+                (
+                    negative_scores,
+                    _negative_ce,
+                ) = _scores_and_ce(
+                    model,
+                    [negative_example],
+                    pad_token_id=
+                        tokenizer.pad_id,
+                    device=args.device,
+                )
+                negative_scores = (
+                    negative_scores.detach()
+                )
+                del _negative_ce
+
+            (
+                correct_scores,
+                correct_ce,
+            ) = _scores_and_ce(
+                model,
+                [correct_example],
+                pad_token_id=
+                    tokenizer.pad_id,
+                device=args.device,
+            )
+
+            rank_item = F.softplus(
+                args.ranking_margin
+                - (
+                    correct_scores
+                    - negative_scores
+                )
+            ).mean()
+
+            target_count = sum(
+                1
+                for enabled
+                in correct_example.target_mask[1:]
+                if enabled
+            )
+            ce_scale = (
+                target_count
+                / correct_total_tokens
+            )
+            reason_component = (
+                correct_ce
+                * ce_scale
+                + args.ranking_weight
+                * rank_item
+                / pair_count
+            )
+
+            if not bool(
+                torch.isfinite(
+                    reason_component
+                )
+            ):
+                raise VN97P4ENError(
+                    "P4E-N reasoning loss is non-finite"
+                )
+
+            reason_component.backward()
+
+            correct_weighted_sum += (
+                float(
+                    correct_ce.detach().item()
+                )
+                * target_count
+            )
+            rank_sum += float(
+                rank_item.detach().item()
+            )
+
+            del (
+                negative_scores,
+                correct_scores,
+                correct_ce,
+                rank_item,
+                reason_component,
+            )
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
+        reason_ce_value = (
+            correct_weighted_sum
+            / correct_total_tokens
+        )
+        rank_value = (
+            rank_sum
+            / pair_count
+        )
+        loss_value = (
+            reason_ce_value
+            + args.ranking_weight
+            * rank_value
+            + args.preserve_weight
+            * preserve_value
+        )
+
         torch.nn.utils.clip_grad_norm_(
             model.parameters(),
             args.max_grad_norm,
         )
         optimizer.step()
-
-        loss_value = (
-            float(
-                reason_loss.detach().item()
-            )
-            + args.preserve_weight
-            * preserve_value
-        )
-        rank_value = float(
-            rank_loss.detach().item()
-        )
 
         cumulative_loss += (
             loss_value
@@ -1188,14 +1296,6 @@ def main(
         )
         cumulative_preserve_loss += (
             preserve_value
-        )
-
-        del (
-            negative_scores,
-            correct_scores,
-            correct_ce,
-            rank_loss,
-            reason_loss,
         )
 
         completed = step + 1
