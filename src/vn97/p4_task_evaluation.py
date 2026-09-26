@@ -175,6 +175,8 @@ def _bounded_file(
 class VN97P3FinalArtifact:
     root: Path
     p3_run_sha256: str
+    corpus_manifest_id: str
+    corpus_manifest_sha256: str
     selected_candidate_id: str
     checkpoint_sha256: str
     tokenizer_sha256: str
@@ -351,6 +353,18 @@ def verify_p3_final_artifact(
             "P3 selected candidate ID is invalid"
         )
 
+    corpus_manifest_id = _require_sha256(
+        p3_run.get(
+            "corpus_manifest_id"
+        ),
+        label="P3 corpus manifest ID",
+    )
+    corpus_manifest_sha256 = _require_sha256(
+        p3_run.get(
+            "corpus_manifest_sha256"
+        ),
+        label="P3 corpus manifest SHA-256",
+    )
     campaign_sha = _require_sha256(
         p3_run.get(
             "campaign_report_sha256"
@@ -537,6 +551,10 @@ def verify_p3_final_artifact(
                 "p3-run.vn97p3run1.json"
             ]
         ),
+        corpus_manifest_id=
+            corpus_manifest_id,
+        corpus_manifest_sha256=
+            corpus_manifest_sha256,
         selected_candidate_id=
             selected_candidate_id,
         checkpoint_sha256=
