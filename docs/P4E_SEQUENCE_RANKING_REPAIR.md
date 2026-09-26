@@ -113,3 +113,29 @@ logical batch is evaluated one sample at a time:
 
 This lowers peak recurrent activation memory without changing the intended
 logical loss or step numbering.
+
+
+## T4 v4 sequential-reference scan
+
+A resume attempt from step 100/900 still exhausted the Tesla T4 inside
+`affine_prefix_scan()`, specifically while allocating the full-sequence
+`torch.cat` prefix tensors. This shows the remaining peak was the parallel
+scan itself rather than logical batch size.
+
+P4E-N v4 keeps the same model parameters, recurrence equation, logical loss,
+optimizer step numbering, and resume identity, but uses VN97's existing
+`SelectiveSSM.forward_sequential_reference()` execution path for the
+training-only scoring calls.
+
+The sequential-reference path:
+
+- uses the same exact-ZOH selective SSM dynamics;
+- uses the same projections, gates, residuals, and weights;
+- avoids the O(log sequence) full-sequence prefix-scan intermediates;
+- trades speed for substantially lower peak VRAM;
+- leaves normal production/inference `forward()` on the parallel scan.
+
+Because the objective and optimizer step boundary remain unchanged, the
+existing step-100 `state.p4en.pt` checkpoint remains resume-compatible.
+Floating-point reduction order may differ slightly from the parallel scan,
+which is expected for mathematically equivalent execution paths.
