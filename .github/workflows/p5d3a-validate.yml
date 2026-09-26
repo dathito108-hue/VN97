@@ -1,0 +1,47 @@
+name: VN97 P5D3A Validate
+
+on:
+  push:
+    branches:
+      - p5d3a-relational-teacher-features
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Python syntax
+        run: |
+          python -m compileall -q             src/vn97/p5d3_relational_features.py             src/vn97/p5d3_teacher_features_cli.py
+
+      - name: Shell syntax
+        run: bash -n tools/kaggle_p5d3a_teacher_features.sh
+
+      - name: Entrypoint contract
+        run: |
+          python - <<'PY'
+          import tomllib
+          from pathlib import Path
+          data = tomllib.loads(Path("pyproject.toml").read_text())
+          assert data["project"]["scripts"]["vn97-p5d3a-teacher-features"] == "vn97.p5d3_teacher_features_cli:main"
+          PY
+
+      - name: Relational target contract
+        run: |
+          grep -q 'TEACHER_HIDDEN_STATE_INDICES = (16, 32, 48, 64)' src/vn97/p5d3_relational_features.py
+          grep -q 'RELATIONAL_SEGMENTS = 4' src/vn97/p5d3_relational_features.py
+          grep -q 'cross-tokenizer segment-cosine-gram' src/vn97/p5d3_relational_features.py
+          grep -q 'output_hidden_states=True' src/vn97/p5d3_teacher_features_cli.py
+          grep -q 'RELATIONAL_TARGETS_READY' src/vn97/p5d3_teacher_features_cli.py
+
+      - name: Disk and teacher contract
+        run: |
+          grep -q 'MIN_FREE_BYTES' tools/kaggle_p5d3a_teacher_features.sh
+          grep -q '15 GiB' tools/kaggle_p5d3a_teacher_features.sh
+          grep -q 'rm -rf "$HF_CACHE"' tools/kaggle_p5d3a_teacher_features.sh
+          grep -q 'TII-FALCON-LLM-2.0' tools/kaggle_p5d3a_teacher_features.sh
