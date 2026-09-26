@@ -65,6 +65,7 @@ class TernaryLinear(nn.Module):
         self.in_features = in_features
         self.out_features = out_features
         self.threshold = threshold
+        self.float_shadow_enabled = False
         self.weight = nn.Parameter(torch.empty(out_features, in_features))
         if bias:
             self.bias = nn.Parameter(torch.empty(out_features))
@@ -82,6 +83,14 @@ class TernaryLinear(nn.Module):
     def quantized_weight(self) -> torch.Tensor:
         return quantize_ternary_per_channel(self.weight, self.threshold)
 
+    def effective_weight(self) -> torch.Tensor:
+        if self.float_shadow_enabled:
+            return self.weight
+        return self.quantized_weight()
+
+    def set_float_shadow(self, enabled: bool) -> None:
+        self.float_shadow_enabled = bool(enabled)
+
     def export_packed(
         self,
         *,
@@ -98,4 +107,24 @@ class TernaryLinear(nn.Module):
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return F.linear(x, self.quantized_weight(), self.bias)
+        return F.linear(x, self.effective_weight(), self.bias)
+
+
+def set_float_shadow_mode(
+    module: nn.Module,
+    enabled: bool,
+) -> int:
+    """Switch all VN97 ternary projections between dense shadow and ternary STE.
+
+    The flag is runtime-only and is intentionally absent from state_dict().
+    Deployment therefore remains ternary by default even when a checkpoint was
+    trained in float-shadow mode.
+    """
+    count = 0
+    for child in module.modules():
+        if isinstance(child, TernaryLinear):
+            child.set_float_shadow(
+                enabled
+            )
+            count += 1
+    return count
