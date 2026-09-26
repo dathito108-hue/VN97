@@ -116,10 +116,12 @@ def _no_repeat_banned_tokens(
     generated: list[int],
     ngram_size: int,
 ) -> set[int]:
-    if ngram_size <= 0 or len(generated) + 1 < ngram_size:
+    if ngram_size <= 0:
         return set()
     if ngram_size == 1:
         return set(generated)
+    if len(generated) < ngram_size:
+        return set()
 
     prefix_size = ngram_size - 1
     current_prefix = tuple(
@@ -127,7 +129,7 @@ def _no_repeat_banned_tokens(
     )
     banned: set[int] = set()
     limit = len(generated) - ngram_size + 1
-    for start in range(max(limit + 1, 0)):
+    for start in range(limit):
         prefix = tuple(
             generated[
                 start:
