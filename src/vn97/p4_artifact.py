@@ -391,3 +391,280 @@ def verify_p4c_artifact(
             tokenizer_package,
         report=report,
     )
+
+
+_P4D_FILES = {
+    "SHA256SUMS",
+    "model.vn97ck1",
+    "model.vn97mi1",
+    "p4d-report.json",
+    "tokenizer.vn97tk1",
+}
+_P4D_HASHED_FILES = (
+    _P4D_FILES
+    - {"SHA256SUMS"}
+)
+_P4D_STATUSES = {
+    "ELIGIBLE",
+    "REJECTED_VALIDATION",
+    "REJECTED_RETENTION",
+    "REJECTED_GENERALIZATION",
+}
+
+
+def _parse_p4d_sums(
+    data: bytes,
+) -> dict[str, str]:
+    try:
+        text = data.decode(
+            "ascii",
+            errors="strict",
+        )
+    except UnicodeDecodeError as exc:
+        raise VN97P4ArtifactError(
+            "P4D SHA256SUMS must be ASCII"
+        ) from exc
+    if not text.endswith("\n"):
+        raise VN97P4ArtifactError(
+            "P4D SHA256SUMS must end with newline"
+        )
+
+    result: dict[str, str] = {}
+    for line in text.splitlines():
+        if (
+            len(line) < 67
+            or line[64:66] != "  "
+        ):
+            raise VN97P4ArtifactError(
+                "P4D SHA256SUMS line is malformed"
+            )
+        digest = _require_sha256(
+            line[:64],
+            label="P4D SHA256SUMS digest",
+        )
+        name = line[66:]
+        if (
+            not name
+            or "/" in name
+            or "\\" in name
+            or name in result
+        ):
+            raise VN97P4ArtifactError(
+                "P4D SHA256SUMS filename is invalid"
+            )
+        result[name] = digest
+
+    if set(result) != _P4D_HASHED_FILES:
+        raise VN97P4ArtifactError(
+            "P4D SHA256SUMS file set mismatch"
+        )
+    return result
+
+
+@dataclass(frozen=True)
+class VN97P4DArtifact:
+    root: Path
+    report_sha256: str
+    checkpoint_sha256: str
+    tokenizer_sha256: str
+    model_image_sha256: str
+    status: str
+    checkpoint: VN97LoadedDeploymentCheckpoint
+    tokenizer_package: VN97TokenizerPackage
+    report: dict[str, object]
+
+
+def verify_p4d_artifact(
+    root: Path,
+) -> VN97P4DArtifact:
+    if root.is_symlink():
+        raise VN97P4ArtifactError(
+            "P4D root must not be a symlink"
+        )
+    try:
+        resolved = root.resolve(
+            strict=True
+        )
+    except FileNotFoundError as exc:
+        raise VN97P4ArtifactError(
+            "P4D root does not exist"
+        ) from exc
+    if not resolved.is_dir():
+        raise VN97P4ArtifactError(
+            "P4D root must be a directory"
+        )
+
+    names = {
+        item.name
+        for item in resolved.iterdir()
+    }
+    if names != _P4D_FILES:
+        raise VN97P4ArtifactError(
+            "P4D artifact file set mismatch"
+        )
+    if any(
+        (resolved / name).is_symlink()
+        for name in names
+    ):
+        raise VN97P4ArtifactError(
+            "P4D artifact must not contain symlinks"
+        )
+
+    sums = _parse_p4d_sums(
+        _read(
+            resolved / "SHA256SUMS",
+            max_bytes=64 * 1024,
+        )
+    )
+    raw: dict[str, bytes] = {}
+    for name in sorted(
+        _P4D_HASHED_FILES
+    ):
+        limit = (
+            _MAX_MODEL_BYTES
+            if name in {
+                "model.vn97ck1",
+                "model.vn97mi1",
+            }
+            else _MAX_JSON_BYTES
+        )
+        data = _read(
+            resolved / name,
+            max_bytes=limit,
+        )
+        if _sha256(data) != sums[name]:
+            raise VN97P4ArtifactError(
+                f"P4D SHA256SUMS mismatch: {name}"
+            )
+        raw[name] = data
+
+    try:
+        text = raw[
+            "p4d-report.json"
+        ].decode(
+            "utf-8",
+            errors="strict",
+        )
+        body = (
+            text[:-1]
+            if text.endswith("\n")
+            else text
+        )
+        report = json.loads(body)
+    except (
+        UnicodeDecodeError,
+        json.JSONDecodeError,
+    ) as exc:
+        raise VN97P4ArtifactError(
+            "P4D report must be UTF-8 JSON"
+        ) from exc
+
+    status = report.get("status") if isinstance(
+        report,
+        dict,
+    ) else None
+    if (
+        not isinstance(report, dict)
+        or report.get("schema")
+        != "VN97P4D1"
+        or status not in _P4D_STATUSES
+    ):
+        raise VN97P4ArtifactError(
+            "P4D report schema/status mismatch"
+        )
+    canonical = (
+        _canonical_json(report)
+        + (
+            b"\n"
+            if text.endswith("\n")
+            else b""
+        )
+    )
+    if canonical != raw[
+        "p4d-report.json"
+    ]:
+        raise VN97P4ArtifactError(
+            "P4D report must use canonical JSON"
+        )
+
+    checkpoint_sha = _require_sha256(
+        report.get(
+            "output_checkpoint_sha256"
+        ),
+        label="P4D checkpoint SHA-256",
+    )
+    tokenizer_sha = _require_sha256(
+        report.get(
+            "tokenizer_sha256"
+        ),
+        label="P4D tokenizer SHA-256",
+    )
+    model_image_sha = _require_sha256(
+        report.get(
+            "model_image_sha256"
+        ),
+        label="P4D model image SHA-256",
+    )
+
+    if (
+        _sha256(
+            raw["tokenizer.vn97tk1"]
+        )
+        != tokenizer_sha
+        or _sha256(
+            raw["model.vn97mi1"]
+        )
+        != model_image_sha
+    ):
+        raise VN97P4ArtifactError(
+            "P4D report output identity mismatch"
+        )
+
+    checkpoint = (
+        load_deployment_checkpoint_file(
+            resolved / "model.vn97ck1"
+        )
+    )
+    if (
+        checkpoint.checkpoint_sha256
+        != checkpoint_sha
+    ):
+        raise VN97P4ArtifactError(
+            "P4D checkpoint identity mismatch"
+        )
+
+    try:
+        tokenizer_package = (
+            VN97TokenizerPackage.from_bytes(
+                raw["tokenizer.vn97tk1"]
+            )
+        )
+    except (TypeError, ValueError) as exc:
+        raise VN97P4ArtifactError(
+            "P4D tokenizer package is invalid"
+        ) from exc
+    if (
+        tokenizer_package.vocab_size
+        != checkpoint.config.vocab_size
+    ):
+        raise VN97P4ArtifactError(
+            "P4D checkpoint/tokenizer vocabulary mismatch"
+        )
+
+    return VN97P4DArtifact(
+        root=resolved,
+        report_sha256=_sha256(
+            raw["p4d-report.json"]
+        ),
+        checkpoint_sha256=
+            checkpoint_sha,
+        tokenizer_sha256=
+            tokenizer_sha,
+        model_image_sha256=
+            model_image_sha,
+        status=str(status),
+        checkpoint=checkpoint,
+        tokenizer_package=
+            tokenizer_package,
+        report=report,
+    )
