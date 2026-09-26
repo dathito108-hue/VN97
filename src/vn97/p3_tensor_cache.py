@@ -920,6 +920,7 @@ def train_vn97_from_tensors(
     resume_checkpoint_path: Path | None = None,
     resume_identity: str | None = None,
     checkpoint_interval_steps: int = 250,
+    progress_protocol: str = "VN97 P3",
 ) -> VN97TrainingResult:
     if not isinstance(model, VN97LanguageCore):
         raise TypeError("model must be VN97LanguageCore")
@@ -969,6 +970,10 @@ def train_vn97_from_tensors(
     if not progress_label:
         raise VN97P3TensorCacheError(
             "progress_label must not be empty"
+        )
+    if not progress_protocol:
+        raise VN97P3TensorCacheError(
+            "progress_protocol must not be empty"
         )
     if micro_batch_size is None:
         micro_batch_size = config.batch_size
@@ -1068,7 +1073,7 @@ def train_vn97_from_tensors(
         )
         resumed_steps = steps
         print(
-            "VN97 P3 RESUME "
+            f"{progress_protocol} RESUME "
             f"{progress_label} "
             f"step={steps}/{total_steps} "
             f"percent={100.0 * steps / total_steps:.2f}",
@@ -1312,7 +1317,7 @@ def train_vn97_from_tensors(
                     / loss_count
                 )
                 print(
-                    "VN97 P3 PROGRESS "
+                    f"{progress_protocol} PROGRESS "
                     f"{progress_label} "
                     f"epoch={epoch_index + 1}/{config.epochs} "
                     f"step={steps}/{total_steps} "
@@ -1363,7 +1368,7 @@ def train_vn97_from_tensors(
                         resolved,
                 )
                 print(
-                    "VN97 P3 CHECKPOINT "
+                    f"{progress_protocol} CHECKPOINT "
                     f"{progress_label} "
                     f"step={steps}/{total_steps} "
                     f"path={resume_checkpoint_path}",
