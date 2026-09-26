@@ -36,6 +36,7 @@ vn97-p4e-interference-safe-reasoning = "vn97.p4_interference_safe_reasoning_cli:
 vn97-p4e-arithmetic-mechanism-audit = "vn97.p4_arithmetic_mechanism_audit_cli:main"
 vn97-p4e-numeric-beam-audit = "vn97.p4_numeric_beam_audit_cli:main"
 vn97-p4e-sequence-ranking-repair = "vn97.p4_sequence_ranking_repair_cli:main"
+vn97-p5a-scaled-foundation = "vn97.p5_scaled_foundation_cli:main"
 vn97-p2-source-fetch = "vn97.p2_source_fetch_cli:main"
 vn97-p2-corpus-bundle = "vn97.p2_corpus_bundle_cli:main"
 vn97-p2-pilot-handoff = "vn97.p2_pilot_handoff_cli:main"
