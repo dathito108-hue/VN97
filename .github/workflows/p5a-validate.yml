@@ -1,0 +1,57 @@
+name: VN97 P5A Validate
+
+on:
+  push:
+    branches:
+      - p5a-scaled-foundation-pilot
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Python syntax
+        run: |
+          python -m compileall -q             src/vn97/p5_scaled_foundation.py             src/vn97/p5_scaled_foundation_cli.py
+
+      - name: Shell syntax
+        run: bash -n tools/kaggle_p5a_scaled_foundation.sh
+
+      - name: Entrypoint contract
+        run: |
+          python - <<'PY'
+          import tomllib
+          from pathlib import Path
+          data = tomllib.loads(Path("pyproject.toml").read_text())
+          assert data["project"]["scripts"]["vn97-p5a-scaled-foundation"] == "vn97.p5_scaled_foundation_cli:main"
+          PY
+
+      - name: Scale ladder contract
+        run: |
+          PYTHONPATH=src python - <<'PY'
+          from vn97.p5_scaled_foundation import CANDIDATES
+          assert [(c.d_model, c.n_layers, c.d_state, c.embedding_rank) for c in CANDIDATES] == [
+              (576, 18, 32, 288),
+              (672, 20, 32, 336),
+              (768, 20, 32, 384),
+          ]
+          PY
+
+      - name: T4 memory contract
+        run: |
+          grep -q 'forward_sequential_reference' src/vn97/p5_scaled_foundation_cli.py
+          grep -q 'torch.float16' src/vn97/p5_scaled_foundation_cli.py
+          grep -q 'GradScaler' src/vn97/p5_scaled_foundation_cli.py
+          grep -q 'LOGICAL_BATCH_SIZE' src/vn97/p5_scaled_foundation_cli.py
+          grep -q 'expandable_segments:True' tools/kaggle_p5a_scaled_foundation.sh
+
+      - name: Held-out contract
+        run: |
+          grep -q 'held_out_expressions' src/vn97/p5_scaled_foundation_cli.py
+          grep -q 'held_out_prompts' src/vn97/p5_scaled_foundation_cli.py
+          grep -q 'reasoning_planning' src/vn97/p5_scaled_foundation_cli.py
