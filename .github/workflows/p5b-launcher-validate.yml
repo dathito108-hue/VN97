@@ -1,0 +1,20 @@
+name: VN97 P5B Launcher Validate
+
+on:
+  push:
+    branches:
+      - p5b-fix-kaggle-entrypoint
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - name: Shell syntax
+        run: bash -n tools/kaggle_p5b_mamba_transplant.sh
+      - name: Editable install contract
+        run: grep -q 'pip install --disable-pip-version-check --no-deps -e .' tools/kaggle_p5b_mamba_transplant.sh
