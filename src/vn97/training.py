@@ -169,6 +169,81 @@ def encode_chat_messages(
     return VN97TrainingExample(tuple(tokens), tuple(mask))
 
 
+def encode_chat_completion_messages(
+    tokenizer: VN97Tokenizer,
+    messages: Sequence[VN97ChatMessage],
+) -> VN97TrainingExample:
+    """Encode chat while supervising assistant content, not role-marker text.
+
+    P3/P4C historical training supervised the textual assistant marker.
+    P4D keeps that legacy path intact for replay, but uses this completion-aligned
+    variant for new instruction/cognition examples so inference can provide the
+    assistant boundary in the prompt without teaching the model to emit it again.
+    """
+    if not messages:
+        raise ValueError(
+            "chat completion example must contain messages"
+        )
+
+    tokens: list[int] = [
+        tokenizer.bos_id,
+        tokenizer.text_id,
+    ]
+    mask: list[bool] = [
+        False,
+        False,
+    ]
+    assistant_targets = 0
+
+    for message in messages:
+        prefix = tokenizer.encode(
+            _ROLE_MARKERS[message.role]
+        )
+        content = tokenizer.encode(
+            message.content
+        )
+        suffix = tokenizer.encode(
+            "\n"
+        )
+        is_assistant = (
+            message.role == "assistant"
+        )
+
+        tokens.extend(prefix)
+        mask.extend(
+            [False] * len(prefix)
+        )
+        tokens.extend(content)
+        mask.extend(
+            [is_assistant] * len(content)
+        )
+        tokens.extend(suffix)
+        mask.extend(
+            [is_assistant] * len(suffix)
+        )
+
+        if is_assistant:
+            assistant_targets += (
+                len(content) + len(suffix)
+            )
+
+    tokens.append(tokenizer.eos_id)
+    eos_target = (
+        messages[-1].role == "assistant"
+    )
+    mask.append(eos_target)
+    if eos_target:
+        assistant_targets += 1
+
+    if assistant_targets == 0:
+        raise ValueError(
+            "chat completion example must contain an assistant target"
+        )
+    return VN97TrainingExample(
+        tuple(tokens),
+        tuple(mask),
+    )
+
 def render_chat_text(
     messages: Sequence[VN97ChatMessage],
 ) -> str:
