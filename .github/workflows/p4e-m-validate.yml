@@ -1,0 +1,39 @@
+name: VN97 P4E-M Validate
+
+on:
+  push:
+    branches:
+      - p4e-m-numeric-beam-decode-audit
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Python syntax
+        run: python -m compileall -q src/vn97/p4_numeric_beam_audit_cli.py
+
+      - name: Shell syntax
+        run: bash -n tools/kaggle_p4e_numeric_beam_audit.sh
+
+      - name: Entrypoint contract
+        run: |
+          python - <<'PY'
+          import tomllib
+          from pathlib import Path
+          data = tomllib.loads(Path("pyproject.toml").read_text())
+          assert data["project"]["scripts"]["vn97-p4e-numeric-beam-audit"] == "vn97.p4_numeric_beam_audit_cli:main"
+          PY
+
+      - name: Beam audit markers
+        run: |
+          grep -q 'beam_width' src/vn97/p4_numeric_beam_audit_cli.py
+          grep -q 'beam16' src/vn97/p4_numeric_beam_audit_cli.py
+          grep -q 'repetition_penalty=1.0' src/vn97/p4_numeric_beam_audit_cli.py
+          grep -q 'repetition_penalty=1.12' src/vn97/p4_numeric_beam_audit_cli.py
+          grep -q 'P4E-M RESCUED' src/vn97/p4_numeric_beam_audit_cli.py
