@@ -25,6 +25,7 @@ from .memory import MemoryKind
 from .model import VN97LanguageCore
 from .planner import MemoryContext, PlanStepSpec, StepKind
 from .tokenizer import VN97Tokenizer
+from .chat_boundary import recover_chat_response_text
 
 
 _PROTOCOL = "VN97COG1"
