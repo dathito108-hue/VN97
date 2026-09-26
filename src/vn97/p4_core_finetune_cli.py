@@ -359,6 +359,21 @@ def main(
             "P4C training arguments are invalid"
         )
 
+    output = Path(
+        args.output_dir
+    )
+    if (
+        output.exists()
+        and (
+            output.is_symlink()
+            or not output.is_dir()
+            or any(output.iterdir())
+        )
+    ):
+        raise VN97P4CoreFineTuneError(
+            "P4C output-dir must be new or empty"
+        )
+
     artifact = verify_p3_final_artifact(
         Path(args.p3_dir)
     )
@@ -661,20 +676,6 @@ def main(
             flush=True,
         )
 
-    output = Path(
-        args.output_dir
-    )
-    if (
-        output.exists()
-        and (
-            output.is_symlink()
-            or not output.is_dir()
-            or any(output.iterdir())
-        )
-    ):
-        raise VN97P4CoreFineTuneError(
-            "P4C output-dir must be new or empty"
-        )
     output.mkdir(
         parents=True,
         exist_ok=True,
