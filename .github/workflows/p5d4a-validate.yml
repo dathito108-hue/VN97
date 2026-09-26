@@ -1,0 +1,27 @@
+name: VN97 P5D4A Validate
+
+on:
+  push:
+    branches:
+      - p5d4a-expanded-teacher-corpus
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - name: Shell syntax
+        run: bash -n tools/kaggle_p5d4a_teacher_expansion.sh
+      - name: Expansion contract
+        run: |
+          grep -q -- '--p3-records 960' tools/kaggle_p5d4a_teacher_expansion.sh
+          grep -q -- '--p4-per-category 240' tools/kaggle_p5d4a_teacher_expansion.sh
+          grep -q 'reused_parent=600' tools/kaggle_p5d4a_teacher_expansion.sh
+          grep -q 'new_teacher_generations=1800' tools/kaggle_p5d4a_teacher_expansion.sh
+          grep -q '"transformers==4.46.1"' tools/kaggle_p5d4a_teacher_expansion.sh
+          grep -q '"tokenizers==0.20.3"' tools/kaggle_p5d4a_teacher_expansion.sh
+          grep -q 'EXPANDED_TEACHER_CORPUS_READY' tools/kaggle_p5d4a_teacher_expansion.sh
