@@ -10,6 +10,8 @@ import torch
 from .cognition_adapter import (
     TorchVN97InferenceEngine,
     VN97InferenceLimits,
+)
+from .chat_boundary import (
     recover_chat_response_text,
 )
 from .p4_artifact import verify_p4d_artifact
