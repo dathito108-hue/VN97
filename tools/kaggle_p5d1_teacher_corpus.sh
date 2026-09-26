@@ -59,7 +59,7 @@ print(
 )
 PY
 
-python -m pip install --disable-pip-version-check -q   "transformers>=4.46,<5"   "accelerate>=0.34"   "huggingface_hub>=0.24"   safetensors   sentencepiece
+python -m pip install --disable-pip-version-check --no-cache-dir -q   "transformers==4.46.1"   "tokenizers==0.20.3"   "accelerate>=0.34,<2"   "huggingface_hub>=0.24,<1"   safetensors   sentencepiece
 python -m pip install --disable-pip-version-check --no-deps -e .
 
 export HF_HOME="/kaggle/working/hf-cache"
