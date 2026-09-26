@@ -63,6 +63,10 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
     )
     parser.add_argument(
+        "--assess-only",
+        action="store_true",
+    )
+    parser.add_argument(
         "--svd-device",
         default="cpu",
     )
@@ -452,6 +456,16 @@ def main(
         raise VN97P5BError(
             "source architecture does not satisfy the frozen P5B bridge contract"
         )
+
+    if args.assess_only:
+        print(
+            "VN97P5B1 "
+            "status=STRUCTURALLY_FEASIBLE "
+            "lossless=false "
+            "alignment_required=true",
+            flush=True,
+        )
+        return 0
 
     model_path = (
         source_root
