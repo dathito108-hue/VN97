@@ -14,6 +14,12 @@ from .deployment_checkpoint import (
     save_deployment_checkpoint,
 )
 from .model_image import build_model_image
+from .p3_language_campaign import (
+    BATCH_SIZE as P3_BATCH_SIZE,
+    MAX_VALIDATION_WINDOWS as P3_MAX_VALIDATION_WINDOWS,
+    SEQUENCE_LENGTH as P3_SEQUENCE_LENGTH,
+)
+from .p3_language_campaign_cli import _validate_corpus
 from .p3_tensor_cache import (
     evaluate_vn97_from_tensors,
     train_vn97_from_tensors,
@@ -45,11 +51,16 @@ from .training import (
     VN97TrainingConfig,
     build_training_windows,
     encode_chat_messages,
+    render_chat_text,
 )
-from .training_cli import _atomic_write
+from .training_cli import (
+    _atomic_write,
+    _load_records,
+)
 
 
 P4C_REPORT_SCHEMA = "VN97P4C1"
+DEFAULT_P3_REPLAY_RECORDS = 2000
 
 
 class VN97P4CoreFineTuneError(RuntimeError):
@@ -117,6 +128,73 @@ def _curriculum_prompt_set(
             "P4C curriculum prompt identities are not unique"
         )
     return prompts
+
+
+
+def _chat_records_jsonl_bytes(
+    records,
+) -> bytes:
+    rows: list[bytes] = []
+    for record in records:
+        rows.append(
+            _canonical_json(
+                {
+                    "messages": [
+                        {
+                            "content":
+                                message.content,
+                            "role":
+                                message.role,
+                        }
+                        for message
+                        in record
+                    ]
+                }
+            )
+            + b"\n"
+        )
+    return b"".join(rows)
+
+
+def _select_p3_replay_records(
+    records,
+    *,
+    count: int,
+) -> tuple:
+    if count < 0:
+        raise VN97P4CoreFineTuneError(
+            "P3 replay record count must be non-negative"
+        )
+    ranked = sorted(
+        records,
+        key=lambda record: hashlib.sha256(
+            render_chat_text(
+                record
+            ).encode(
+                "utf-8"
+            )
+        ).digest(),
+    )
+    if count > len(ranked):
+        raise VN97P4CoreFineTuneError(
+            "requested P3 replay record count exceeds training corpus"
+        )
+    return tuple(
+        ranked[:count]
+    )
+
+
+def _user_prompts(
+    records,
+) -> set[str]:
+    result: set[str] = set()
+    for record in records:
+        for message in record:
+            if message.role == "user":
+                result.add(
+                    message.content
+                )
+    return result
 
 
 def _measure_diagnostic(
@@ -237,6 +315,10 @@ def _parser() -> argparse.ArgumentParser:
         required=True,
     )
     parser.add_argument(
+        "--p3-corpus-dir",
+        required=True,
+    )
+    parser.add_argument(
         "--output-dir",
         required=True,
     )
@@ -307,6 +389,21 @@ def _parser() -> argparse.ArgumentParser:
         type=int,
         default=1,
     )
+    parser.add_argument(
+        "--p3-replay-records",
+        type=int,
+        default=DEFAULT_P3_REPLAY_RECORDS,
+    )
+    parser.add_argument(
+        "--max-p3-validation-loss-increase",
+        type=float,
+        default=0.10,
+    )
+    parser.add_argument(
+        "--max-p3-top1-drop",
+        type=float,
+        default=0.01,
+    )
     return parser
 
 
@@ -354,6 +451,17 @@ def main(
         or not 0
         <= args.cpu_prefetch_workers
         <= 8
+        or args.p3_replay_records < 0
+        or not math.isfinite(
+            args.max_p3_validation_loss_increase
+        )
+        or args.max_p3_validation_loss_increase < 0.0
+        or not math.isfinite(
+            args.max_p3_top1_drop
+        )
+        or not 0.0
+        <= args.max_p3_top1_drop
+        <= 1.0
     ):
         raise VN97P4CoreFineTuneError(
             "P4C training arguments are invalid"
@@ -377,6 +485,53 @@ def main(
     artifact = verify_p3_final_artifact(
         Path(args.p3_dir)
     )
+
+    p3_corpus_dir = Path(
+        args.p3_corpus_dir
+    ).resolve(
+        strict=True
+    )
+    (
+        corpus_manifest_id,
+        corpus_manifest_sha256,
+    ) = _validate_corpus(
+        p3_corpus_dir
+    )
+    if (
+        corpus_manifest_id
+        != artifact.corpus_manifest_id
+        or corpus_manifest_sha256
+        != artifact.corpus_manifest_sha256
+    ):
+        raise VN97P4CoreFineTuneError(
+            "P3 corpus identity does not match the verified P3 winner"
+        )
+
+    p3_training_records, (
+        p3_training_dataset_sha256
+    ) = _load_records(
+        [
+            p3_corpus_dir
+            / "training.jsonl"
+        ],
+        mode="chat",
+        max_input_bytes=
+            64 * 1024 * 1024,
+        max_examples=100_000,
+    )
+    p3_validation_records, (
+        p3_validation_dataset_sha256
+    ) = _load_records(
+        [
+            p3_corpus_dir
+            / "validation.jsonl"
+        ],
+        mode="chat",
+        max_input_bytes=
+            64 * 1024 * 1024,
+        max_examples=100_000,
+    )
+
     tokenizer = VN97Tokenizer(
         artifact.tokenizer_package
     )
@@ -446,6 +601,37 @@ def main(
             flush=True,
         )
 
+    p3_replay_records = (
+        _select_p3_replay_records(
+            p3_training_records,
+            count=
+                args.p3_replay_records,
+        )
+    )
+    if (
+        diagnostic_suite is not None
+        and _user_prompts(
+            p3_replay_records
+        ).intersection(
+            {
+                task.prompt
+                for task
+                in diagnostic_suite.tasks
+            }
+        )
+    ):
+        raise VN97P4CoreFineTuneError(
+            "P3 replay subset overlaps the P4 diagnostic suite"
+        )
+    p3_replay_bytes = (
+        _chat_records_jsonl_bytes(
+            p3_replay_records
+        )
+    )
+    p3_replay_sha256 = _sha256(
+        p3_replay_bytes
+    )
+
     config = VN97TrainingConfig(
         sequence_length=
             args.sequence_length,
@@ -469,6 +655,14 @@ def main(
         )
         for record in training_records
     ]
+    train_examples.extend(
+        encode_chat_messages(
+            tokenizer,
+            record,
+        )
+        for record
+        in p3_replay_records
+    )
     validation_examples = [
         encode_chat_messages(
             tokenizer,
@@ -519,6 +713,42 @@ def main(
         validation_windows
     )
 
+    p3_validation_config = (
+        VN97TrainingConfig(
+            sequence_length=
+                P3_SEQUENCE_LENGTH,
+            batch_size=
+                P3_BATCH_SIZE,
+            epochs=1,
+            seed=0,
+            shuffle=False,
+            max_windows=
+                P3_MAX_VALIDATION_WINDOWS,
+        )
+    )
+    p3_validation_examples = [
+        encode_chat_messages(
+            tokenizer,
+            record,
+        )
+        for record
+        in p3_validation_records
+    ]
+    p3_validation_windows = (
+        build_training_windows(
+            p3_validation_examples,
+            p3_validation_config,
+            pad_token_id=
+                tokenizer.pad_id,
+        )
+    )
+    (
+        p3_validation_input_ids,
+        p3_validation_labels,
+    ) = _windows_to_tensors(
+        p3_validation_windows
+    )
+
     baseline = (
         evaluate_vn97_from_tensors(
             model,
@@ -538,6 +768,26 @@ def main(
         f"loss={baseline.mean_loss:.6f} "
         f"top1={baseline.top1_accuracy:.6f} "
         f"targets={baseline.target_tokens}",
+        flush=True,
+    )
+
+    p3_retention_before = (
+        evaluate_vn97_from_tensors(
+            model,
+            p3_validation_input_ids,
+            p3_validation_labels,
+            batch_size=P3_BATCH_SIZE,
+            device=args.device,
+            cpu_prefetch_workers=
+                args.cpu_prefetch_workers,
+            micro_batch_size=2,
+        )
+    )
+    print(
+        "VN97 P4C P3 RETENTION BEFORE "
+        f"loss={p3_retention_before.mean_loss:.6f} "
+        f"top1={p3_retention_before.top1_accuracy:.6f} "
+        f"targets={p3_retention_before.target_tokens}",
         flush=True,
     )
 
@@ -573,6 +823,10 @@ def main(
                     args.max_grad_norm,
                 "micro_batch_size":
                     args.micro_batch_size,
+                "p3_replay_records":
+                    args.p3_replay_records,
+                "p3_replay_sha256":
+                    p3_replay_sha256,
                 "profile_id":
                     P4C_PROFILE_ID,
                 "seed": args.seed,
@@ -656,6 +910,38 @@ def main(
             "P4C curriculum validation regressed; candidate is not publishable"
         )
 
+    p3_retention_after = (
+        evaluate_vn97_from_tensors(
+            model,
+            p3_validation_input_ids,
+            p3_validation_labels,
+            batch_size=P3_BATCH_SIZE,
+            device=args.device,
+            cpu_prefetch_workers=
+                args.cpu_prefetch_workers,
+            micro_batch_size=2,
+        )
+    )
+    print(
+        "VN97 P4C P3 RETENTION AFTER "
+        f"loss={p3_retention_after.mean_loss:.6f} "
+        f"top1={p3_retention_after.top1_accuracy:.6f} "
+        f"targets={p3_retention_after.target_tokens}",
+        flush=True,
+    )
+
+    if (
+        p3_retention_after.mean_loss
+        > p3_retention_before.mean_loss
+        + args.max_p3_validation_loss_increase
+        or p3_retention_after.top1_accuracy
+        < p3_retention_before.top1_accuracy
+        - args.max_p3_top1_drop
+    ):
+        raise VN97P4CoreFineTuneError(
+            "P4C candidate exceeded the P3 language-retention budget"
+        )
+
     diagnostic_after = None
     if args.diagnostic_suite is not None:
         diagnostic_after = (
@@ -723,6 +1009,12 @@ def main(
         "curriculum": {
             "categories":
                 list(P4C_CATEGORIES),
+            "p3_replay_records":
+                len(
+                    p3_replay_records
+                ),
+            "p3_replay_sha256":
+                p3_replay_sha256,
             "training_records":
                 len(training_records),
             "training_seed":
@@ -758,9 +1050,43 @@ def main(
             _sha256(image_bytes),
         "output_checkpoint_sha256":
             checkpoint_sha,
+        "p3_language_retention": {
+            "after": {
+                "mean_loss":
+                    p3_retention_after.mean_loss,
+                "target_tokens":
+                    p3_retention_after.target_tokens,
+                "top1_accuracy":
+                    p3_retention_after.top1_accuracy,
+                "windows":
+                    p3_retention_after.windows,
+            },
+            "before": {
+                "mean_loss":
+                    p3_retention_before.mean_loss,
+                "target_tokens":
+                    p3_retention_before.target_tokens,
+                "top1_accuracy":
+                    p3_retention_before.top1_accuracy,
+                "windows":
+                    p3_retention_before.windows,
+            },
+            "max_loss_increase":
+                args.max_p3_validation_loss_increase,
+            "max_top1_drop":
+                args.max_p3_top1_drop,
+            "training_dataset_sha256":
+                p3_training_dataset_sha256,
+            "validation_dataset_sha256":
+                p3_validation_dataset_sha256,
+        },
         "parent_p3": {
             "checkpoint_sha256":
                 artifact.checkpoint_sha256,
+            "corpus_manifest_id":
+                artifact.corpus_manifest_id,
+            "corpus_manifest_sha256":
+                artifact.corpus_manifest_sha256,
             "model_image_sha256":
                 artifact.model_image_sha256,
             "p3_run_sha256":
