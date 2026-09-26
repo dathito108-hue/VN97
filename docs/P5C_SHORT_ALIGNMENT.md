@@ -83,3 +83,31 @@ bash tools/kaggle_p5c_alignment.sh resume \
 
 P5A stays stopped while P5C is tested. Its existing work/checkpoint should be
 kept as a fallback until P5C held-out results are known.
+
+
+## P5C v2 stability revision
+
+The first real P5C run exposed a numeric issue before the first optimizer step:
+
+- baseline probe: 0/30;
+- numeric copy: 0/60;
+- P3 loss: about 46.66;
+- P3 top-1: about 0.0016;
+- FP16 backward produced a non-finite gradient norm.
+
+The transplanted checkpoint itself remained finite, so this is treated as an
+alignment-numerics failure rather than a corrupt P5B artifact.
+
+P5C v2 therefore changes only the alignment execution profile:
+
+- sequence length: 256 -> 128;
+- FP16 training -> FP32 training;
+- first 50 optimizer steps train only the lexical/tokenizer bridge;
+- recurrent/core parameters are frozen for those 50 steps;
+- the core is then unfrozen at LR 5e-6;
+- lexical LR remains 5e-5;
+- logical batch remains 8 with physical microbatch 1;
+- total optimizer steps remain 300.
+
+This revision intentionally trades speed for stability. The failed v1 run did
+not create a valid resume checkpoint, so v2 must start with `fresh`.
