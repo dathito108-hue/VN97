@@ -51,8 +51,14 @@ validation   100/category =   600 records
 Training and validation are generated from separate seeds and every prompt carries a
 split-bound case identity, so the two sets are exactly disjoint.
 
-The optional P4 diagnostic suite is also checked for exact prompt overlap. It is never
-used to create gradients or decide the curriculum validation gate.
+P4C additionally replays a deterministic SHA-256-ranked subset of 2,000 records from
+the exact P3 training corpus. This is a language-retention rehearsal path, not a second
+model or backend. The supplied P3 corpus is identity-checked against VN97P3RUN1 before
+any record is used.
+
+The optional P4 diagnostic suite is also checked for exact prompt overlap with both the
+P4C curriculum and the selected P3 replay subset. It is never used to create gradients
+or decide the curriculum validation gate.
 
 ## Training profile
 
@@ -76,6 +82,7 @@ sets a distinct `VN97 P4C` progress protocol so notebook output is unambiguous.
 Resume state is identity-bound to the exact:
 
 - P3 checkpoint;
+- P3 replay subset identity;
 - curriculum hashes;
 - sequence/batch/micro-batch geometry;
 - epochs;
@@ -93,10 +100,17 @@ After training, it evaluates the exact same validation set.
 
 The candidate is publishable only if:
 
-- validation mean loss does not increase; and
-- validation token top-1 does not decrease.
+- P4C validation mean loss does not increase;
+- P4C validation token top-1 does not decrease;
+- P3 validation mean loss stays within the configured retention budget; and
+- P3 validation token top-1 stays within the configured retention budget.
 
-This is a curriculum non-regression gate, not the final production intelligence gate.
+The default P3 retention budget permits at most +0.10 mean loss and -0.01 absolute
+top-1 accuracy versus the immutable P3 parent on the exact canonical P3 validation
+split. This guards against catastrophic language forgetting while still allowing a
+bounded core-behavior specialization.
+
+These are candidate-quality gates, not the final production intelligence gate.
 
 If a diagnostic P4 suite is supplied, P4C records task-level pass rate before and after
 training, but that diagnostic score does not affect gradient updates or the curriculum
@@ -107,6 +121,7 @@ gate.
 ```bash
 vn97-p4-core-finetune \
   --p3-dir /kaggle/working/p3-fast/final \
+  --p3-corpus-dir /kaggle/working/p3-corpus \
   --diagnostic-suite /kaggle/working/held-out-p4.jsonl \
   --work-dir /kaggle/working/p4c-work \
   --output-dir /kaggle/working/p4c-final \
@@ -131,7 +146,9 @@ tokenizer.vn97tk1
 
 - immutable parent P3 run/checkpoint/model image/tokenizer;
 - deterministic curriculum profile and hashes;
+- deterministic P3 replay subset identity;
 - baseline/final curriculum validation;
+- baseline/final P3 language-retention validation;
 - training geometry and result;
 - output checkpoint/model-image identities;
 - optional diagnostic before/after measurements.
