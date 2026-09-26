@@ -244,6 +244,54 @@ def encode_chat_completion_messages(
         tuple(mask),
     )
 
+
+def encode_chat_completion_prompt(
+    tokenizer: VN97Tokenizer,
+    messages: Sequence[VN97ChatMessage],
+) -> tuple[int, ...]:
+    """Encode an inference chat prefix with the exact training segmentation.
+
+    The VN97 tokenizer uses longest learned byte tokens, so encoding one
+    concatenated rendered chat string is not guaranteed to equal concatenating
+    the encodings of role markers, message contents, and suffixes. Training
+    encodes those segments independently. Inference must do the same or the
+    recurrent model starts generation from a token history it did not train on.
+    """
+    if not messages:
+        raise ValueError(
+            "chat completion prompt must contain messages"
+        )
+    if messages[-1].role == "assistant":
+        raise ValueError(
+            "chat completion prompt must end before assistant content"
+        )
+
+    tokens: list[int] = [
+        tokenizer.bos_id,
+        tokenizer.text_id,
+    ]
+    for message in messages:
+        tokens.extend(
+            tokenizer.encode(
+                _ROLE_MARKERS[message.role]
+            )
+        )
+        tokens.extend(
+            tokenizer.encode(
+                message.content
+            )
+        )
+        tokens.extend(
+            tokenizer.encode("\n")
+        )
+
+    tokens.extend(
+        tokenizer.encode(
+            _ROLE_MARKERS["assistant"]
+        )
+    )
+    return tuple(tokens)
+
 def render_chat_text(
     messages: Sequence[VN97ChatMessage],
 ) -> str:
