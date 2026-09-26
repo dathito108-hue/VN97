@@ -19,6 +19,7 @@ jobs:
       - name: Python syntax
         run: |
           python -m compileall -q \
+            src/vn97/chat_boundary.py \
             src/vn97/cognition_adapter.py \
             src/vn97/p4_boundary_recovery_cli.py \
             tests/host_p4e_boundary_recovery.py
@@ -35,17 +36,30 @@ jobs:
           assert data["project"]["scripts"]["vn97-p4e-boundary-eval"] == "vn97.p4_boundary_recovery_cli:main"
           PY
 
-      - name: Boundary unit tests without pytest dependency
+      - name: Lightweight boundary unit tests
         run: |
-          PYTHONPATH=src python - <<'PY'
-          from tests.host_p4e_boundary_recovery import (
-              test_boundary_recovery_does_not_invent_payload,
-              test_boundary_recovery_keeps_plain_response,
-              test_boundary_recovery_truncates_following_role,
-              test_boundary_recovery_uses_last_assistant_marker,
+          python - <<'PY'
+          import importlib.util
+          from pathlib import Path
+
+          path = Path("src/vn97/chat_boundary.py")
+          spec = importlib.util.spec_from_file_location(
+              "vn97_chat_boundary_light",
+              path,
           )
-          test_boundary_recovery_keeps_plain_response()
-          test_boundary_recovery_uses_last_assistant_marker()
-          test_boundary_recovery_truncates_following_role()
-          test_boundary_recovery_does_not_invent_payload()
+          module = importlib.util.module_from_spec(spec)
+          assert spec.loader is not None
+          spec.loader.exec_module(module)
+          recover = module.recover_chat_response_text
+
+          assert recover("  answer  ") == "answer"
+          assert recover(
+              "legacy noise\n<|assistant|>\nwrong\n"
+              "<|assistant|>\n"
+              '{"capability":"web.fetch","requires_approval":false}\n'
+          ) == '{"capability":"web.fetch","requires_approval":false}'
+          assert recover(
+              "noise\n<|assistant|>\nLan\n<|user|>\nnext"
+          ) == "Lan"
+          assert recover("<|assistant|>") == ""
           PY
