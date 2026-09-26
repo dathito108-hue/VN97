@@ -483,6 +483,24 @@ def _completed_candidate(
         and not checkpoint_path.exists()
     ):
         return None
+
+    # A process can be interrupted between writing the candidate checkpoint
+    # and writing its evidence report. Treat that narrow partial state as
+    # incomplete and safely rerun/resume the candidate instead of making
+    # resume impossible.
+    if (
+        checkpoint_path.exists()
+        and not report_path.exists()
+    ):
+        checkpoint_path.unlink()
+        return None
+    if (
+        report_path.exists()
+        and not checkpoint_path.exists()
+    ):
+        report_path.unlink()
+        return None
+
     if (
         not report_path.is_file()
         or not checkpoint_path.is_file()
@@ -679,12 +697,19 @@ def main(
         str,
         ...
     ] = ()
+    all_dev_prompts: set[
+        str
+    ] = set()
     if suite_path is not None:
         suite = (
             load_p4_task_suite(
                 suite_path
             )
         )
+        all_dev_prompts = {
+            task.prompt
+            for task in suite.tasks
+        }
         dev_prompts = tuple(
             task.prompt
             for task in suite.tasks
@@ -954,15 +979,25 @@ def main(
                 for item
                 in validation_records
             }
-            if {
+            candidate_prompts = {
                 item.prompt
                 for item
                 in train_records
-            }.intersection(
+            }
+            if candidate_prompts.intersection(
                 validation_prompts
             ):
                 raise VN97P4EKError(
                     "P4E-K candidate overlaps validation prompts"
+                )
+            if (
+                all_dev_prompts
+                and candidate_prompts.intersection(
+                    all_dev_prompts
+                )
+            ):
+                raise VN97P4EKError(
+                    "P4E-K candidate overlaps held-out dev prompts"
                 )
 
             replay_records = (
