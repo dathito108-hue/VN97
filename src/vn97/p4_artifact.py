@@ -153,10 +153,8 @@ class VN97P4CArtifact:
     parent_p3_checkpoint_sha256: str
     parent_p3_corpus_manifest_id: str
     parent_p3_corpus_manifest_sha256: str
-    checkpoint:
-        VN97LoadedDeploymentCheckpoint
-    tokenizer_package:
-        VN97TokenizerPackage
+    checkpoint: VN97LoadedDeploymentCheckpoint
+    tokenizer_package: VN97TokenizerPackage
     report: dict[str, object]
 
 
