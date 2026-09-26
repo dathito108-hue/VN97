@@ -245,7 +245,11 @@ def _scores_and_ce(
         pad_token_id=pad_token_id,
         device=device,
     )
-    logits, _ = model(inputs)
+    logits, _ = (
+        model.forward_sequential_reference(
+            inputs
+        )
+    )
     log_probs = F.log_softmax(
         logits,
         dim=-1,

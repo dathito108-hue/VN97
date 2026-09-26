@@ -108,6 +108,95 @@ class VN97LanguageCore(nn.Module):
 
         return self.final_norm(x), new_states
 
+    def forward_hidden_embeddings_sequential_reference(
+        self,
+        inputs_embeds: torch.Tensor,
+        states: Optional[
+            Sequence[Optional[torch.Tensor]]
+        ] = None,
+    ) -> tuple[torch.Tensor, VN97States]:
+        """Exact recurrent execution path with lower peak scan memory.
+
+        This uses the same SelectiveSSM equations and parameters as the normal
+        parallel prefix-scan path. It is intended for memory-constrained
+        training where the O(log sequence) prefix-scan intermediates would
+        otherwise dominate VRAM.
+        """
+        if (
+            inputs_embeds.ndim != 3
+            or inputs_embeds.shape[-1]
+            != self.config.d_model
+        ):
+            raise ValueError(
+                "inputs_embeds must have shape "
+                f"[batch, seq, {self.config.d_model}]"
+            )
+        if inputs_embeds.shape[1] == 0:
+            raise ValueError(
+                "inputs_embeds sequence length must be positive"
+            )
+
+        x = inputs_embeds
+        if states is None:
+            layer_states: Sequence[
+                Optional[torch.Tensor]
+            ] = [None] * len(self.layers)
+        else:
+            if len(states) != len(self.layers):
+                raise ValueError(
+                    "number of recurrent states must match n_layers"
+                )
+            layer_states = states
+
+        new_states: VN97States = []
+        for layer, state in zip(
+            self.layers,
+            layer_states,
+        ):
+            normalized = layer.norm(x)
+            y, new_state = (
+                layer.core.forward_sequential_reference(
+                    normalized,
+                    state,
+                )
+            )
+            x = x + y
+            new_states.append(
+                new_state
+            )
+
+        return (
+            self.final_norm(x),
+            new_states,
+        )
+
+    def forward_sequential_reference(
+        self,
+        input_ids: torch.Tensor,
+        states: Optional[
+            Sequence[Optional[torch.Tensor]]
+        ] = None,
+    ) -> tuple[torch.Tensor, VN97States]:
+        """Low-peak-memory equivalent of forward() for training/audits."""
+        if input_ids.ndim != 2:
+            raise ValueError(
+                "input_ids must have shape [batch, seq]"
+            )
+        hidden, new_states = (
+            self.forward_hidden_embeddings_sequential_reference(
+                self.embedding(
+                    input_ids
+                ),
+                states,
+            )
+        )
+        return (
+            self.lm_head(
+                hidden
+            ),
+            new_states,
+        )
+
     def forward_hidden(
         self,
         input_ids: torch.Tensor,
