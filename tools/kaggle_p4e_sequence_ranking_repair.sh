@@ -45,6 +45,8 @@ esac
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 cd "$REPO_ROOT"
 
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
 python - <<'PY'
 import torch
 if not torch.cuda.is_available():

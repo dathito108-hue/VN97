@@ -76,3 +76,18 @@ bash tools/kaggle_p4e_sequence_ranking_repair.sh resume \
 
 The trainer writes an optimizer/model checkpoint every 50 steps to
 `/kaggle/working/p4e-n-work/state.p4en.pt`.
+
+
+## Tesla T4 memory-safe execution
+
+The P4E-N v2 trainer is specifically hardened for 16 GB-class GPUs:
+
+- ranking batch defaults to 2;
+- preservation batch defaults to 2;
+- preservation CE is backpropagated and released before reasoning scoring;
+- hard-negative sequence scores are detached/no-gradient;
+- only the correct-answer path retains the ranking graph;
+- Kaggle launcher enables PyTorch expandable CUDA allocator segments.
+
+This preserves the sequence-ranking objective while avoiding the three
+simultaneous recurrent graphs that caused the original Tesla T4 OOM.

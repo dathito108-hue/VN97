@@ -18,7 +18,7 @@ from .p4_numeric_arithmetic_curriculum import (
 from .training import VN97ChatMessage
 
 
-P4E_N_PROFILE_ID = "vn97-p4e-n-sequence-ranking-repair-v1"
+P4E_N_PROFILE_ID = "vn97-p4e-n-sequence-ranking-repair-v2-memory-safe"
 P4E_N_SEED = 149197
 
 
