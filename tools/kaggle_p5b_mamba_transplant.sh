@@ -34,6 +34,7 @@ REPO_ROOT="$(git rev-parse --show-toplevel)"
 cd "$REPO_ROOT"
 
 python -m pip install --disable-pip-version-check -q safetensors tokenizers huggingface_hub
+python -m pip install --disable-pip-version-check --no-deps -e .
 
 mkdir -p "$SOURCE_DIR"
 
