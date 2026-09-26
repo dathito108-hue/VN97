@@ -25,6 +25,7 @@ from .p3_language_campaign import (
 from .p3_language_campaign_cli import _validate_corpus
 from .p3_tensor_cache import evaluate_vn97_from_tensors
 from .p4_arithmetic_mechanism_audit_cli import _verify_artifact
+from .p4_arithmetic_coverage_curriculum import extract_expression
 from .p4_compositional_repair_cli import (
     _canonical_measure_dev,
     _canonical_measure_records,
@@ -391,9 +392,13 @@ def _dev_reasoning_expressions(
             task.category
             == "reasoning_planning"
         ):
-            output.append(
+            expression = extract_expression(
                 task.prompt
             )
+            if expression is not None:
+                output.append(
+                    expression
+                )
     return tuple(output)
 
 
