@@ -109,3 +109,38 @@ bash tools/kaggle_p5d2_distill.sh resume \
   /kaggle/working/p4e-k-final/tokenizer.vn97tk1 \
   /kaggle/input/datasets/duongtuan1/vn97-p4c-resume/p3-corpus
 ```
+
+
+## P5D2 checkpoint reliability revision
+
+The first real dual-T4 run reached step 50/300 for both candidates, proving
+training itself was stable, but both processes failed while serializing the
+resume checkpoint.
+
+The original resume file contained:
+
+- the full 309M FP32 model;
+- full AdamW optimizer state.
+
+That makes a single resume checkpoint several gigabytes. Both candidates tried
+to write those large zip archives at the same time, and Kaggle returned
+`basic_ios::clear: iostream error` / `unexpected pos` during
+`torch.save`.
+
+The revised resume format is deliberately smaller and more robust:
+
+- checkpoint model tensors are copied to CPU FP16;
+- AdamW moments are not persisted;
+- resume restores the model to FP32 and restarts AdamW;
+- candidate checkpoint writes are staggered by 25 optimizer steps;
+- legacy stream serialization is used instead of the torch zip container;
+- writes are flushed and fsync'd before atomic rename;
+- stale failed `.tmp` checkpoint files are removed on `resume`.
+
+This is a restart checkpoint rather than bit-exact optimizer continuation.
+The compromise is intentional: preserving the trained student state is more
+valuable than repeatedly failing to write multi-gigabyte optimizer snapshots
+during this pilot.
+
+Because the failed v1 run did not finish a valid checkpoint, restart the pilot
+with `fresh` after updating to the revision that contains this fix.
