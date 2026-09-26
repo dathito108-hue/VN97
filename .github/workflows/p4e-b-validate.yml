@@ -1,0 +1,51 @@
+name: VN97 P4E-B Validate
+
+on:
+  push:
+    branches:
+      - p4e-b-chat-response-boundary-recovery
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Python syntax
+        run: |
+          python -m compileall -q \
+            src/vn97/cognition_adapter.py \
+            src/vn97/p4_boundary_recovery_cli.py \
+            tests/host_p4e_boundary_recovery.py
+
+      - name: Shell syntax
+        run: bash -n tools/kaggle_p4e_boundary_eval.sh
+
+      - name: Entrypoint contract
+        run: |
+          python - <<'PY'
+          import tomllib
+          from pathlib import Path
+          data = tomllib.loads(Path("pyproject.toml").read_text())
+          assert data["project"]["scripts"]["vn97-p4e-boundary-eval"] == "vn97.p4_boundary_recovery_cli:main"
+          PY
+
+      - name: Boundary unit tests without pytest dependency
+        run: |
+          PYTHONPATH=src python - <<'PY'
+          from tests.host_p4e_boundary_recovery import (
+              test_boundary_recovery_does_not_invent_payload,
+              test_boundary_recovery_keeps_plain_response,
+              test_boundary_recovery_truncates_following_role,
+              test_boundary_recovery_uses_last_assistant_marker,
+          )
+          test_boundary_recovery_keeps_plain_response()
+          test_boundary_recovery_uses_last_assistant_marker()
+          test_boundary_recovery_truncates_following_role()
+          test_boundary_recovery_does_not_invent_payload()
+          PY
