@@ -1,67 +1,38 @@
-name: VN97 Android APK M10I
+name: VN97 P4B chat-aligned evaluation
 
 on:
   push:
     branches:
-      - m10i-reproducible-apk-cold-start
-      - m10j-turnkey-bootstrap
+      - p4b-chat-aligned-task-evaluation
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  build-apk:
+  p4b-contract:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 12
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
-          distribution: temurin
-          java-version: "17"
+          python-version: "3.12"
 
-      - name: Set up Gradle 9.6.0
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: "9.6.0"
-
-      - name: Install pinned Android packages
-        shell: bash
-        env:
-          ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+      - name: Install host test dependencies
         run: |
-          TOOLS_ZIP="$RUNNER_TEMP/android-cmdline-tools.zip"
-          TOOLS_DIR="$RUNNER_TEMP/android-cmdline-tools"
-          curl -fsSL             "https://dl.google.com/android/repository/commandlinetools-linux-12266719_latest.zip"             -o "$TOOLS_ZIP"
-          rm -rf "$TOOLS_DIR"
-          mkdir -p "$TOOLS_DIR"
-          unzip -q "$TOOLS_ZIP" -d "$TOOLS_DIR"
-          SDKMANAGER="$TOOLS_DIR/cmdline-tools/bin/sdkmanager"
-          test -x "$SDKMANAGER"
-          yes | "$SDKMANAGER" --sdk_root="$ANDROID_SDK_ROOT" --licenses >/dev/null || true
-          "$SDKMANAGER"             --sdk_root="$ANDROID_SDK_ROOT"             --channel=3             "platforms;android-37.0"             "build-tools;36.0.0"             "ndk;28.2.13676358"             "cmake;3.22.1"
+          python -m pip install --disable-pip-version-check \
+            --index-url https://download.pytorch.org/whl/cpu \
+            "torch>=2.2"
+          python -m pip install --disable-pip-version-check pytest
+          python -m pip install --disable-pip-version-check --no-deps -e .
 
-      - name: Build VN97 debug APK
-        shell: bash
+      - name: Compile P4B path
         run: |
-          gradle -p android             --no-daemon             --stacktrace             :app:assembleDebug
+          python -m py_compile \
+            src/vn97/p4_task_evaluation.py \
+            tests/host_p4_task_evaluation.py
 
-      - name: Verify APK
-        shell: bash
+      - name: Run P4B contract tests
         run: |
-          APK="android/app/build/outputs/apk/debug/app-debug.apk"
-          test -f "$APK"
-          sha256sum "$APK"
-          ls -lh "$APK"
-
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: VN97-debug-apk
-          path: android/app/build/outputs/apk/debug/app-debug.apk
-          if-no-files-found: error
-          retention-days: 7
+          pytest -q tests/host_p4_task_evaluation.py
