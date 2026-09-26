@@ -45,6 +45,9 @@ P4_SCORING_KINDS = (
     "json_exact",
 )
 
+_CHAT_USER_MARKER = "\n<|user|>\n"
+_CHAT_ASSISTANT_MARKER = "\n<|assistant|>\n"
+
 _P3_FINAL_FILES = {
     "SHA256SUMS",
     "campaign-report.json",
@@ -612,6 +615,21 @@ class VN97P4TaskSuite:
     suite_sha256: str
 
 
+def render_p4_chat_prompt(
+    prompt: str,
+) -> str:
+    if not isinstance(prompt, str) or not prompt:
+        raise VN97P4EvaluationError(
+            "P4 chat prompt must be non-empty text"
+        )
+    return (
+        _CHAT_USER_MARKER
+        + prompt
+        + "\n"
+        + _CHAT_ASSISTANT_MARKER
+    )
+
+
 def _task_from_object(
     value: object,
 ) -> VN97P4Task:
@@ -1067,7 +1085,9 @@ def evaluate_p4_task_suite(
         output = ""
         try:
             output = engine.generate_text(
-                task.prompt,
+                render_p4_chat_prompt(
+                    task.prompt
+                ),
                 max_new_tokens=
                     task.max_new_tokens,
             )
