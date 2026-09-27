@@ -1,5 +1,15 @@
 # VN97-R2 Mobile-Native Intelligence Core
 
+> **Canonical R2-G transition:** the next large-SSM intelligence foundation is
+> an exact 1:1 transfer from `state-spaces/mamba2-2.7b`, followed by zero-impact
+> VN97 Multi-Timescale State, State Highway, VN97MEM1 retrieval and recurrent
+> reasoning. The existing R2 1B training/ONNX path remains a validated execution
+> scaffold and must not be silently relabeled as the Mamba-2 transfer. See
+> `docs/VN97_R2G_MAMBA2_27B_TRANSFER.md`. Production switching is blocked until
+> exact source/VN97/ONNX hidden-state, recurrent-state and logit parity is proven
+> with real transferred weights.
+
+
 ## Status
 
 VN97-R2 is the canonical successor path for the VN97 intelligence core.
