@@ -88,6 +88,38 @@ def _parser() -> argparse.ArgumentParser:
         type=int,
         default=10,
     )
+    parser.add_argument(
+        "--teacher-int8",
+        action="store_true",
+        help=(
+            "Load the teacher with bitsandbytes LLM.int8() on one visible CUDA "
+            "device. Intended for independent single-GPU workers."
+        ),
+    )
+    parser.add_argument(
+        "--worker-index",
+        type=int,
+        default=0,
+    )
+    parser.add_argument(
+        "--worker-count",
+        type=int,
+        default=1,
+    )
+    parser.add_argument(
+        "--records-only",
+        action="store_true",
+        help=(
+            "Generate only this worker's assigned records and skip finalization."
+        ),
+    )
+    parser.add_argument(
+        "--finalize-only",
+        action="store_true",
+        help=(
+            "Finalize an already-complete work directory without loading the teacher."
+        ),
+    )
     return parser
 
 
@@ -435,6 +467,7 @@ def _load_dependencies():
         from transformers import (
             AutoModelForCausalLM,
             AutoTokenizer,
+            BitsAndBytesConfig,
         )
     except Exception as exc:
         raise VN97P5D1Error(
@@ -445,6 +478,7 @@ def _load_dependencies():
         model_info,
         AutoModelForCausalLM,
         AutoTokenizer,
+        BitsAndBytesConfig,
     )
 
 
