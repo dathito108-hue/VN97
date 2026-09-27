@@ -165,6 +165,33 @@ def _run_identity(
     return hashlib.sha256(b"VN97R2DENSE\0" + payload).hexdigest()
 
 
+def _validate_resume_best_checkpoint(
+    best_path: Path,
+    *,
+    best_epoch: int,
+    best_checkpoint_sha256: str,
+) -> str:
+    if best_epoch >= 0:
+        if not best_path.is_file():
+            raise RuntimeError(
+                "R2 dense resume references a missing best checkpoint"
+            )
+        actual_best_sha256 = sha256_file(best_path)
+        if (
+            best_checkpoint_sha256
+            and actual_best_sha256 != best_checkpoint_sha256
+        ):
+            raise RuntimeError(
+                "R2 dense resume best checkpoint SHA-256 mismatch"
+            )
+        return actual_best_sha256
+    if best_checkpoint_sha256:
+        raise RuntimeError(
+            "R2 dense resume has checkpoint identity without best epoch"
+        )
+    return ""
+
+
 def _move_optimizer_state(
     optimizer: torch.optim.Optimizer,
     device: torch.device,
@@ -297,24 +324,11 @@ def train_dense(
         best_checkpoint_sha256 = str(
             resume.get("best_checkpoint_sha256", "")
         )
-        if best_epoch >= 0:
-            if not best_path.is_file():
-                raise RuntimeError(
-                    "R2 dense resume references a missing best checkpoint"
-                )
-            actual_best_sha256 = sha256_file(best_path)
-            if (
-                best_checkpoint_sha256
-                and actual_best_sha256 != best_checkpoint_sha256
-            ):
-                raise RuntimeError(
-                    "R2 dense resume best checkpoint SHA-256 mismatch"
-                )
-            best_checkpoint_sha256 = actual_best_sha256
-        elif best_checkpoint_sha256:
-            raise RuntimeError(
-                "R2 dense resume has checkpoint identity without best epoch"
-            )
+        best_checkpoint_sha256 = _validate_resume_best_checkpoint(
+            best_path,
+            best_epoch=best_epoch,
+            best_checkpoint_sha256=best_checkpoint_sha256,
+        )
 
     for epoch in range(start_epoch, config.epochs):
         order = list(range(len(training_windows)))
