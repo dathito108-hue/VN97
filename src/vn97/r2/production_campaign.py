@@ -487,7 +487,7 @@ def build_r2d5_preflight_package(
     )
 
     script_path = output / "run_t4_preflight.sh"
-    script_path.write_bytes(script_bytes)
+    _atomic_write(script_path, script_bytes)
     script_path.chmod(0o755)
 
     return payload
@@ -685,12 +685,17 @@ def seal_r2d5_preflight(
         "campaign_id": campaign["campaign_id"],
         "device_name": evidence.device_name,
         "free_device_bytes_before": evidence.free_device_bytes_before,
+        "micro_batch_size": evidence.micro_batch_size,
+        "passed": True,
         "peak_allocated_bytes": evidence.peak_allocated_bytes,
         "peak_reserved_bytes": evidence.peak_reserved_bytes,
         "preflight_bundle_sha256": _sha256_bytes(data),
+        "reason": evidence.reason,
         "recipe_fingerprint": campaign["recipe_fingerprint"],
         "safety_fraction": evidence.safety_fraction,
         "schema": R2D5_PREFLIGHT_RECEIPT_SCHEMA,
+        "sequence_length": evidence.sequence_length,
+        "total_device_bytes": evidence.total_device_bytes,
         "training_allowed": False,
     }
     receipt_id = hashlib.sha256(
