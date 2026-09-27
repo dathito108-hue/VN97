@@ -10,6 +10,9 @@
 > with real transferred weights. R2-G0.2 now pins the official source artifact,
 > adds mmap ingestion, a VN97-native SSD reference and fail-closed parity evidence;
 > see `docs/VN97_R2G02_REAL_MAMBA2_PARITY.md`.
+> R2-G0.3 adds the zero-copy self-contained real-capsule path and a manual,
+> explicitly gated 5.4 GB materialization campaign; see
+> `docs/VN97_R2G03_ZERO_COPY_CAPSULE.md`.
 
 
 ## Status
