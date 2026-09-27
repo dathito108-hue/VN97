@@ -260,11 +260,14 @@ def test_r2_parallel_scan_matches_reference_and_chunked_continuation() -> None:
         ref_state.layers,
         second_state.layers,
     ):
+        # Full-sequence Linear/conv kernels and token-by-token kernels may
+        # accumulate FP32 products in a different order. The recurrent state
+        # must be numerically equivalent, not bit-identical.
         torch.testing.assert_close(
             scan_layer.conv,
             ref_layer.conv,
-            rtol=0.0,
-            atol=0.0,
+            rtol=2e-5,
+            atol=2e-6,
         )
         torch.testing.assert_close(
             scan_layer.ssm,
@@ -275,8 +278,8 @@ def test_r2_parallel_scan_matches_reference_and_chunked_continuation() -> None:
         torch.testing.assert_close(
             scan_layer.conv,
             chunk_layer.conv,
-            rtol=0.0,
-            atol=0.0,
+            rtol=2e-5,
+            atol=2e-6,
         )
         torch.testing.assert_close(
             scan_layer.ssm,
