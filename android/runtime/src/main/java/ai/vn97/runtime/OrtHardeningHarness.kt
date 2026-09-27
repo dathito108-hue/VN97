@@ -308,36 +308,65 @@ class VN97OrtHardeningHarness(
                 }
             )
 
-        val accelerator = profile.graphPolicies.values
-            .flatMap { it.providerOrder }
-            .firstOrNull { it != OrtProviderKind.CPU }
+        val quarantinePolicy = profile.graphPolicies.values
+            .firstOrNull { policy ->
+                policy.providerOrder.any {
+                    it != OrtProviderKind.CPU
+                }
+            }
         val quarantinePassed: Boolean
         val recoveryPassed: Boolean
-        if (accelerator == null) {
+        if (quarantinePolicy == null) {
             quarantinePassed = true
             recoveryPassed = true
         } else {
+            val accelerator = quarantinePolicy.providerOrder
+                .first { it != OrtProviderKind.CPU }
+            val quarantineWorkload = if (
+                quarantinePolicy.kind == "step"
+            ) {
+                OrtAdaptiveWorkload(
+                    sequenceLength = 1,
+                    realtime = true,
+                    stateDependency = 1.0,
+                )
+            } else {
+                OrtAdaptiveWorkload(
+                    sequenceLength = quarantinePolicy.sequenceLength,
+                    realtime = false,
+                    stateDependency = 0.2,
+                )
+            }
             val quarantineAutotuner = VN97OrtAutotuner(
                 profile,
                 device,
                 expectedBundleId,
             )
+            val baselineDecision = quarantineAutotuner.decide(
+                quarantineWorkload
+            )
+            val baselineEligible = baselineDecision.invocations.any {
+                accelerator in it.providers
+            }
             repeat(profile.control.quarantineFailureThreshold) {
                 quarantineAutotuner.recordProviderFailure(accelerator)
             }
             val quarantined = quarantineAutotuner.decide(
-                probeWorkload
+                quarantineWorkload
             )
-            quarantinePassed = quarantined.invocations.all {
-                accelerator !in it.providers
-            }
+            quarantinePassed = (
+                baselineEligible &&
+                    quarantined.invocations.all {
+                        accelerator !in it.providers
+                    }
+                )
             repeat(
                 profile.control.quarantineCooldownDecisions
             ) {
-                quarantineAutotuner.decide(probeWorkload)
+                quarantineAutotuner.decide(quarantineWorkload)
             }
             val recovered = quarantineAutotuner.decide(
-                probeWorkload
+                quarantineWorkload
             )
             recoveryPassed = recovered.invocations.any {
                 accelerator in it.providers
