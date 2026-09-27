@@ -93,7 +93,7 @@ from .onnx_profiling import (
     R2E3_RECEIPT_SCHEMA,
     R2E3Measurement,
     build_r2e3_receipt,
-    percentile,
+    percentile_nearest_rank,
     rank_measurements,
     verify_r2e3_receipt,
 )
