@@ -138,7 +138,7 @@ def test_r2c_fast_alignment_respects_and_restores_existing_freeze() -> None:
         device="cpu",
     )
 
-    assert result.steps == 1
+    assert result.steps == len(windows)
     assert model.training is False
     assert frozen.requires_grad is False
     assert torch.equal(frozen_before, frozen.detach())
