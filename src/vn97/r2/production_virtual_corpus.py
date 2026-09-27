@@ -518,6 +518,25 @@ def build_r2d12_view(
     ):
         raise IOError("R2-D12 tokenizer copy identity mismatch")
 
+    registry_config_source = registry_root / "registry.json"
+    registry_config_target = output / "r2d11-registry.json"
+    shutil.copyfile(
+        registry_config_source,
+        registry_config_target,
+    )
+    registry_config_sha = _sha256_file(
+        registry_config_target
+    )
+
+    ledger_source = frozen["ledger_path"]
+    if not isinstance(ledger_source, Path):
+        raise ValueError("R2-D12 frozen ledger path is invalid")
+    ledger_target = output / "r2d11-ledger-snapshot.json"
+    shutil.copyfile(ledger_source, ledger_target)
+    ledger_sha = _sha256_file(ledger_target)
+    if ledger_sha != frozen.get("ledger_sha256"):
+        raise IOError("R2-D12 ledger snapshot copy mismatch")
+
     batches = [
         {
             "pack_id": pack_id,
@@ -540,6 +559,7 @@ def build_r2d12_view(
             frozen.get("ledger_sha256"),
             label="R2-D12 registry ledger SHA-256",
         ),
+        "registry_config_sha256": registry_config_sha,
         "attached_batches": batches,
         "virtual_index": virtual_index,
     }
@@ -651,6 +671,36 @@ def verify_r2d12_view(
         view_root / "tokenizer.vn97tk1"
     ) != tokenizer_sha:
         raise ValueError("R2-D12 tokenizer identity mismatch")
+
+    registry_config_sha = _require_sha256(
+        view.get("registry_config_sha256"),
+        label="R2-D12 registry config SHA-256",
+    )
+    if _sha256_file(
+        view_root / "r2d11-registry.json"
+    ) != registry_config_sha:
+        raise ValueError("R2-D12 registry config evidence mismatch")
+
+    ledger_sha = _require_sha256(
+        view.get("registry_ledger_sha256"),
+        label="R2-D12 registry ledger SHA-256",
+    )
+    ledger_path = view_root / "r2d11-ledger-snapshot.json"
+    if _sha256_file(ledger_path) != ledger_sha:
+        raise ValueError("R2-D12 ledger evidence mismatch")
+    ledger_payload = _strict_json(
+        ledger_path,
+        label="R2-D12 ledger snapshot",
+    )
+    if (
+        ledger_payload.get("snapshot_id")
+        != view.get("registry_snapshot_id")
+        or int(ledger_payload.get("generation", -1))
+        != int(view.get("registry_generation", -2))
+        or ledger_payload.get("registry_id")
+        != view.get("registry_id")
+    ):
+        raise ValueError("R2-D12 ledger snapshot binding mismatch")
 
     expected: dict[str, str] = {}
     for item in batches:
