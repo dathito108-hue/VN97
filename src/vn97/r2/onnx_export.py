@@ -363,7 +363,7 @@ def _graph_record(
     return {
         "kind": kind,
         "filename": path.name,
-        "sha256": sha256_file(path),
+        "sha256": _sha256_file(path),
         "bytes": path.stat().st_size,
         "sequence_length": sequence_length,
         "inputs": list(R2_ONNX_INPUTS),
