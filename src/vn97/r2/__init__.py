@@ -144,6 +144,7 @@ from .production_registry import (
     init_r2d11_registry,
     load_r2d11_definition,
     verify_r2d11_registry,
+    verify_r2d11_generation,
 )
 from .production_source_adapter import (
     R2D10_ADAPTERS,
