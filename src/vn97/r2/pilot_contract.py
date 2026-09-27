@@ -64,6 +64,7 @@ def build_pilot_corpus_evidence(
     validation_records: Sequence[Sequence[VN97ChatMessage]],
     *,
     reject_overlap: bool = True,
+    reject_duplicates: bool = True,
 ) -> R2PilotCorpusEvidence:
     if not training_records or not validation_records:
         raise ValueError("pilot train/validation records must be non-empty")
@@ -79,6 +80,18 @@ def build_pilot_corpus_evidence(
     train_set = set(train_digests)
     validation_set = set(validation_digests)
     overlap = train_set & validation_set
+
+    if reject_duplicates:
+        duplicate_train = len(train_digests) - len(train_set)
+        duplicate_validation = (
+            len(validation_digests) - len(validation_set)
+        )
+        if duplicate_train or duplicate_validation:
+            raise ValueError(
+                "R2 pilot exact duplicate records detected: "
+                f"train_duplicates={duplicate_train}, "
+                f"validation_duplicates={duplicate_validation}"
+            )
 
     if reject_overlap and overlap:
         first = sorted(overlap)[0]
