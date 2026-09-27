@@ -205,12 +205,6 @@ def _configure_trainable_tail(model: VN97LanguageCore) -> tuple[list[torch.nn.Pa
         parameters.append(parameter)
         names.append(f"final_norm.{name}")
 
-    if hasattr(model.embedding, "projection"):
-        parameter = model.embedding.projection
-        parameter.requires_grad_(True)
-        parameters.append(parameter)
-        names.append("embedding.projection")
-
     if not parameters:
         raise VN97P5E2Error("no trainable calibration parameters")
     return parameters, names
