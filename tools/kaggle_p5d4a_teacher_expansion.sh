@@ -239,6 +239,68 @@ if tokenizers.__version__ != "0.20.3":
     raise SystemExit("P5D4A tokenizers compatibility pin was not applied")
 PY
 
+HF_HOME="$HF_CACHE" TEACHER_REVISION="$TEACHER_REVISION" python - <<'PY'
+from pathlib import Path
+import json
+import os
+
+from huggingface_hub import hf_hub_download
+
+repo_id = "tiiuae/Falcon3-Mamba-7B-Instruct"
+revision = os.environ["TEACHER_REVISION"]
+cache_dir = os.environ["HF_HOME"]
+
+path = Path(
+    hf_hub_download(
+        repo_id=repo_id,
+        filename="config.json",
+        revision=revision,
+        cache_dir=cache_dir,
+        local_files_only=True,
+    )
+)
+
+try:
+    json.loads(path.read_text(encoding="utf-8"))
+    print(f"P5D4A CACHE CONFIG valid path={path}")
+except Exception:
+    target = path.resolve(strict=False)
+    print(
+        "P5D4A CACHE CONFIG invalid; repairing "
+        f"path={path} target={target}"
+    )
+    try:
+        if path.exists() or path.is_symlink():
+            path.unlink()
+    except FileNotFoundError:
+        pass
+    if target != path:
+        try:
+            if target.exists():
+                target.unlink()
+        except FileNotFoundError:
+            pass
+
+    repaired = Path(
+        hf_hub_download(
+            repo_id=repo_id,
+            filename="config.json",
+            revision=revision,
+            cache_dir=cache_dir,
+            force_download=True,
+        )
+    )
+    json.loads(
+        repaired.read_text(
+            encoding="utf-8"
+        )
+    )
+    print(
+        "P5D4A CACHE CONFIG repaired "
+        f"path={repaired} bytes={repaired.stat().st_size}"
+    )
+PY
+
 python -m vn97.p5d_teacher_corpus_cli \
   --p3-corpus-dir "$P3_DIR" \
   --dev-suite "$DEV_SUITE" \
