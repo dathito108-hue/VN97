@@ -13,6 +13,10 @@ VN97_MAMBA2_G0_TRANSFER_SCHEMA = "VN97M2G0TRANSFER1"
 VN97_MAMBA2_G0_CHECKPOINT_SCHEMA = "VN97M2G0CP1"
 VN97_MAMBA2_SOURCE_MODEL_ID = "state-spaces/mamba2-2.7b"
 VN97_MAMBA2_SOURCE_LICENSE = "apache-2.0"
+VN97_MAMBA2_SOURCE_TOKENIZER_ID = "EleutherAI/gpt-neox-20b"
+VN97_MAMBA2_SOURCE_TOKENIZER_REVISION = (
+    "364ae95407723fadd1d47b023c1efb92a4d891c3"
+)
 
 MAMBA2_27B_D_MODEL = 2560
 MAMBA2_27B_N_LAYERS = 64
@@ -360,6 +364,8 @@ def build_transfer_manifest(
         "unique_core_parameters": expected_unique_parameter_count(spec),
         "transfer_semantics": "tensor_value_identity_1to1",
         "tokenizer_semantics": "source_tokenizer_preserved",
+        "source_tokenizer_model_id": VN97_MAMBA2_SOURCE_TOKENIZER_ID,
+        "source_tokenizer_revision": VN97_MAMBA2_SOURCE_TOKENIZER_REVISION,
         "quantization_used": False,
         "lossy_mapping_used": False,
         "core_reinitialized": False,
