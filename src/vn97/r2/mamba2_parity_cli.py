@@ -4,7 +4,9 @@ import argparse
 import json
 from pathlib import Path
 
-from .mamba2_source_integrity import PINNED_ORACLE_MAMBA_COMMIT\n\nfrom .mamba2_parity import (
+from .mamba2_source_integrity import PINNED_ORACLE_MAMBA_COMMIT
+
+from .mamba2_parity import (
     Mamba2ParityReceipt,
     compare_tensor,
     hash_generated_tokens,
@@ -37,7 +39,11 @@ def main() -> None:
     parser.add_argument("--precision", default="fp32")
     parser.add_argument(
         "--implementation-source",
-        default=(\n            "state-spaces/mamba@"\n            + PINNED_ORACLE_MAMBA_COMMIT\n            + "_vs_vn97_native"\n        ),
+        default=(
+            "state-spaces/mamba@"
+            + PINNED_ORACLE_MAMBA_COMMIT
+            + "_vs_vn97_native"
+        ),
     )
     parser.add_argument("--atol", type=float, default=1e-5)
     parser.add_argument("--rtol", type=float, default=1e-5)
