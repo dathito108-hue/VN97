@@ -656,24 +656,31 @@ def _teacher_generate(
         in inputs.items()
     }
 
+    generation_kwargs = {
+        "max_new_tokens":
+            prompt.max_new_tokens,
+        "do_sample":
+            False,
+        "use_cache":
+            True,
+        "pad_token_id":
+            tokenizer.pad_token_id,
+        "eos_token_id":
+            tokenizer.eos_token_id,
+    }
+    if not getattr(
+        model,
+        "_vn97_single_device_teacher",
+        False,
+    ):
+        generation_kwargs[
+            "cache_implementation"
+        ] = "static"
+
     with torch.inference_mode():
         output = model.generate(
             **inputs,
-            max_new_tokens=
-                prompt.max_new_tokens,
-            do_sample=False,
-            # Falcon3-Mamba's default recurrent cache is not safe with the
-            # balanced two-GPU dispatch used on Kaggle T4s. Transformers'
-            # Falcon-Mamba docs explicitly support static-cache generation
-            # under device_map dispatch. This restores recurrent decoding
-            # without the cuda:0/cuda:1 cache-state mismatch and avoids the
-            # prohibitively slow full-sequence recomputation of use_cache=False.
-            use_cache=True,
-            cache_implementation="static",
-            pad_token_id=
-                tokenizer.pad_token_id,
-            eos_token_id=
-                tokenizer.eos_token_id,
+            **generation_kwargs,
         )
 
     input_length = int(
