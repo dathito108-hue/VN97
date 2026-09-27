@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 import hashlib
 import json
 from pathlib import Path
@@ -91,6 +91,89 @@ def _atomic_json(path: Path, payload: Mapping[str, object]) -> None:
     temp.unlink(missing_ok=True)
     temp.write_bytes(_canonical_json(payload) + b"\n")
     temp.replace(path)
+
+
+@dataclass(frozen=True)
+class R2OnnxInvocation:
+    kind: str
+    sequence_length: int
+    filename: str
+
+    def __post_init__(self) -> None:
+        if self.kind not in {"step", "chunk"}:
+            raise ValueError("ONNX invocation kind must be step or chunk")
+        if self.sequence_length <= 0:
+            raise ValueError("ONNX invocation length must be positive")
+        expected = (
+            "step.onnx"
+            if self.kind == "step"
+            else f"chunk-{self.sequence_length}.onnx"
+        )
+        if self.filename != expected:
+            raise ValueError("ONNX invocation filename mismatch")
+
+
+def compile_onnx_invocation_plan(
+    scheduled_chunks: Iterable[int],
+    *,
+    available_chunk_sizes: Iterable[int],
+) -> tuple[R2OnnxInvocation, ...]:
+    chunks = tuple(int(value) for value in scheduled_chunks)
+    if not chunks or any(value <= 0 for value in chunks):
+        raise ValueError(
+            "scheduled_chunks must be positive and non-empty"
+        )
+    available = tuple(
+        sorted(
+            {
+                int(value)
+                for value in available_chunk_sizes
+            },
+            reverse=True,
+        )
+    )
+    if any(
+        value not in R2_ONNX_SUPPORTED_CHUNKS
+        for value in available
+    ):
+        raise ValueError(
+            "available chunks must be selected from "
+            f"{R2_ONNX_SUPPORTED_CHUNKS}"
+        )
+
+    plan: list[R2OnnxInvocation] = []
+    for scheduled in chunks:
+        remaining = scheduled
+        while remaining > 0:
+            selected = next(
+                (
+                    value
+                    for value in available
+                    if value <= remaining
+                ),
+                None,
+            )
+            if selected is None:
+                plan.append(
+                    R2OnnxInvocation(
+                        kind="step",
+                        sequence_length=1,
+                        filename="step.onnx",
+                    )
+                )
+                remaining -= 1
+            else:
+                plan.append(
+                    R2OnnxInvocation(
+                        kind="chunk",
+                        sequence_length=selected,
+                        filename=f"chunk-{selected}.onnx",
+                    )
+                )
+                remaining -= selected
+    if sum(item.sequence_length for item in plan) != sum(chunks):
+        raise AssertionError("ONNX invocation plan lost sequence coverage")
+    return tuple(plan)
 
 
 def _profile_name(profile: str | int | None) -> str:
