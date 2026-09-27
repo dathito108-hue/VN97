@@ -685,8 +685,8 @@ def build_r2d10_pack(
     lock_path: Path,
     output_dir: Path,
 ) -> dict[str, object]:
+    lock = load_r2d10_lock(lock_path)
     lock_file = lock_path.resolve(strict=True)
-    lock = load_r2d10_lock(lock_file)
 
     if output_dir.exists():
         if (
@@ -895,6 +895,14 @@ def verify_r2d10_pack(output_dir: Path) -> dict[str, object]:
         receipt = receipt_map.get(source.source_id)
         if not isinstance(receipt, dict):
             raise ValueError("R2-D10 source receipt is missing")
+        if receipt.get("origin") != source.origin:
+            raise ValueError("R2-D10 receipt origin mismatch")
+        if receipt.get("revision") != source.revision:
+            raise ValueError("R2-D10 receipt revision mismatch")
+        if receipt.get("license") != source.license:
+            raise ValueError("R2-D10 receipt license mismatch")
+        if receipt.get("license_approved") is not True:
+            raise ValueError("R2-D10 receipt license approval mismatch")
         if receipt.get("family") != source.family:
             raise ValueError("R2-D10 receipt family mismatch")
         if receipt.get("adapter") != source.adapter:
@@ -903,6 +911,13 @@ def verify_r2d10_pack(output_dir: Path) -> dict[str, object]:
             raise ValueError("R2-D10 raw source identity mismatch")
         if int(receipt.get("raw_records", -1)) != source.expected_records:
             raise ValueError("R2-D10 raw source record count mismatch")
+        if int(receipt.get("raw_bytes", -1)) <= 0:
+            raise ValueError("R2-D10 raw source byte count is invalid")
+        if int(receipt.get("normalized_records", -1)) != source.expected_records:
+            raise ValueError("R2-D10 normalized record count mismatch")
+        expected_filename = _normalized_filename(source.source_id)
+        if receipt.get("normalized_path") != f"normalized/{expected_filename}":
+            raise ValueError("R2-D10 normalized path identity mismatch")
 
         relative = _safe_relative_path(
             receipt.get("normalized_path"),
@@ -930,6 +945,8 @@ def verify_r2d10_pack(output_dir: Path) -> dict[str, object]:
             raise ValueError("R2-D10 normalized SHA-256 mismatch")
         if len(data) != int(receipt.get("normalized_bytes", -1)):
             raise ValueError("R2-D10 normalized byte count mismatch")
+        if len(data) <= 0:
+            raise ValueError("R2-D10 normalized output is empty")
 
         records, _ = _load_raw_jsonl(
             normalized,
