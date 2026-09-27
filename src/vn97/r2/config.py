@@ -117,7 +117,7 @@ def r2_smoke_config(vocab_size: int = 320) -> VN97R2Config:
 
 
 def r2_cpu_pilot_config(vocab_size: int = 4096) -> VN97R2Config:
-    """~60M class reference pilot; intended for architecture validation, not mobile deployment."""
+    """Locked R2-C 50-150M dense pilot; ~62-65M for current/reference vocabularies."""
     return VN97R2Config(
         vocab_size=vocab_size,
         d_model=768,

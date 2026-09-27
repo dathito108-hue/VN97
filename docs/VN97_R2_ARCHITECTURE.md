@@ -84,7 +84,9 @@ models.
 Three configurations are defined:
 
 - r2_smoke_config: tiny correctness/CI model.
-- r2_cpu_pilot_config: roughly 50-100M-class architecture pilot depending on vocab.
+- r2_cpu_pilot_config: locked R2-C 50-150M dense pilot configuration
+  (about 61.7M parameters with the byte-base tokenizer and about 64.7M at
+  vocab 4096).
 - r2_mobile_1b_config: production target around 1B-1.3B parameters depending
   on vocabulary size.
 
@@ -243,27 +245,51 @@ trainable selective-SSM foundation.
 
 ### R2-B — Compatibility bridge + dense pipeline
 
-Implemented:
+Completed and merged:
 - VN97TK1 package loader and exact vocabulary guard;
-- reuse of canonical chat-completion training segmentation/windows;
-- weight-sharing inference view compatible with current cognition engine;
-- current retrieval embedding path over R2 hidden states;
-- resumable dense trainer with deterministic epoch order;
-- best-checkpoint selection by held-out dense loss;
+- canonical chat-completion segmentation/windows reused without a second model;
+- weight-sharing inference view compatible with the existing cognition engine;
+- retrieval embedding path over R2 hidden states;
+- deterministic checkpoint/resume for dense training;
+- held-out best-checkpoint selection;
 - CPU/GPU-agnostic dense pilot CLI;
-- explicit fast-path alignment stage before fresh validation.
+- associative selective-SSM scan for training/prefill and recurrent generation;
+- explicit fast-path alignment before later fresh validation.
 
-Remaining in R2-B:
-- structured tool/action end-to-end generation gate against the current planner;
-- full memory/planner integration test with a trained R2 checkpoint.
+R2-B final validation passed in GitHub Actions run #36312385011. The temporary
+validation workflow was removed before merge.
 
 ### R2-C — Dense CPU/low-cost pilot
 
-- 50-150M class pilot;
-- real corpus windows;
-- generation + semantic + tool + authority gates;
-- checkpoint/resume;
-- no quantization.
+R2-C is a real 50-150M dense intelligence pilot, not another architecture
+experiment. Its harness is fail-closed before expensive compute:
+
+- the pilot config must remain inside the locked 50-150M parameter class;
+- exact duplicate records inside a split are rejected;
+- exact train/validation record overlap is rejected;
+- training corpus, validation corpus and tokenizer are fingerprinted;
+- CPU runs preflight available host RAM;
+- CUDA runs preflight free device VRAM, including Kaggle T4, and budgets the
+  logarithmic affine-scan autograd graph rather than only recurrent-state size;
+- `--preflight-only` verifies data, windows, probe coverage and memory without
+  executing a model forward/backward pass;
+- checkpoint/resume binds the run identity, tokenizer, original held-out
+  baseline and persisted best-checkpoint SHA-256 before continuing;
+- `--max-run-seconds` pauses at a batch boundary, writes a cryptographically
+  identified resume state, and skips expensive final probes until training is
+  complete;
+- initial held-out loss is recorded before training and compared with the best
+  dense checkpoint after training;
+- optional held-out probes cover natural-language generation, structured
+  protocols, tool/action JSON and external-write deep-route behavior;
+- acceptance probe suites must contain natural-language, tool-action and
+  external-write cases;
+- reports store probe output hashes/metrics rather than raw generated content;
+- quantization/QAT/ternary remain forbidden.
+
+The R2-C lexical target-F1 is deliberately named as a target-alignment metric.
+It is not presented as a general semantic-quality score. Production promotion
+still requires the later fresh multi-axis validation gate before QAT.
 
 ### R2-D — Production-scale dense training
 

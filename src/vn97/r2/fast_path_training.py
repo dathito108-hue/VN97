@@ -73,14 +73,21 @@ def _batch(
 
 def _configure_fast_alignment_trainable(
     model: VN97R2Model,
+    original_trainable: set[int],
 ) -> list[torch.nn.Parameter]:
     for parameter in model.parameters():
         parameter.requires_grad_(False)
     trainable: list[torch.nn.Parameter] = []
     for index in range(model.config.fast_layers):
         for parameter in model.layers[index].parameters():
+            if id(parameter) not in original_trainable:
+                continue
             parameter.requires_grad_(True)
             trainable.append(parameter)
+    if not trainable:
+        raise ValueError(
+            "R2 fast-path alignment has no eligible trainable parameters"
+        )
     return trainable
 
 
@@ -112,92 +119,107 @@ def align_fast_path(
         torch.cuda.manual_seed_all(config.seed)
 
     model.to(resolved)
-    trainable = _configure_fast_alignment_trainable(model)
-    optimizer = torch.optim.AdamW(
-        trainable,
-        lr=config.learning_rate,
-        weight_decay=config.weight_decay,
-    )
+    was_training = model.training
+    original_requires_grad = [
+        (parameter, parameter.requires_grad)
+        for parameter in model.parameters()
+    ]
 
-    rng = random.Random(config.seed)
     losses: list[float] = []
     target_tokens = 0
     steps = 0
 
-    for epoch in range(config.epochs):
-        order = list(range(len(windows)))
-        rng.shuffle(order)
-        for start in range(0, len(order), config.batch_size):
-            indices = order[start : start + config.batch_size]
-            inputs, labels = _batch(
-                windows,
-                indices,
-                device=resolved,
-            )
-            mask = labels != IGNORE_INDEX
-            if not bool(mask.any()):
-                continue
+    try:
+        model.train()
+        trainable = _configure_fast_alignment_trainable(
+            model,
+            {
+                id(parameter)
+                for parameter, requires_grad in original_requires_grad
+                if requires_grad
+            },
+        )
+        optimizer = torch.optim.AdamW(
+            trainable,
+            lr=config.learning_rate,
+            weight_decay=config.weight_decay,
+        )
 
-            optimizer.zero_grad(set_to_none=True)
-            deep_logits, _ = model(inputs, profile="deep")
-            fast_logits, _ = model(inputs, profile="fast")
-
-            deep_selected = deep_logits[mask].float()
-            fast_selected = fast_logits[mask].float()
-            targets = labels[mask]
-
-            fast_ce = F.cross_entropy(
-                fast_selected,
-                targets,
-            )
-            deep_ce = F.cross_entropy(
-                deep_selected,
-                targets,
-            )
-
-            temperature = config.temperature
-            teacher = F.softmax(
-                deep_selected.detach() / temperature,
-                dim=-1,
-            )
-            student = F.log_softmax(
-                fast_selected / temperature,
-                dim=-1,
-            )
-            distill = F.kl_div(
-                student,
-                teacher,
-                reduction="batchmean",
-            ) * (temperature * temperature)
-
-            loss = (
-                fast_ce
-                + config.distill_weight * distill
-                + config.deep_preservation_weight * deep_ce
-            )
-            if not bool(torch.isfinite(loss)):
-                raise RuntimeError(
-                    "R2 fast-path alignment loss became non-finite"
+        rng = random.Random(config.seed)
+        for epoch in range(config.epochs):
+            order = list(range(len(windows)))
+            rng.shuffle(order)
+            for start in range(0, len(order), config.batch_size):
+                indices = order[start : start + config.batch_size]
+                inputs, labels = _batch(
+                    windows,
+                    indices,
+                    device=resolved,
                 )
-            loss.backward()
-            grad_norm = torch.nn.utils.clip_grad_norm_(
-                trainable,
-                config.max_grad_norm,
-            )
-            if not bool(torch.isfinite(torch.as_tensor(grad_norm))):
-                raise RuntimeError(
-                    "R2 fast-path alignment gradient became non-finite"
+                mask = labels != IGNORE_INDEX
+                if not bool(mask.any()):
+                    continue
+
+                optimizer.zero_grad(set_to_none=True)
+                deep_logits, _ = model(inputs, profile="deep")
+                fast_logits, _ = model(inputs, profile="fast")
+
+                deep_selected = deep_logits[mask].float()
+                fast_selected = fast_logits[mask].float()
+                targets = labels[mask]
+
+                fast_ce = F.cross_entropy(
+                    fast_selected,
+                    targets,
                 )
-            optimizer.step()
+                deep_ce = F.cross_entropy(
+                    deep_selected,
+                    targets,
+                )
 
-            value = float(loss.detach().cpu())
-            losses.append(value)
-            target_tokens += int(mask.sum().item())
-            steps += 1
+                temperature = config.temperature
+                teacher = F.softmax(
+                    deep_selected.detach() / temperature,
+                    dim=-1,
+                )
+                student = F.log_softmax(
+                    fast_selected / temperature,
+                    dim=-1,
+                )
+                distill = F.kl_div(
+                    student,
+                    teacher,
+                    reduction="batchmean",
+                ) * (temperature * temperature)
 
-    for parameter in model.parameters():
-        parameter.requires_grad_(True)
-    model.eval()
+                loss = (
+                    fast_ce
+                    + config.distill_weight * distill
+                    + config.deep_preservation_weight * deep_ce
+                )
+                if not bool(torch.isfinite(loss)):
+                    raise RuntimeError(
+                        "R2 fast-path alignment loss became non-finite"
+                    )
+                loss.backward()
+                grad_norm = torch.nn.utils.clip_grad_norm_(
+                    trainable,
+                    config.max_grad_norm,
+                )
+                if not bool(torch.isfinite(torch.as_tensor(grad_norm))):
+                    raise RuntimeError(
+                        "R2 fast-path alignment gradient became non-finite"
+                    )
+                optimizer.step()
+
+                value = float(loss.detach().cpu())
+                losses.append(value)
+                target_tokens += int(mask.sum().item())
+                steps += 1
+    finally:
+        for parameter, requires_grad in original_requires_grad:
+            parameter.requires_grad_(requires_grad)
+        model.train(was_training)
 
     if not losses:
         raise RuntimeError("R2 fast-path alignment completed without work")

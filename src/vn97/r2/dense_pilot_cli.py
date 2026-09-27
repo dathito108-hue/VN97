@@ -6,9 +6,15 @@ import json
 from pathlib import Path
 import shutil
 
+import torch
+
 from ..cognition_adapter import TorchVN97InferenceEngine
-from ..training import VN97TrainingConfig
-from ..training_cli import _atomic_write, _load_records
+from ..training import VN97ChatMessage, VN97TrainingConfig
+from ..training_cli import (
+    _atomic_write,
+    _load_records,
+    _read_bounded_regular_file,
+)
 from .bridge import VN97R2InferenceView, assert_tokenizer_compatible
 from .checkpoint import load_r2_checkpoint
 from .config import r2_cpu_pilot_config, r2_smoke_config
@@ -18,14 +24,29 @@ from .dense_training import (
     evaluate_dense_loss,
     train_dense,
 )
+from .evaluation import EvaluationDomain
 from .model import VN97R2Model
+from .pilot_contract import (
+    assert_r2_pilot_scale,
+    available_memory_bytes,
+    build_pilot_corpus_evidence,
+    estimate_pilot_training_resources,
+)
+from .pilot_evaluation import (
+    R2PilotGateDecision,
+    R2PilotProbe,
+    evaluate_pilot_gate,
+    evaluate_pilot_probes,
+)
 
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
             "CPU/GPU-agnostic dense-first VN97-R2 pilot over canonical "
-            "VN97TK1 + chat JSONL. No quantization or ternary mode is used."
+            "VN97TK1 + chat JSONL. R2-C pilot mode enforces 50-150M scale, "
+            "train/validation disjointness and memory preflight. No "
+            "quantization or ternary mode is used."
         )
     )
     parser.add_argument("--tokenizer", required=True)
@@ -55,7 +76,96 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--device", default="auto")
     parser.add_argument("--seed", type=int, default=9705)
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help=(
+            "Resume from work-dir/dense-resume.pt and reuse the existing "
+            "output directory/best checkpoint."
+        ),
+    )
+    parser.add_argument(
+        "--max-run-seconds",
+        type=float,
+        default=None,
+        help=(
+            "Gracefully pause dense training at a batch boundary after this "
+            "wall-clock budget, persist resume state, and skip final probes."
+        ),
+    )
+
+    parser.add_argument(
+        "--probe-jsonl",
+        default=None,
+        help=(
+            "Optional R2-C held-out probe suite. Required for a complete "
+            "pilot acceptance decision."
+        ),
+    )
+    parser.add_argument(
+        "--probe-max-input-bytes",
+        type=int,
+        default=8 * 1024 * 1024,
+    )
+    parser.add_argument(
+        "--probe-max-examples",
+        type=int,
+        default=256,
+    )
+    parser.add_argument(
+        "--probe-max-new-tokens",
+        type=int,
+        default=96,
+    )
+    parser.add_argument(
+        "--allow-low-memory",
+        action="store_true",
+        help=(
+            "Override the conservative R2-C memory preflight. The run may OOM; "
+            "this flag does not weaken model/evaluation gates."
+        ),
+    )
+    parser.add_argument(
+        "--preflight-only",
+        action="store_true",
+        help=(
+            "Validate corpus, split isolation, model scale, memory budget, "
+            "window construction and probe coverage without any model "
+            "forward/backward pass."
+        ),
+    )
+    parser.add_argument(
+        "--require-pilot-gate",
+        action="store_true",
+        help=(
+            "Return a non-zero exit code when the 50-150M pilot does not "
+            "improve held-out loss or fails the complete probe gate."
+        ),
+    )
     return parser
+
+
+def _resolve_training_device(value: str) -> torch.device:
+    if value == "auto":
+        return torch.device(
+            "cuda" if torch.cuda.is_available() else "cpu"
+        )
+    resolved = torch.device(value)
+    if resolved.type == "cuda" and not torch.cuda.is_available():
+        raise RuntimeError("CUDA was requested but is not available")
+    return resolved
+
+
+def _available_training_memory(
+    device: torch.device,
+) -> int | None:
+    if device.type == "cuda":
+        try:
+            free_bytes, _ = torch.cuda.mem_get_info(device)
+        except (RuntimeError, ValueError):
+            return None
+        return int(free_bytes)
+    return available_memory_bytes()
 
 
 def _combined_identity(
@@ -80,15 +190,166 @@ def _combined_identity(
     ).hexdigest()
 
 
+def _load_pilot_probes(
+    path: Path,
+    *,
+    max_input_bytes: int,
+    max_examples: int,
+) -> tuple[tuple[R2PilotProbe, ...], str]:
+    if max_input_bytes <= 0 or max_examples <= 0:
+        raise ValueError("probe input bounds must be positive")
+    data = _read_bounded_regular_file(
+        path,
+        max_bytes=max_input_bytes,
+    )
+    digest = hashlib.sha256(
+        b"VN97R2PROBES1\0"
+        + len(data).to_bytes(8, "little")
+        + data
+    ).hexdigest()
+    try:
+        text = data.decode("utf-8", errors="strict")
+    except UnicodeDecodeError as exc:
+        raise ValueError("probe JSONL must be UTF-8") from exc
+
+    probes: list[R2PilotProbe] = []
+    for line_number, line in enumerate(text.split("\n"), start=1):
+        if not line.strip():
+            continue
+        try:
+            raw = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise ValueError(
+                f"invalid probe JSONL at {path}:{line_number}"
+            ) from exc
+        if not isinstance(raw, dict):
+            raise ValueError(
+                f"probe record must be an object at {path}:{line_number}"
+            )
+
+        allowed = {
+            "domain",
+            "messages",
+            "expected",
+            "requires_external_write",
+        }
+        required = {"domain", "messages", "expected"}
+        if set(raw) - allowed or not required.issubset(raw):
+            raise ValueError(
+                f"invalid probe keys at {path}:{line_number}"
+            )
+        if not isinstance(raw["messages"], list):
+            raise ValueError(
+                f"probe messages must be a list at {path}:{line_number}"
+            )
+        messages: list[VN97ChatMessage] = []
+        for message in raw["messages"]:
+            if (
+                not isinstance(message, dict)
+                or set(message) != {"role", "content"}
+            ):
+                raise ValueError(
+                    f"invalid probe message at {path}:{line_number}"
+                )
+            messages.append(
+                VN97ChatMessage(
+                    role=message["role"],
+                    content=message["content"],
+                )
+            )
+
+        try:
+            domain = EvaluationDomain(str(raw["domain"]))
+        except ValueError as exc:
+            raise ValueError(
+                f"invalid probe domain at {path}:{line_number}"
+            ) from exc
+        requires_external_write = raw.get(
+            "requires_external_write",
+            False,
+        )
+        if type(requires_external_write) is not bool:
+            raise ValueError(
+                "probe requires_external_write must be boolean"
+            )
+        probes.append(
+            R2PilotProbe(
+                domain=domain,
+                messages=tuple(messages),
+                expected=raw["expected"],
+                requires_external_write=requires_external_write,
+            )
+        )
+        if len(probes) > max_examples:
+            raise ValueError("probe count exceeds --probe-max-examples")
+
+    if not probes:
+        raise ValueError("probe suite contains no usable records")
+    return tuple(probes), digest
+
+
+def _load_run_metadata(path: Path) -> dict[str, object]:
+    data = _read_bounded_regular_file(
+        path,
+        max_bytes=64 * 1024,
+    )
+    try:
+        value = json.loads(data.decode("utf-8", errors="strict"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise RuntimeError(
+            "R2-C run metadata is not valid UTF-8 JSON"
+        ) from exc
+    if not isinstance(value, dict):
+        raise RuntimeError("R2-C run metadata must be an object")
+    if value.get("schema") != "VN97R2DENSERUN1":
+        raise RuntimeError("R2-C run metadata schema mismatch")
+    return value
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    if args.require_pilot_gate and args.profile != "pilot":
+        raise ValueError(
+            "--require-pilot-gate requires --profile pilot"
+        )
+    if args.require_pilot_gate and args.probe_jsonl is None:
+        raise ValueError(
+            "--require-pilot-gate requires --probe-jsonl"
+        )
+    if args.max_run_seconds is not None and args.max_run_seconds <= 0.0:
+        raise ValueError("--max-run-seconds must be positive")
+    if args.resume and args.preflight_only:
+        raise ValueError("--resume cannot be combined with --preflight-only")
+
     output = Path(args.output_dir)
+    work = Path(args.work_dir)
+    resume_path = work / "dense-resume.pt"
+    run_metadata_path = work / "r2-dense-run.json"
+
     if output.exists() and (
-        output.is_symlink()
-        or not output.is_dir()
-        or any(output.iterdir())
+        output.is_symlink() or not output.is_dir()
     ):
-        raise ValueError("output-dir must be new or empty")
+        raise ValueError("output-dir must be a regular directory")
+    if args.resume:
+        if not resume_path.is_file():
+            raise ValueError(
+                "--resume requires work-dir/dense-resume.pt"
+            )
+        if not run_metadata_path.is_file():
+            raise ValueError(
+                "--resume requires work-dir/r2-dense-run.json"
+            )
+    elif not args.preflight_only and (
+        resume_path.exists() or run_metadata_path.exists()
+    ):
+        raise ValueError(
+            "work-dir contains prior R2-C run state; use --resume "
+            "or choose a clean work-dir"
+        )
+    elif output.exists() and any(output.iterdir()):
+        raise ValueError(
+            "output-dir must be new or empty unless --resume is used"
+        )
     output.mkdir(parents=True, exist_ok=True)
 
     tokenizer_path = Path(args.tokenizer).resolve(strict=True)
@@ -109,13 +370,82 @@ def main(argv: list[str] | None = None) -> int:
         max_input_bytes=args.max_input_bytes,
         max_examples=args.max_examples,
     )
+    corpus_evidence = build_pilot_corpus_evidence(
+        training_records,
+        validation_records,
+        reject_overlap=True,
+    )
+
+    probes: tuple[R2PilotProbe, ...] | None = None
+    probe_sha: str | None = None
+    if args.probe_jsonl is not None:
+        probes, probe_sha = _load_pilot_probes(
+            Path(args.probe_jsonl),
+            max_input_bytes=args.probe_max_input_bytes,
+            max_examples=args.probe_max_examples,
+        )
+        if args.require_pilot_gate:
+            if not any(
+                probe.domain is EvaluationDomain.NATURAL_LANGUAGE
+                for probe in probes
+            ):
+                raise ValueError(
+                    "R2-C acceptance probe suite lacks natural_language"
+                )
+            if not any(
+                probe.domain is EvaluationDomain.TOOL_ACTION
+                for probe in probes
+            ):
+                raise ValueError(
+                    "R2-C acceptance probe suite lacks tool_action"
+                )
+            if not any(
+                probe.requires_external_write
+                for probe in probes
+            ):
+                raise ValueError(
+                    "R2-C acceptance probe suite lacks external-write probe"
+                )
 
     if args.profile == "pilot":
         config = r2_cpu_pilot_config(tokenizer.vocab_size)
+        assert_r2_pilot_scale(config)
     else:
         config = r2_smoke_config(tokenizer.vocab_size)
     model = VN97R2Model(config)
     assert_tokenizer_compatible(model, tokenizer)
+
+    training_device = _resolve_training_device(args.device)
+    available_training_memory = _available_training_memory(
+        training_device
+    )
+    # Do not silently fall back to host RAM when CUDA VRAM discovery fails.
+    # Zero keeps the preflight fail-closed unless the user explicitly accepts
+    # OOM risk with --allow-low-memory.
+    resource_available_memory = (
+        0
+        if training_device.type == "cuda"
+        and available_training_memory is None
+        else available_training_memory
+    )
+    resources = estimate_pilot_training_resources(
+        config,
+        sequence_length=args.sequence_length,
+        batch_size=args.batch_size,
+        available_ram=resource_available_memory,
+    )
+    if (
+        args.profile == "pilot"
+        and resources.fits_available_ram is False
+        and not args.allow_low_memory
+    ):
+        raise RuntimeError(
+            "R2-C memory preflight rejected this run: "
+            f"recommended={resources.recommended_ram_bytes} "
+            f"available={resources.available_ram_bytes}. "
+            "Reduce sequence/batch size or pass --allow-low-memory "
+            "only if you deliberately accept OOM risk."
+        )
 
     window_config = VN97TrainingConfig(
         sequence_length=args.sequence_length,
@@ -146,6 +476,142 @@ def main(argv: list[str] | None = None) -> int:
         tokenizer_sha=tokenizer_sha,
         profile=args.profile,
     )
+
+    if args.preflight_only:
+        probe_coverage = {
+            "natural_language": (
+                probes is not None
+                and any(
+                    probe.domain is EvaluationDomain.NATURAL_LANGUAGE
+                    for probe in probes
+                )
+            ),
+            "tool_action": (
+                probes is not None
+                and any(
+                    probe.domain is EvaluationDomain.TOOL_ACTION
+                    for probe in probes
+                )
+            ),
+            "external_write": (
+                probes is not None
+                and any(
+                    probe.requires_external_write
+                    for probe in probes
+                )
+            ),
+        }
+        preflight = {
+            "schema": "VN97R2DENSEPREFLIGHT1",
+            "status": "PASS",
+            "profile": args.profile,
+            "architecture_id": config.architecture_id,
+            "config_fingerprint": config.fingerprint(),
+            "parameter_count": config.estimated_parameter_count(),
+            "pilot_scale_50m_150m": (
+                args.profile == "pilot"
+                and 50_000_000
+                <= config.estimated_parameter_count()
+                <= 150_000_000
+            ),
+            "dataset_identity": dataset_identity,
+            "train_sha256": train_sha,
+            "validation_sha256": validation_sha,
+            "tokenizer_sha256": tokenizer_sha,
+            "corpus": corpus_evidence.as_dict(),
+            "resources": {
+                **resources.as_dict(),
+                "training_device": str(training_device),
+                "memory_scope": (
+                    "cuda_free_vram"
+                    if training_device.type == "cuda"
+                    else "host_available_ram"
+                ),
+            },
+            "training_windows": len(training_windows),
+            "validation_windows": len(validation_windows),
+            "probe_suite_sha256": probe_sha,
+            "probe_count": 0 if probes is None else len(probes),
+            "probe_coverage": probe_coverage,
+            "quantization_used": False,
+            "model_forward_executed": False,
+            "training_executed": False,
+        }
+        _atomic_write(
+            output / "r2-dense-pilot-preflight.json",
+            json.dumps(
+                preflight,
+                ensure_ascii=False,
+                sort_keys=True,
+                indent=2,
+                allow_nan=False,
+            ).encode("utf-8") + b"\n",
+        )
+        print(
+            "VN97R2DENSEPREFLIGHT "
+            f"status=PASS profile={args.profile} "
+            f"parameters={config.estimated_parameter_count()} "
+            f"device={training_device} "
+            f"recommended_memory={resources.recommended_ram_bytes} "
+            f"available_memory={resources.available_ram_bytes} "
+            f"train_windows={len(training_windows)} "
+            f"validation_windows={len(validation_windows)}",
+            flush=True,
+        )
+        return 0
+
+    if args.resume:
+        run_metadata = _load_run_metadata(run_metadata_path)
+        if run_metadata.get("dataset_identity") != dataset_identity:
+            raise RuntimeError(
+                "R2-C resume run metadata dataset identity mismatch"
+            )
+        if (
+            run_metadata.get("config_fingerprint")
+            != config.fingerprint()
+        ):
+            raise RuntimeError(
+                "R2-C resume run metadata config fingerprint mismatch"
+            )
+        if run_metadata.get("tokenizer_sha256") != tokenizer_sha:
+            raise RuntimeError(
+                "R2-C resume run metadata tokenizer mismatch"
+            )
+        initial_raw = run_metadata.get("initial_validation")
+        if not isinstance(initial_raw, dict):
+            raise RuntimeError(
+                "R2-C resume run metadata lacks initial validation"
+            )
+        initial_validation = {
+            "target_tokens": int(initial_raw["target_tokens"]),
+            "mean_loss": float(initial_raw["mean_loss"]),
+            "top1_accuracy": float(initial_raw["top1_accuracy"]),
+        }
+    else:
+        initial_validation = evaluate_dense_loss(
+            model,
+            validation_windows,
+            batch_size=args.batch_size,
+            device=training_device,
+        )
+        run_metadata = {
+            "schema": "VN97R2DENSERUN1",
+            "dataset_identity": dataset_identity,
+            "config_fingerprint": config.fingerprint(),
+            "tokenizer_sha256": tokenizer_sha,
+            "initial_validation": initial_validation,
+        }
+        _atomic_write(
+            run_metadata_path,
+            json.dumps(
+                run_metadata,
+                ensure_ascii=False,
+                sort_keys=True,
+                indent=2,
+                allow_nan=False,
+            ).encode("utf-8") + b"\n",
+        )
+
     dense_config = R2DenseTrainingConfig(
         epochs=args.epochs,
         batch_size=args.batch_size,
@@ -164,8 +630,72 @@ def main(argv: list[str] | None = None) -> int:
         work_dir=args.work_dir,
         best_checkpoint_path=checkpoint_path,
         dataset_identity=dataset_identity,
-        device=args.device,
+        device=training_device,
+        max_run_seconds=args.max_run_seconds,
     )
+
+    if not result.completed:
+        shutil.copyfile(
+            tokenizer_path,
+            output / "tokenizer.vn97tk1",
+        )
+        progress = {
+            "schema": "VN97R2DENSEPROGRESS1",
+            "status": "PAUSED",
+            "profile": args.profile,
+            "architecture_id": config.architecture_id,
+            "config_fingerprint": config.fingerprint(),
+            "parameter_count": model.parameter_count(),
+            "dataset_identity": dataset_identity,
+            "corpus": corpus_evidence.as_dict(),
+            "resources": {
+                **resources.as_dict(),
+                "training_device": str(training_device),
+                "memory_scope": (
+                    "cuda_free_vram"
+                    if training_device.type == "cuda"
+                    else "host_available_ram"
+                ),
+            },
+            "initial_validation": initial_validation,
+            "training": {
+                "steps": result.steps,
+                "target_tokens": result.target_tokens,
+                "mean_loss": result.mean_loss,
+                "final_loss": result.final_loss,
+                "best_epoch": result.best_epoch,
+                "best_validation_loss": result.best_validation_loss,
+                "best_checkpoint_sha256": result.best_checkpoint_sha256,
+                "completed": False,
+                "resume_checkpoint_sha256": (
+                    result.resume_checkpoint_sha256
+                ),
+            },
+            "resume_path": str(resume_path),
+            "probe_suite_sha256": probe_sha,
+            "pilot_accepted": False,
+            "quantization_used": False,
+        }
+        _atomic_write(
+            output / "r2-dense-pilot-progress.json",
+            json.dumps(
+                progress,
+                ensure_ascii=False,
+                sort_keys=True,
+                indent=2,
+                allow_nan=False,
+            ).encode("utf-8") + b"\n",
+        )
+        print(
+            "VN97R2DENSEPILOT "
+            f"status=PAUSED profile={args.profile} "
+            f"steps={result.steps} "
+            f"best_val_loss={result.best_validation_loss:.6f} "
+            f"resume_sha256={result.resume_checkpoint_sha256} "
+            f"work_dir={work}",
+            flush=True,
+        )
+        return 0
 
     best_model, checkpoint_evidence = load_r2_checkpoint(
         checkpoint_path,
@@ -176,6 +706,14 @@ def main(argv: list[str] | None = None) -> int:
         validation_windows,
         batch_size=args.batch_size,
         device="cpu",
+    )
+
+    initial_loss = float(initial_validation["mean_loss"])
+    final_loss = float(final_validation["mean_loss"])
+    relative_loss_improvement = (
+        (initial_loss - final_loss) / initial_loss
+        if initial_loss > 0.0
+        else 0.0
     )
 
     first_messages = validation_records[0]
@@ -201,23 +739,61 @@ def main(argv: list[str] | None = None) -> int:
     if len(embedding) != best_model.config.d_model:
         raise RuntimeError("R2 cognition bridge embedding size mismatch")
 
+    probe_metrics = None
+    probe_results = None
+    probe_gate = R2PilotGateDecision(
+        passed=False,
+        reasons=("probe_suite_missing",),
+    )
+    if probes is not None:
+        probe_metrics, probe_results = evaluate_pilot_probes(
+            best_model,
+            tokenizer,
+            probes,
+            max_new_tokens=args.probe_max_new_tokens,
+            profile="deep",
+            device="cpu",
+        )
+        probe_gate = evaluate_pilot_gate(probe_metrics)
+
+    pilot_accepted = (
+        args.profile == "pilot"
+        and relative_loss_improvement > 0.0
+        and probe_gate.passed
+    )
+
     shutil.copyfile(
         tokenizer_path,
         output / "tokenizer.vn97tk1",
     )
     report = {
-        "schema": "VN97R2DENSEPILOT1",
+        "schema": "VN97R2DENSEPILOT2",
         "status": "PASS",
         "profile": args.profile,
         "architecture_id": best_model.config.architecture_id,
         "config_fingerprint": best_model.config.fingerprint(),
         "parameter_count": best_model.parameter_count(),
+        "pilot_scale_50m_150m": (
+            args.profile == "pilot"
+            and 50_000_000 <= best_model.parameter_count() <= 150_000_000
+        ),
         "dataset_identity": dataset_identity,
         "train_sha256": train_sha,
         "validation_sha256": validation_sha,
         "tokenizer_sha256": tokenizer_sha,
+        "corpus": corpus_evidence.as_dict(),
+        "resources": {
+            **resources.as_dict(),
+            "training_device": str(training_device),
+            "memory_scope": (
+                "cuda_free_vram"
+                if training_device.type == "cuda"
+                else "host_available_ram"
+            ),
+        },
         "training_windows": len(training_windows),
         "validation_windows": len(validation_windows),
+        "initial_validation": initial_validation,
         "training": {
             "steps": result.steps,
             "target_tokens": result.target_tokens,
@@ -228,10 +804,28 @@ def main(argv: list[str] | None = None) -> int:
             "best_checkpoint_sha256": (
                 result.best_checkpoint_sha256
             ),
+            "completed": result.completed,
+            "resume_checkpoint_sha256": (
+                result.resume_checkpoint_sha256
+            ),
         },
         "final_validation": final_validation,
+        "relative_validation_loss_improvement": (
+            relative_loss_improvement
+        ),
         "checkpoint": checkpoint_evidence,
         "cognition_bridge_embedding_dim": len(embedding),
+        "probe_suite_sha256": probe_sha,
+        "probe_metrics": (
+            None if probe_metrics is None else probe_metrics.as_dict()
+        ),
+        "probe_gate": probe_gate.as_dict(),
+        "probe_results": (
+            None
+            if probe_results is None
+            else [item.as_dict() for item in probe_results]
+        ),
+        "pilot_accepted": pilot_accepted,
         "quantization_used": False,
     }
     _atomic_write(
@@ -244,6 +838,9 @@ def main(argv: list[str] | None = None) -> int:
             allow_nan=False,
         ).encode("utf-8") + b"\n",
     )
+    (output / "r2-dense-pilot-progress.json").unlink(
+        missing_ok=True
+    )
     print(
         "VN97R2DENSEPILOT "
         f"status=PASS "
@@ -252,10 +849,14 @@ def main(argv: list[str] | None = None) -> int:
         f"steps={result.steps} "
         f"best_epoch={result.best_epoch} "
         f"best_val_loss={result.best_validation_loss:.6f} "
+        f"loss_improvement={relative_loss_improvement:.6f} "
+        f"pilot_accepted={str(pilot_accepted).lower()} "
         f"quantization_used=false "
         f"output={output}",
         flush=True,
     )
+    if args.require_pilot_gate and not pilot_accepted:
+        return 2
     return 0
 
 
