@@ -419,9 +419,16 @@ def _seal_rows_for_split(
     rows = []
     for source_id in sorted(grouped):
         record = metadata[source_id]
+        derived_source_id = (
+            "r2d9-"
+            + hashlib.sha256(
+                source_id.encode("utf-8")
+            ).hexdigest()
+            + f"-{split}-{seal_index:05d}"
+        )
         rows.append(
             (
-                f"{source_id}@{split}@{seal_index:05d}",
+                derived_source_id,
                 record.origin,
                 record.license,
                 split,
