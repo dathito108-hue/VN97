@@ -53,6 +53,7 @@ data class OrtHardeningPhaseResult(
     val name: String,
     val kind: String,
     val iterations: Int,
+    val tokensPerIteration: Int,
     val latenciesNanos: List<Long>,
     val providerCounts: Map<String, Int>,
     val graphCounts: Map<String, Int>,
@@ -65,6 +66,7 @@ data class OrtHardeningPhaseResult(
     init {
         require(name.isNotBlank())
         require(iterations > 0)
+        require(tokensPerIteration > 0)
         require(latenciesNanos.size == iterations)
         require(latenciesNanos.all { it > 0L })
         require(providerCounts.isNotEmpty())
@@ -91,6 +93,7 @@ data class OrtHardeningPhaseResult(
             .put("name", name)
             .put("kind", kind)
             .put("iterations", iterations)
+            .put("tokens_per_iteration", tokensPerIteration)
             .put("latencies_ns", latencies)
             .put("provider_counts", providers)
             .put("graph_counts", graphs)
@@ -216,6 +219,7 @@ class VN97OrtHardeningHarness(
             name = spec.name,
             kind = spec.kind,
             iterations = spec.iterations,
+            tokensPerIteration = spec.workload.sequenceLength,
             latenciesNanos = latencies,
             providerCounts = providers,
             graphCounts = graphs,
