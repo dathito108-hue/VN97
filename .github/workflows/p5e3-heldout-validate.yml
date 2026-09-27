@@ -1,0 +1,27 @@
+name: VN97 P5E3 Heldout Validate
+
+on:
+  push:
+    branches:
+      - p5e3-held-out-capability-validation
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Python syntax
+        run: python -m compileall -q src/vn97/p5e3_heldout_validation_cli.py
+      - name: Shell syntax
+        run: bash -n tools/kaggle_p5e3_validate.sh
+      - name: Validation contract
+        run: |
+          grep -q 'REJECTED_HELD_OUT_REGRESSION' src/vn97/p5e3_heldout_validation_cli.py
+          grep -q 'HELD_OUT_GAIN' src/vn97/p5e3_heldout_validation_cli.py
+          grep -q 'tool_intent' src/vn97/p5e3_heldout_validation_cli.py
+          grep -q 'authority_behavior' src/vn97/p5e3_heldout_validation_cli.py
+          grep -q 'p5e3-validate' pyproject.toml
