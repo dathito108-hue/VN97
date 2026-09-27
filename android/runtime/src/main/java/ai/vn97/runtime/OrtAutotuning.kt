@@ -387,6 +387,7 @@ class OrtProviderQuarantine(
 class VN97OrtAutotuner(
     private val profile: OrtAutotuneProfile,
     private val device: OrtDeviceCapabilities,
+    expectedBundleId: String,
 ) {
     private var thermalBand = OrtThermalBand.NORMAL
     private var memoryBand = OrtMemoryBand.NORMAL
@@ -397,7 +398,7 @@ class VN97OrtAutotuner(
     )
 
     init {
-        profile.requireCompatible(profile.bundleId, device)
+        profile.requireCompatible(expectedBundleId, device)
     }
 
     fun recordProviderFailure(provider: OrtProviderKind) {
@@ -487,8 +488,8 @@ class VN97OrtAutotuner(
     private fun updateMemoryBand(availableBytes: Long) {
         val baseline = profile.device.profiledAvailableMemoryBytes
         val ppm = (
-            availableBytes.coerceAtMost(baseline) * 1_000_000L /
-                baseline
+            availableBytes.coerceAtMost(baseline).toDouble() /
+                baseline.toDouble() * 1_000_000.0
             ).toInt()
         memoryBand = when (memoryBand) {
             OrtMemoryBand.NORMAL -> {
@@ -523,8 +524,9 @@ class VN97OrtAutotuner(
             .toLong()
             .coerceAtLeast(1L)
         val ppm = (
-            observedNanos * 1_000_000L / expectedP95Nanos
-            ).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+            observedNanos.toDouble() /
+                expectedP95Nanos.toDouble() * 1_000_000.0
+            ).coerceAtMost(Int.MAX_VALUE.toDouble()).toInt()
         latencyBand = when (latencyBand) {
             OrtLatencyBand.NORMAL -> {
                 if (ppm >= profile.control.latencySlowEnterPpm) {
