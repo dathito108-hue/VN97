@@ -291,6 +291,7 @@ def test_compile_requires_s21_fe_by_default() -> None:
         require_s21_fe=False,
     )
     assert sealed["target_device_match"] is False
+    assert sealed["hardening_passed"] is False
 
 
 def test_hardening_seal_roundtrip_and_tamper(tmp_path: Path) -> None:
