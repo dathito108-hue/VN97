@@ -327,42 +327,41 @@ def _minimal_graph_set(
     return names
 
 
-def seal_r2e5_hardening(
+def compile_r2e5_hardening(
+    manifest: Mapping[str, object],
+    e3: Mapping[str, object],
+    e4: Mapping[str, object],
+    run: Mapping[str, object],
     *,
-    bundle_dir: Path,
-    e3_receipt_path: Path,
-    e4_profile_path: Path,
-    run_path: Path,
-    output_path: Path,
     require_s21_fe: bool = True,
 ) -> dict[str, object]:
-    manifest = verify_r2_onnx_bundle(bundle_dir)
-    bundle_id = str(manifest["bundle_id"])
-    e3 = verify_r2e3_receipt(
-        e3_receipt_path,
-        expected_bundle_id=bundle_id,
+    bundle_id = _require_sha256(
+        manifest.get("bundle_id"),
+        label="E5 bundle ID",
     )
-    e4 = verify_r2e4_profile(
-        e4_profile_path,
-        expected_bundle_id=bundle_id,
-    )
+    if e3.get("bundle_id") != bundle_id:
+        raise ValueError("E5 E3 receipt belongs to another E2 bundle")
+    if e4.get("bundle_id") != bundle_id:
+        raise ValueError("E5 E4 profile belongs to another E2 bundle")
+    if run.get("bundle_id") != bundle_id:
+        raise ValueError("E5 run belongs to another E2 bundle")
     if e4.get("e3_receipt_id") != e3.get("receipt_id"):
         raise ValueError("E5 E4 profile is not bound to supplied E3")
-    run = verify_r2e5_run(
-        run_path,
-        expected_bundle_id=bundle_id,
-        expected_e3_receipt_id=str(e3["receipt_id"]),
-        expected_tuning_id=str(e4["tuning_id"]),
-    )
+    if run.get("e3_receipt_id") != e3.get("receipt_id"):
+        raise ValueError("E5 run is not bound to supplied E3")
+    if run.get("tuning_id") != e4.get("tuning_id"):
+        raise ValueError("E5 run is not bound to supplied E4 tuning")
 
-    device = run["device"]
-    assert isinstance(device, dict)
+    device = run.get("device")
+    if not isinstance(device, dict):
+        raise ValueError("E5 run device evidence is missing")
     target_match = is_s21_fe_device(device)
     if require_s21_fe and not target_match:
         raise ValueError("E5 run is not from a Galaxy S21 FE device")
 
-    controls = run["control_tests"]
-    assert isinstance(controls, dict)
+    controls = run.get("control_tests")
+    if not isinstance(controls, dict):
+        raise ValueError("E5 run control evidence is missing")
     control_passed = all(bool(value) for value in controls.values())
 
     warm = _phase_by_kind(run, "warm_step")
@@ -383,13 +382,15 @@ def seal_r2e5_hardening(
         sustained_ratio_ppm
         <= R2E5_MAX_SUSTAINED_P95_OVER_WARM_PPM
     )
+    phases = run.get("phases")
+    if not isinstance(phases, list):
+        raise ValueError("E5 run phases are missing")
     failure_count = sum(
         int(phase["failure_count"])
-        for phase in run["phases"]
+        for phase in phases
         if isinstance(phase, dict)
     )
     failure_guard_passed = failure_count == 0
-
     recovery_thermal_passed = (
         int(recovery["thermal_after"])
         <= int(sustained["thermal_after"])
@@ -406,12 +407,22 @@ def seal_r2e5_hardening(
         "target_family": R2E5_TARGET_FAMILY,
         "target_device_match": target_match,
         "bundle_id": bundle_id,
-        "architecture_fingerprint": manifest[
-            "architecture_fingerprint"
-        ],
-        "e3_receipt_id": e3["receipt_id"],
-        "e4_tuning_id": e4["tuning_id"],
-        "run_id": run["run_id"],
+        "architecture_fingerprint": _require_sha256(
+            manifest.get("architecture_fingerprint"),
+            label="E5 architecture fingerprint",
+        ),
+        "e3_receipt_id": _require_sha256(
+            e3.get("receipt_id"),
+            label="E5 E3 receipt ID",
+        ),
+        "e4_tuning_id": _require_sha256(
+            e4.get("tuning_id"),
+            label="E5 E4 tuning ID",
+        ),
+        "run_id": _require_sha256(
+            run.get("run_id"),
+            label="E5 run ID",
+        ),
         "device": device,
         "warm_step_p95_ns": warm_p95,
         "sustained_p95_ns": sustained_p95,
@@ -434,6 +445,41 @@ def seal_r2e5_hardening(
     sealed = dict(body)
     sealed["hardening_id"] = _sha256_bytes(
         b"VN97R2E5HARDEN1\0" + _canonical_json(body)
+    )
+    return sealed
+
+
+def seal_r2e5_hardening(
+    *,
+    bundle_dir: Path,
+    e3_receipt_path: Path,
+    e4_profile_path: Path,
+    run_path: Path,
+    output_path: Path,
+    require_s21_fe: bool = True,
+) -> dict[str, object]:
+    manifest = verify_r2_onnx_bundle(bundle_dir)
+    bundle_id = str(manifest["bundle_id"])
+    e3 = verify_r2e3_receipt(
+        e3_receipt_path,
+        expected_bundle_id=bundle_id,
+    )
+    e4 = verify_r2e4_profile(
+        e4_profile_path,
+        expected_bundle_id=bundle_id,
+    )
+    run = verify_r2e5_run(
+        run_path,
+        expected_bundle_id=bundle_id,
+        expected_e3_receipt_id=str(e3["receipt_id"]),
+        expected_tuning_id=str(e4["tuning_id"]),
+    )
+    sealed = compile_r2e5_hardening(
+        manifest,
+        e3,
+        e4,
+        run,
+        require_s21_fe=require_s21_fe,
     )
 
     if output_path.exists() or output_path.is_symlink():
