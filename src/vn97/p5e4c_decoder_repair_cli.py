@@ -172,8 +172,14 @@ def _train_final_norm(
         batch_indices = indices[batch_start : batch_start + BATCH_SIZE]
         cpu_inputs = inputs[batch_indices]
         cpu_labels = labels[batch_indices]
-        batch_inputs = cpu_inputs.to(resolved)
-        batch_labels = cpu_labels.to(resolved)
+        batch_inputs = cpu_inputs.to(
+            device=resolved,
+            dtype=torch.long,
+        )
+        batch_labels = cpu_labels.to(
+            device=resolved,
+            dtype=torch.long,
+        )
 
         optimizer.zero_grad(set_to_none=True)
         pre_norm = _pre_norm_hidden(model, batch_inputs)
