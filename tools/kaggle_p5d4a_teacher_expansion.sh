@@ -77,10 +77,32 @@ print(
 )
 PY
 
-MIN_FREE_BYTES=$((15 * 1024 * 1024 * 1024))
+FULL_DOWNLOAD_FREE_BYTES=$((15 * 1024 * 1024 * 1024))
+CACHED_RESUME_FREE_BYTES=$((1 * 1024 * 1024 * 1024))
+CACHE_READY_BYTES=$((8 * 1024 * 1024 * 1024))
+
 FREE_BYTES="$(df -PB1 /kaggle/working | awk 'NR==2 {print $4}')"
+CACHE_BYTES=0
+if [[ -d "$HF_CACHE" ]]; then
+  CACHE_BYTES="$(du -sb "$HF_CACHE" 2>/dev/null | awk '{print $1}')"
+  CACHE_BYTES="${CACHE_BYTES:-0}"
+fi
+
+MIN_FREE_BYTES="$FULL_DOWNLOAD_FREE_BYTES"
+DISK_MODE="fresh_teacher_download"
+if [[ "$MODE" == "resume" && "$CACHE_BYTES" -ge "$CACHE_READY_BYTES" ]]; then
+  MIN_FREE_BYTES="$CACHED_RESUME_FREE_BYTES"
+  DISK_MODE="reuse_existing_teacher_cache"
+fi
+
+echo "P5D4A disk gate mode=$DISK_MODE free_bytes=$FREE_BYTES cache_bytes=$CACHE_BYTES"
+
 if [[ -z "$FREE_BYTES" || "$FREE_BYTES" -lt "$MIN_FREE_BYTES" ]]; then
-  echo "P5D4A needs at least 15 GiB free before downloading the 7B teacher."
+  if [[ "$DISK_MODE" == "reuse_existing_teacher_cache" ]]; then
+    echo "P5D4A resume has a reusable teacher cache but still needs at least 1 GiB free."
+  else
+    echo "P5D4A needs at least 15 GiB free before downloading the 7B teacher."
+  fi
   df -h /kaggle/working || true
   echo "Safe cleanup candidates before P5D4A:"
   echo "  /kaggle/working/p5d3a-work"
@@ -92,6 +114,7 @@ if [[ -z "$FREE_BYTES" || "$FREE_BYTES" -lt "$MIN_FREE_BYTES" ]]; then
   echo "Keep:"
   echo "  $PARENT"
   echo "  /kaggle/working/p5d3b-c0-final"
+  echo "  $HF_CACHE  # keep on resume if it already contains the teacher"
   exit 3
 fi
 
