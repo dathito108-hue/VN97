@@ -24,6 +24,11 @@ data class OrtProductionInvocationResult(
     }
 }
 
+private data class OrtProductionInvocationOutcome(
+    val result: OrtProductionInvocationResult,
+    val logits: FloatArray,
+)
+
 data class OrtProductionRunResult(
     val logits: FloatArray,
     val invocations: List<OrtProductionInvocationResult>,
@@ -339,10 +344,11 @@ class VN97OrtProductionExecutor private constructor(
         requireOpen()
         val tokens = IntArray(invocation.sequenceLength)
         return try {
-            val result = executeInvocation(
+            val outcome = executeInvocation(
                 invocation,
                 tokens,
             )
+            val result = outcome.result
             OrtHardeningExecutionResult(
                 graphFilename = result.graphFilename,
                 provider = result.provider,
@@ -408,14 +414,12 @@ class VN97OrtProductionExecutor private constructor(
         for (invocation in decision.invocations) {
             val end = offset + invocation.sequenceLength
             val tokens = inputIds.copyOfRange(offset, end)
-            val result = executeInvocation(
+            val outcome = executeInvocation(
                 invocation,
                 tokens,
             )
-            results += result
-            finalLogits = graphBuffers
-                .getValue(invocation.graphFilename)
-                .finalLogits()
+            results += outcome.result
+            finalLogits = outcome.logits
             offset = end
         }
         require(offset == inputIds.size)
@@ -432,7 +436,7 @@ class VN97OrtProductionExecutor private constructor(
     private fun executeInvocation(
         invocation: OrtTunedInvocation,
         tokens: IntArray,
-    ): OrtProductionInvocationResult {
+    ): OrtProductionInvocationOutcome {
         val graph = runtimePackage.graphs[invocation.graphFilename]
             ?: throw IllegalArgumentException(
                 "F1 invocation references unknown graph"
@@ -464,6 +468,10 @@ class VN97OrtProductionExecutor private constructor(
             "next_ssm_state" to next.ssmTensor,
         )
 
+        val nextSequencePosition = Math.addExact(
+            sequencePosition,
+            graph.sequenceLength.toLong(),
+        )
         var lastFailure: Throwable? = null
         var lastProvider = invocation.providers.last()
         var totalAttemptNanos = 0L
@@ -499,21 +507,38 @@ class VN97OrtProductionExecutor private constructor(
                     // Outputs are pinned into reusable direct buffers.
                 }
                 val elapsed = elapsedNanosF1(attemptStart)
-                totalAttemptNanos += elapsed
-                currentStateSlot = nextIndex
-                sequencePosition = Math.addExact(
-                    sequencePosition,
-                    graph.sequenceLength.toLong(),
+                totalAttemptNanos = safeAddNanosF1(
+                    totalAttemptNanos,
+                    elapsed,
                 )
+                val logits = buffers.finalLogits()
+                require(logits.all { it.isFinite() }) {
+                    "F1 provider produced non-finite final logits"
+                }
+
+                currentStateSlot = nextIndex
+                sequencePosition = nextSequencePosition
                 autotuner.recordProviderSuccess(provider)
                 updateLatencyFeedback(elapsed)
-                return OrtProductionInvocationResult(
-                    graphFilename = graph.filename,
-                    sequenceLength = graph.sequenceLength,
-                    provider = provider,
-                    elapsedNanos = totalAttemptNanos,
+                return OrtProductionInvocationOutcome(
+                    result = OrtProductionInvocationResult(
+                        graphFilename = graph.filename,
+                        sequenceLength = graph.sequenceLength,
+                        provider = provider,
+                        elapsedNanos = totalAttemptNanos,
+                    ),
+                    logits = logits,
                 )
-            } catch (error: Throwable) {
+            } catch (error: Exception) {
+                val elapsed = elapsedNanosF1(attemptStart)
+                totalAttemptNanos = safeAddNanosF1(
+                    totalAttemptNanos,
+                    elapsed,
+                )
+                sessionCache.invalidate(key)
+                autotuner.recordProviderFailure(provider)
+                lastFailure = error
+            } catch (error: UnsatisfiedLinkError) {
                 val elapsed = elapsedNanosF1(attemptStart)
                 totalAttemptNanos = safeAddNanosF1(
                     totalAttemptNanos,
