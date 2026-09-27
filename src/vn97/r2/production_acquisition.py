@@ -12,10 +12,7 @@ from ..corpus_io import (
     load_records,
     read_bounded_regular_file,
 )
-from ..production_corpus import (
-    VN97ProductionCorpusError,
-    prepare_corpus,
-)
+from ..production_corpus import prepare_corpus
 from .pilot_contract import chat_record_digest
 from .production_campaign import verify_r2d5_corpus
 from .production_curriculum import R2D8_ALLOWED_FAMILIES
@@ -48,6 +45,38 @@ def _canonical_json(value: object) -> bytes:
 
 def _sha256_bytes(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
+
+
+def _strict_json_object(data: bytes, *, label: str) -> dict[str, object]:
+    duplicates: list[str] = []
+
+    def hook(pairs):
+        out: dict[str, object] = {}
+        for key, value in pairs:
+            if key in out:
+                duplicates.append(key)
+            out[key] = value
+        return out
+
+    try:
+        value = json.loads(
+            data.decode("utf-8", errors="strict"),
+            object_pairs_hook=hook,
+            parse_constant=lambda raw: (
+                _ for _ in ()
+            ).throw(ValueError(raw)),
+        )
+    except (
+        UnicodeDecodeError,
+        json.JSONDecodeError,
+        ValueError,
+    ) as exc:
+        raise ValueError(f"{label} must be strict UTF-8 JSON") from exc
+    if duplicates or not isinstance(value, dict):
+        raise ValueError(
+            f"{label} must be one object without duplicate keys"
+        )
+    return value
 
 
 def _require_sha256(value: object, *, label: str) -> str:
@@ -204,26 +233,10 @@ class _AcceptedRecord:
 
 
 def load_r2d9_definition(path: Path) -> R2D9CampaignDefinition:
-    try:
-        payload = json.loads(
-            path.resolve(strict=True).read_text(
-                encoding="utf-8",
-                errors="strict",
-            ),
-            parse_constant=lambda raw: (
-                _ for _ in ()
-            ).throw(ValueError(raw)),
-        )
-    except (
-        UnicodeDecodeError,
-        json.JSONDecodeError,
-        ValueError,
-    ) as exc:
-        raise ValueError(
-            "R2-D9 definition must be strict UTF-8 JSON"
-        ) from exc
-    if not isinstance(payload, dict):
-        raise ValueError("R2-D9 definition must be an object")
+    payload = _strict_json_object(
+        path.resolve(strict=True).read_bytes(),
+        label="R2-D9 definition",
+    )
     if set(payload) != {
         "schema",
         "profile_id",
@@ -408,9 +421,20 @@ def build_r2d9_campaign(
     digest_owner: dict[str, tuple[str, str]] = {}
     raw_by_source: dict[str, bytes] = {}
     source_receipts: list[dict[str, object]] = []
+    physical_sources: set[tuple[int, int]] = set()
 
     for spec in definition.sources:
         path = _resolve_source(definition_file, spec)
+        info = path.stat()
+        physical_identity = (
+            int(info.st_dev),
+            int(info.st_ino),
+        )
+        if physical_identity in physical_sources:
+            raise ValueError(
+                "R2-D9 source files must be physically distinct"
+            )
+        physical_sources.add(physical_identity)
         raw = read_bounded_regular_file(
             path,
             max_bytes=spec.max_bytes,
@@ -695,26 +719,10 @@ def build_r2d9_campaign(
 
 def verify_r2d9_campaign(output_dir: Path) -> dict[str, object]:
     root = output_dir.resolve(strict=True)
-    try:
-        payload = json.loads(
-            (root / "r2d9-campaign.json").read_text(
-                encoding="utf-8",
-                errors="strict",
-            ),
-            parse_constant=lambda raw: (
-                _ for _ in ()
-            ).throw(ValueError(raw)),
-        )
-    except (
-        UnicodeDecodeError,
-        json.JSONDecodeError,
-        ValueError,
-    ) as exc:
-        raise ValueError(
-            "R2-D9 campaign must be strict UTF-8 JSON"
-        ) from exc
-    if not isinstance(payload, dict):
-        raise ValueError("R2-D9 campaign must be an object")
+    payload = _strict_json_object(
+        (root / "r2d9-campaign.json").read_bytes(),
+        label="R2-D9 campaign",
+    )
     if payload.get("schema") != R2D9_CAMPAIGN_SCHEMA:
         raise ValueError("R2-D9 campaign schema mismatch")
     campaign_id = _require_sha256(
@@ -819,13 +827,71 @@ def verify_r2d9_campaign(output_dir: Path) -> dict[str, object]:
     family_totals = payload.get("family_totals")
     if not isinstance(family_totals, dict):
         raise ValueError("R2-D9 family totals are missing")
-    if sum(
-        int(value.get("unique_records", 0))
-        for value in family_totals.values()
-        if isinstance(value, dict)
-    ) != int(payload.get("global_unique_records", -1)):
-        raise ValueError("R2-D9 global unique-record total mismatch")
 
-    if total_records != int(payload.get("global_unique_records", -1)):
+    recomputed_family_totals: dict[str, dict[str, int]] = {}
+    for raw in raw_seals:
+        family = str(raw["family"])
+        totals = recomputed_family_totals.setdefault(
+            family,
+            {
+                "unique_records": 0,
+                "seals": 0,
+                "training_records": 0,
+                "validation_records": 0,
+                "release_records": 0,
+            },
+        )
+        totals["seals"] += 1
+        for split in R2D9_SPLITS:
+            value = int(raw[f"{split}_records"])
+            totals[f"{split}_records"] += value
+            totals["unique_records"] += value
+
+    if family_totals != recomputed_family_totals:
+        raise ValueError("R2-D9 family totals mismatch")
+
+    global_unique = int(payload.get("global_unique_records", -1))
+    if sum(
+        value["unique_records"]
+        for value in recomputed_family_totals.values()
+    ) != global_unique:
+        raise ValueError("R2-D9 global unique-record total mismatch")
+    if total_records != global_unique:
         raise ValueError("R2-D9 sealed record total mismatch")
+
+    receipts = payload.get("source_receipts")
+    if not isinstance(receipts, list) or not receipts:
+        raise ValueError("R2-D9 source receipts are missing")
+    receipt_ids: set[str] = set()
+    accepted_total = 0
+    for receipt in receipts:
+        if not isinstance(receipt, dict):
+            raise ValueError("R2-D9 source receipt is invalid")
+        source_id = str(receipt.get("source_id", ""))
+        if not source_id or source_id in receipt_ids:
+            raise ValueError("R2-D9 source receipt IDs are invalid")
+        receipt_ids.add(source_id)
+        if receipt.get("license_approved") is not True:
+            raise ValueError("R2-D9 source license approval is invalid")
+        if str(receipt.get("family")) not in R2D9_ALLOWED_FAMILIES:
+            raise ValueError("R2-D9 source receipt family is invalid")
+        _require_sha256(
+            receipt.get("sha256"),
+            label="R2-D9 source receipt SHA-256",
+        )
+        input_records = int(receipt.get("input_records", -1))
+        accepted = int(receipt.get("accepted_records", -1))
+        duplicates = int(receipt.get("duplicate_records", -1))
+        if (
+            input_records <= 0
+            or accepted < 0
+            or duplicates < 0
+            or accepted + duplicates != input_records
+        ):
+            raise ValueError("R2-D9 source receipt counts are invalid")
+        accepted_total += accepted
+    if accepted_total != global_unique:
+        raise ValueError(
+            "R2-D9 source accepted-record total mismatch"
+        )
     return payload
