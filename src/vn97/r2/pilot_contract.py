@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 from typing import Sequence
@@ -146,6 +147,7 @@ def assert_r2_pilot_scale(
 class R2PilotResourceEstimate:
     parameter_count: int
     optimizer_model_grad_bytes: int
+    scan_rounds: int
     activation_bytes: int
     runtime_overhead_bytes: int
     recommended_ram_bytes: int
@@ -246,8 +248,18 @@ def estimate_pilot_training_resources(
         * config.n_layers
         * (config.d_model + 4 * config.d_inner)
     )
+    scan_rounds = (
+        0
+        if sequence_length <= 1
+        else math.ceil(math.log2(sequence_length))
+    )
+    # Autograd must retain affine-scan inputs/intermediates across logarithmic
+    # scan rounds. The multiplier intentionally overestimates eager PyTorch
+    # storage so a T4 pilot fails preflight instead of failing mid-run.
+    scan_state_bytes = state_values * 4
+    scan_graph_multiplier = 4 + 4 * scan_rounds
     activation_bytes = (
-        state_values * 4 * 3
+        scan_state_bytes * scan_graph_multiplier
         + projection_values * 4 * 2
     )
 
@@ -270,6 +282,7 @@ def estimate_pilot_training_resources(
     return R2PilotResourceEstimate(
         parameter_count=parameter_count,
         optimizer_model_grad_bytes=optimizer_model_grad,
+        scan_rounds=scan_rounds,
         activation_bytes=activation_bytes,
         runtime_overhead_bytes=runtime_overhead,
         recommended_ram_bytes=recommended,
