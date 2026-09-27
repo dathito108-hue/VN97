@@ -84,6 +84,18 @@ from .production_campaign import (
     verify_r2d5_corpus,
     verify_r2d5_package,
 )
+from .production_corpus_scale import (
+    R2D6_DEFAULT_MIN_TOKENS_PER_PARAMETER,
+    R2D6_DEFAULT_TARGET_TOKENS_PER_PARAMETER,
+    R2D6_DEFINITION_SCHEMA,
+    R2D6_INDEX_SCHEMA,
+    R2D6CorpusInput,
+    R2D6ScaleEvidence,
+    R2D6ShardEvidence,
+    build_r2d6_corpus_index,
+    load_r2d6_definition,
+    verify_r2d6_corpus_index,
+)
 from .production_contract import (
     R2_PRODUCTION_MAX_PARAMETERS,
     R2_PRODUCTION_MIN_PARAMETERS,
@@ -210,4 +222,14 @@ __all__ = [
     "seal_r2d5_preflight",
     "verify_r2d5_corpus",
     "verify_r2d5_package",
+    "R2D6_DEFAULT_MIN_TOKENS_PER_PARAMETER",
+    "R2D6_DEFAULT_TARGET_TOKENS_PER_PARAMETER",
+    "R2D6_DEFINITION_SCHEMA",
+    "R2D6_INDEX_SCHEMA",
+    "R2D6CorpusInput",
+    "R2D6ScaleEvidence",
+    "R2D6ShardEvidence",
+    "build_r2d6_corpus_index",
+    "load_r2d6_definition",
+    "verify_r2d6_corpus_index",
 ]
