@@ -3,8 +3,6 @@ package ai.vn97.runtime
 import ai.onnxruntime.OrtSession
 import java.io.File
 import java.security.MessageDigest
-import kotlin.math.ceil
-import kotlin.math.floor
 import org.json.JSONArray
 import org.json.JSONObject
 
