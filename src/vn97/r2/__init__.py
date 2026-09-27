@@ -93,6 +93,8 @@ from .onnx_export import (
     R2_ONNX_OPSET,
     R2_ONNX_OUTPUTS,
     R2_ONNX_SUPPORTED_CHUNKS,
+    R2OnnxInvocation,
+    compile_onnx_invocation_plan,
     VN97OnnxChunkAdapter,
     VN97OnnxStepAdapter,
     export_r2_checkpoint_onnx_bundle,
@@ -431,5 +433,7 @@ __all__ = [
     "unstack_r2_state",
     "validate_ort_parity",
     "verify_r2_onnx_bundle",
+    "R2OnnxInvocation",
+    "compile_onnx_invocation_plan",
 
 ]
