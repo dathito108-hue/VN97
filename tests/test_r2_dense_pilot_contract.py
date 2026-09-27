@@ -264,6 +264,108 @@ def test_r2c_resume_guard_rejects_missing_or_tampered_best_checkpoint(
         )
 
 
+
+
+def test_r2c_preflight_only_builds_evidence_without_training(
+    tmp_path,
+) -> None:
+    tokenizer = tmp_path / "tokenizer.vn97tk1"
+    tokenizer.write_bytes(VN97TokenizerPackage().to_bytes())
+
+    train = tmp_path / "train-preflight.jsonl"
+    valid = tmp_path / "valid-preflight.jsonl"
+    probes = tmp_path / "probes.jsonl"
+
+    train.write_text(
+        json.dumps(
+            {
+                "messages": [
+                    {"role": "user", "content": "A?"},
+                    {"role": "assistant", "content": "A"},
+                ]
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    valid.write_text(
+        json.dumps(
+            {
+                "messages": [
+                    {"role": "user", "content": "B?"},
+                    {"role": "assistant", "content": "B"},
+                ]
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    probe_rows = [
+        {
+            "domain": "natural_language",
+            "messages": [{"role": "user", "content": "Say A"}],
+            "expected": "A",
+        },
+        {
+            "domain": "tool_action",
+            "messages": [{"role": "user", "content": "Read note"}],
+            "expected": '{"tool":"read"}',
+        },
+        {
+            "domain": "tool_action",
+            "messages": [{"role": "user", "content": "Write note"}],
+            "expected": '{"tool":"write"}',
+            "requires_external_write": True,
+        },
+    ]
+    probes.write_text(
+        "".join(json.dumps(row) + "\n" for row in probe_rows),
+        encoding="utf-8",
+    )
+
+    output = tmp_path / "preflight"
+    code = dense_pilot_main(
+        [
+            "--tokenizer",
+            str(tokenizer),
+            "--train-jsonl",
+            str(train),
+            "--validation-jsonl",
+            str(valid),
+            "--probe-jsonl",
+            str(probes),
+            "--work-dir",
+            str(tmp_path / "unused-work"),
+            "--output-dir",
+            str(output),
+            "--profile",
+            "smoke",
+            "--sequence-length",
+            "32",
+            "--stride",
+            "16",
+            "--batch-size",
+            "1",
+            "--device",
+            "cpu",
+            "--preflight-only",
+        ]
+    )
+    assert code == 0
+
+    report = json.loads(
+        (output / "r2-dense-pilot-preflight.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert report["schema"] == "VN97R2DENSEPREFLIGHT1"
+    assert report["model_forward_executed"] is False
+    assert report["training_executed"] is False
+    assert report["probe_count"] == 3
+    assert all(report["probe_coverage"].values())
+    assert not (output / "model.r2.pt").exists()
+
+
 def test_r2c_smoke_dense_cli_writes_v2_evidence_without_quantization(
     tmp_path,
 ) -> None:
