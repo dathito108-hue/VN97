@@ -140,7 +140,9 @@ class Mamba2SourceSpec:
             tie_embeddings=bool(config.get("tie_embeddings", False)),
             attention_layers=tuple(int(value) for value in attention),
             ssm_layer=str(ssm_cfg.get("layer", "")),
-            ssm_override_keys=tuple(\n                sorted(str(key) for key in ssm_cfg if key != "layer")\n            ),
+            ssm_override_keys=tuple(
+                sorted(str(key) for key in ssm_cfg if key != "layer")
+            ),
         )
 
     def require_official_27b_contract(self) -> None:
