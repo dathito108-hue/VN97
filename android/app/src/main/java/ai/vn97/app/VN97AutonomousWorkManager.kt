@@ -167,28 +167,37 @@ class VN97AutonomousWorkManager(
                     waiting,
                     openedModel.info.modelId,
                 )
+                val r2Inference =
+                    application.r2Runtime
+                        .openCognition(openedModel)
                 val session =
-                    openVN97ForegroundAssistantContinuation(
-                        context = application,
-                        platformRuntime = application.platformRuntime,
-                        jobId = waiting.jobId,
-                        model = openedModel,
-                        grants = VN97ProductionAuthority.grants(
-                            application,
-                            waiting.principal,
-                        ),
-                        runtimeConfig =
-                            runtimeConfigFor(openedModel),
-                        sessionLimits = VN97AssistantSessionLimits(
+                    try {
+                        openVN97ForegroundAssistantContinuation(
+                            context = application,
+                            platformRuntime = application.platformRuntime,
+                            jobId = waiting.jobId,
+                            model = openedModel,
+                            grants = VN97ProductionAuthority.grants(
+                                application,
+                                waiting.principal,
+                            ),
+                            runtimeConfig =
+                                runtimeConfigFor(openedModel),
+                            cognitionInference = r2Inference,
+                            sessionLimits = VN97AssistantSessionLimits(
                             maxCyclesPerAdvance = 4,
                             maxExternalHandoffsPerAdvance = 1,
                         ),
-                        auditFileName =
-                            "m13-actions-" +
-                                waiting.jobId +
-                                ".jsonl",
-                        nowNs = SystemClock.elapsedRealtimeNanos(),
-                    )
+                            auditFileName =
+                                "m13-actions-" +
+                                    waiting.jobId +
+                                    ".jsonl",
+                            nowNs = SystemClock.elapsedRealtimeNanos(),
+                        )
+                    } catch (exc: Throwable) {
+                        r2Inference.close()
+                        throw exc
+                    }
                 model = null
                 val update = session.currentUpdate
                 if (
@@ -515,23 +524,28 @@ class VN97AutonomousWorkManager(
                 requireModelIdentity(running, model.info.modelId)
 
                 val update =
-                    application.platformRuntime
-                        .resumeProductionAssistantContinuation(
-                            context = context,
-                            model = model,
-                            grants = VN97ProductionAuthority.grants(
-                                application,
-                                running.principal,
-                            ),
-                            sessionLimits =
-                                limitsFor(context.budget.mode),
-                            auditFileName =
-                                "m13-actions-" +
-                                    running.jobId +
-                                    ".jsonl",
-                            nowNs =
-                                SystemClock.elapsedRealtimeNanos(),
-                        )
+                    application.r2Runtime
+                        .openCognition(model)
+                        .use { r2Inference ->
+                            application.platformRuntime
+                                .resumeProductionAssistantContinuation(
+                                    context = context,
+                                    model = model,
+                                    grants = VN97ProductionAuthority.grants(
+                                        application,
+                                        running.principal,
+                                    ),
+                                    inference = r2Inference,
+                                    sessionLimits =
+                                        limitsFor(context.budget.mode),
+                                    auditFileName =
+                                        "m13-actions-" +
+                                            running.jobId +
+                                            ".jsonl",
+                                    nowNs =
+                                        SystemClock.elapsedRealtimeNanos(),
+                                )
+                        }
 
                 val plan = context.controller.plan
                 val now = wallNowNs()
@@ -778,15 +792,21 @@ class VN97AutonomousWorkManager(
             return null
         }
 
-        val seed = createVN97AutonomousReplanSeed(
-            model = model,
-            previousPlan = terminalPlan,
-            feedback = buildReplanFeedback(
-                terminalPlan,
-                reason,
-            ),
-            createdNs = now,
-        )
+        val seed =
+            application.r2Runtime
+                .openCognition(model)
+                .use { r2Inference ->
+                    createVN97AutonomousReplanSeed(
+                        model = model,
+                        previousPlan = terminalPlan,
+                        feedback = buildReplanFeedback(
+                            terminalPlan,
+                            reason,
+                        ),
+                        inference = r2Inference,
+                        createdNs = now,
+                    )
+                }
         val jobId = allocateJobId(seed.plan.planId)
         val binding = scheduler.persistAssistant(
             jobId = jobId,

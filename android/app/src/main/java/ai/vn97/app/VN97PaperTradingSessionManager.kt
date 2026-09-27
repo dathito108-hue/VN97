@@ -4,7 +4,6 @@ import ai.vn97.platform.VN97MarketDataPolicy
 import ai.vn97.platform.VN97PaperPerformanceEvaluator
 import ai.vn97.platform.VN97PaperTradingDecisionKind
 import ai.vn97.runtime.NativeActivatedInventoryModelLoader
-import ai.vn97.runtime.NativeCognitionInferenceEngine
 import ai.vn97.runtime.NativeMemoryKind
 import android.app.job.JobInfo
 import android.app.job.JobScheduler
@@ -434,18 +433,24 @@ class VN97PaperTradingSessionManager(
                 application.platformRuntime
                     .openOrCreateProductionMemory(model)
                     .use { memory ->
-                        val agent =
-                            application.platformRuntime
-                                .createProductionPaperTradingAgent(
-                                    model = model,
-                                    account = account,
-                                    memory = memory,
-                                )
-                        val result = agent.evaluate(
-                            userGoal = record.userGoal,
-                            snapshot = snapshot,
-                            nowNs = nowNs,
-                        )
+                        val result =
+                            application.r2Runtime
+                                .openCognition(model)
+                                .use { r2Inference ->
+                                    val agent =
+                                        application.platformRuntime
+                                            .createProductionPaperTradingAgent(
+                                                model = model,
+                                                account = account,
+                                                memory = memory,
+                                                inference = r2Inference,
+                                            )
+                                    agent.evaluate(
+                                        userGoal = record.userGoal,
+                                        snapshot = snapshot,
+                                        nowNs = nowNs,
+                                    )
+                                }
                         val outcome = resultOutcome(result)
                         val performance =
                             VN97PaperPerformanceEvaluator.evaluate(
@@ -696,14 +701,19 @@ class VN97PaperTradingSessionManager(
             append(10.toChar())
             append("max_authority=paper_simulation_only")
         }.take(MAX_MEMORY_CONTENT_CHARS)
-        val engine = NativeCognitionInferenceEngine(model)
+        val vector =
+            application.r2Runtime
+                .openCognition(model)
+                .use { r2Inference ->
+                    r2Inference.embedText(content, memory.vectorDim)
+                }
         memory.append(
             kind = NativeMemoryKind.EPISODIC,
             timestampNs = nowNs,
             importance = 0.9f,
             source = PAPER_PERFORMANCE_MEMORY_SOURCE,
             content = content,
-            vector = engine.embedText(content, memory.vectorDim),
+            vector = vector,
             parentId = 0L,
             durable = true,
         )
@@ -739,14 +749,19 @@ class VN97PaperTradingSessionManager(
             append("outcome=")
             append(outcome.replace(10.toChar(), ' ').take(4096))
         }.take(MAX_MEMORY_CONTENT_CHARS)
-        val engine = NativeCognitionInferenceEngine(model)
+        val vector =
+            application.r2Runtime
+                .openCognition(model)
+                .use { r2Inference ->
+                    r2Inference.embedText(content, memory.vectorDim)
+                }
         memory.append(
             kind = NativeMemoryKind.EPISODIC,
             timestampNs = nowNs,
             importance = 0.9f,
             source = PAPER_EPISODE_MEMORY_SOURCE,
             content = content,
-            vector = engine.embedText(content, memory.vectorDim),
+            vector = vector,
             parentId = 0L,
             durable = true,
         )
@@ -775,14 +790,19 @@ class VN97PaperTradingSessionManager(
             append("reason=")
             append(record.terminalReason.take(4096))
         }.take(MAX_MEMORY_CONTENT_CHARS)
-        val engine = NativeCognitionInferenceEngine(model)
+        val vector =
+            application.r2Runtime
+                .openCognition(model)
+                .use { r2Inference ->
+                    r2Inference.embedText(content, memory.vectorDim)
+                }
         memory.append(
             kind = NativeMemoryKind.EPISODIC,
             timestampNs = nowNs,
             importance = 0.85f,
             source = PAPER_TERMINAL_MEMORY_SOURCE,
             content = content,
-            vector = engine.embedText(content, memory.vectorDim),
+            vector = vector,
             parentId = 0L,
             durable = true,
         )

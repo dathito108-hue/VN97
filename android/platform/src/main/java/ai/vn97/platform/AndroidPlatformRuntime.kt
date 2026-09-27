@@ -408,6 +408,7 @@ class AndroidPlatformRuntime(
         model: NativeActivatedModel,
         account: VN97PaperTradingAccount,
         memory: NativeMemoryRetriever? = null,
+        inference: NativeCognitionInference? = null,
         cognitionRuntimeConfig: NativeCognitionRuntimeConfig =
             NativeCognitionRuntimeConfig(),
         limits: VN97PaperTradingAgentLimits =
@@ -417,6 +418,7 @@ class AndroidPlatformRuntime(
             model = model,
             account = account,
             memory = memory,
+            inference = inference,
             cognitionRuntimeConfig = cognitionRuntimeConfig,
             limits = limits,
         )
