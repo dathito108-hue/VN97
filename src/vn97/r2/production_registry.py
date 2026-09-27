@@ -634,6 +634,32 @@ def _digest_overlap(
     return None
 
 
+def _digest_file_overlap(
+    left: Path,
+    right: Path,
+) -> str | None:
+    left_iter = iter(_digest_entries(left))
+    right_iter = iter(_digest_entries(right))
+    try:
+        left_item = next(left_iter)
+        right_item = next(right_iter)
+    except StopIteration:
+        return None
+
+    while True:
+        left_digest = left_item["digest"]
+        right_digest = right_item["digest"]
+        if left_digest == right_digest:
+            return left_digest
+        try:
+            if left_digest < right_digest:
+                left_item = next(left_iter)
+            else:
+                right_item = next(right_iter)
+        except StopIteration:
+            return None
+
+
 def _load_state_from_events(
     config: Mapping[str, object],
     snapshots: Sequence[Mapping[str, object]],
@@ -776,9 +802,9 @@ def verify_r2d11_registry(
                     "R2-D11 digest shard record count mismatch"
                 )
             for prior in digest_files:
-                overlap = _digest_overlap(
+                overlap = _digest_file_overlap(
                     prior,
-                    tuple(_digest_entries(digest_path)),
+                    digest_path,
                 )
                 if overlap is not None:
                     raise ValueError(
