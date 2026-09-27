@@ -33,3 +33,24 @@ def test_paper_trading_does_not_construct_legacy_cognition_engine() -> None:
     )
     assert "NativeCognitionInferenceEngine" not in source
     assert ".openCognition(model)" in source
+
+
+def test_game_agent_uses_r2_and_two_clock_scheduler() -> None:
+    source = _read(
+        "android/app/src/main/java/ai/vn97/app/VN97GameAgentService.kt"
+    )
+    assert "NativeCognitionInferenceEngine" not in source
+    assert ".openCognition(model)" in source
+    assert "VN97RealtimeAgentScheduler" in source
+    assert "VN97R2RealtimePerception" in source
+
+
+def test_reflex_scheduler_has_no_model_dependency() -> None:
+    source = _read(
+        "android/app/src/main/java/ai/vn97/app/VN97RealtimeAgentScheduler.kt"
+    )
+    assert "Cognition" not in source.replace("cognition", "")
+    assert "NativeCognition" not in source
+    assert "VN97R2CognitionInference" not in source
+    assert "16L..34L" in source
+    assert "200L..1_000L" in source

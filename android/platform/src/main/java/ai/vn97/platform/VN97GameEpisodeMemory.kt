@@ -1,5 +1,6 @@
 package ai.vn97.platform
 
+import ai.vn97.runtime.NativeCognitionInference
 import ai.vn97.runtime.NativeCognitionInferenceEngine
 import ai.vn97.runtime.NativeMemoryContextItem
 import ai.vn97.runtime.NativeMemoryKind
@@ -483,7 +484,8 @@ class VN97GameEpisodeMemory internal constructor(
 
     companion object {
         fun production(
-            engine: NativeCognitionInferenceEngine,
+            inference: NativeCognitionInference,
+            summarizer: (String, Int) -> String,
             memory: NativeMemoryStore,
             packageName: String,
             userGoal: String,
@@ -495,14 +497,29 @@ class VN97GameEpisodeMemory internal constructor(
                         text,
                         vectorDim,
                     ->
-                    engine.embedText(text, vectorDim)
+                    inference.embedText(text, vectorDim)
                 },
                 summarizer = VN97GameMemorySummarizer { prompt ->
-                    engine.generateText(
-                        prompt,
-                        MAX_SUMMARY_TOKENS,
-                    )
+                    summarizer(prompt, MAX_SUMMARY_TOKENS)
                 },
+                packageName = packageName,
+                userGoal = userGoal,
+                startedNs = startedNs,
+            )
+
+        fun production(
+            engine: NativeCognitionInferenceEngine,
+            memory: NativeMemoryStore,
+            packageName: String,
+            userGoal: String,
+            startedNs: Long,
+        ): VN97GameEpisodeMemory =
+            production(
+                inference = engine,
+                summarizer = { prompt, maxTokens ->
+                    engine.generateText(prompt, maxTokens)
+                },
+                memory = memory,
                 packageName = packageName,
                 userGoal = userGoal,
                 startedNs = startedNs,

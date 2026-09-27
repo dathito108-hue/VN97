@@ -14,7 +14,7 @@ import ai.vn97.platform.VN97ExecutionHealthStore
 import ai.vn97.platform.VN97ExecutionWatchdog
 import ai.vn97.runtime.NativeActivatedInventoryModelLoader
 import ai.vn97.runtime.NativeCognitionBoundary
-import ai.vn97.runtime.NativeCognitionInferenceEngine
+import ai.vn97.runtime.VN97R2CognitionInference
 import ai.vn97.runtime.NativePlanController
 import ai.vn97.runtime.NativeTypedCognitionAdapter
 import android.app.Notification
@@ -313,10 +313,9 @@ class VN97GameAgentService : Service() {
                     "trusted VN97 model is not active"
                 }
                 model.use {
-                    check(model.info.hasVisionProjection) {
-                        "activated VN97 model has no production vision weights"
-                    }
-                    val engine = NativeCognitionInferenceEngine(model)
+                    app.r2Runtime
+                        .openCognition(model)
+                        .use { engine ->
                     val cognition = NativeTypedCognitionAdapter(engine)
                     val grants =
                         M6AndroidProductionCapabilities
@@ -337,7 +336,10 @@ class VN97GameAgentService : Service() {
                         .use { memory ->
                             val episodeMemory =
                                 VN97GameEpisodeMemory.production(
-                                    engine = engine,
+                                    inference = engine,
+                                    summarizer = { prompt, maxTokens ->
+                                        engine.generateText(prompt, maxTokens)
+                                    },
                                     memory = memory,
                                     packageName = session.packageName,
                                     userGoal = goal,
@@ -410,6 +412,7 @@ class VN97GameAgentService : Service() {
                                 throw exc
                             }
                         }
+                    }
                 }
             } finally {
                 if (reopenForeground) {
@@ -425,7 +428,7 @@ class VN97GameAgentService : Service() {
         app: VN97Application,
         goal: String,
         packageName: String,
-        engine: NativeCognitionInferenceEngine,
+        engine: VN97R2CognitionInference,
         coordinator: ai.vn97.platform.M6EndToEndExternalCoordinator,
         memory: ai.vn97.runtime.NativeMemoryStore,
         episodeMemory: VN97GameEpisodeMemory,
@@ -439,7 +442,9 @@ class VN97GameAgentService : Service() {
             app.screenCaptureBroker.awaitFreshFrame(
                 afterElapsedRealtimeNs = afterElapsedNs,
             )
-        var observation = engine.perceiveVision(frame.prepared)
+        var observation =
+            VN97R2RealtimePerception.summarizeVision(frame.prepared)
+        val realtimeScheduler = VN97RealtimeAgentScheduler()
 
         while (true) {
             checkNotCancelled()
@@ -452,11 +457,34 @@ class VN97GameAgentService : Service() {
                 "authorized game is no longer foreground"
             }
 
+            val resourceDecision =
+                app.runtimeResources.requireRunnable(
+                    VN97RuntimeExecutionClass.HEAVY
+                )
+            val cadence =
+                VN97RealtimeCadencePolicy.from(resourceDecision)
+            realtimeScheduler.awaitCognitionSlot(cadence) {
+                checkNotCancelled()
+                requireGameStillAuthorized(app, packageName)
+                check(
+                    VN97GameAccessibilityController
+                        .currentPackageName() == packageName
+                ) {
+                    "authorized game is no longer foreground"
+                }
+            }
+
             publishSnapshot(
                 VN97GameAgentSnapshot(
                     state = VN97GameAgentState.RUNNING,
                     actionCount = actionCount,
-                    detail = "fresh frame ${actionCount + 1}",
+                    detail =
+                        "R2 cognition <=5Hz; native reflex " +
+                            if (cadence.reflexIntervalMillis <= 17L) {
+                                "60Hz"
+                            } else {
+                                "30Hz"
+                            },
                 )
             )
 
@@ -511,7 +539,8 @@ class VN97GameAgentService : Service() {
                 afterElapsedRealtimeNs = afterElapsedNs,
             )
             val afterObservation =
-                engine.perceiveVision(frame.prepared)
+                VN97R2RealtimePerception
+                    .summarizeVision(frame.prepared)
             previousVerification = verifyOutcome(
                 engine = engine,
                 goal = goal,
@@ -639,7 +668,7 @@ class VN97GameAgentService : Service() {
     }
 
     private fun verifyOutcome(
-        engine: NativeCognitionInferenceEngine,
+        engine: VN97R2CognitionInference,
         goal: String,
         beforeObservation: String,
         afterObservation: String,
