@@ -9,7 +9,7 @@ import ai.vn97.platform.VN97MobileEvidenceRecord
 import ai.vn97.platform.VN97ProductionAssistantResources
 import ai.vn97.runtime.NativeActivatedInventoryModelLoader
 import ai.vn97.runtime.NativeActivatedModel
-import ai.vn97.runtime.NativeCognitionInferenceEngine
+import ai.vn97.runtime.VN97R2CognitionInference
 import ai.vn97.runtime.NativePreparedAudio
 import ai.vn97.runtime.NativePreparedVision
 import ai.vn97.runtime.VN97KnowledgeAcquisitionResult
@@ -38,6 +38,7 @@ class VN97AppAssistant(
 ) : AutoCloseable {
     private val lock = Any()
     private var model: NativeActivatedModel? = null
+    private var inference: VN97R2CognitionInference? = null
     private var resources: VN97ProductionAssistantResources? = null
     private var pendingResult: VN97AppTurnResult? = null
     private var knowledgeAcquisition:
@@ -79,6 +80,9 @@ class VN97AppAssistant(
             .createProductionKnowledgeAcquisitionProposalEngine(
                 model = activeModel,
                 memory = activeResources.memory,
+                inference = checkNotNull(inference) {
+                    "VN97 R2 inference is not open"
+                },
             )
             .propose(goal)
     }
@@ -139,6 +143,9 @@ class VN97AppAssistant(
                 .createProductionKnowledgeAcquisitionSession(
                     model = activeModel,
                     memory = activeResources.memory,
+                    inference = checkNotNull(inference) {
+                        "VN97 R2 inference is not open"
+                    },
                 )
                 .also {
                     knowledgeAcquisition = it
@@ -224,15 +231,22 @@ class VN97AppAssistant(
         createVN97AutonomousContinuationSeed(
             model = activeModel,
             goal = goal,
+            inference = checkNotNull(inference) {
+                "VN97 R2 inference is not open"
+            },
         )
     }
 
     fun hasProductionVoice(): Boolean = synchronized(lock) {
-        model?.info?.hasAudioProjection == true
+        model != null &&
+            inference != null &&
+            application.r2Runtime.supportsAudioModelPath()
     }
 
     fun hasProductionVision(): Boolean = synchronized(lock) {
-        model?.info?.hasVisionProjection == true
+        model != null &&
+            inference != null &&
+            application.r2Runtime.supportsVisionModelPath()
     }
 
     fun perceiveVision(
@@ -254,14 +268,12 @@ class VN97AppAssistant(
         check(!activeResources.session.hasActiveTurn) {
             "cannot run perception while an assistant turn is active"
         }
-        val activeModel = checkNotNull(model) {
-            "trusted VN97 model is not active"
+        check(preparedVision.patchCount > 0) {
+            "prepared VN97 vision input must not be empty"
         }
-        check(activeModel.info.hasVisionProjection) {
-            "activated VN97 model has no production vision weights"
-        }
-        NativeCognitionInferenceEngine(activeModel)
-            .perceiveVision(preparedVision)
+        throw IllegalStateException(
+            "R2 vision ONNX modality path is not packaged; legacy model inference fallback is disabled"
+        )
     }
 
     fun verifyVisualOutcome(
@@ -296,11 +308,8 @@ class VN97AppAssistant(
         check(!activeResources.session.hasActiveTurn) {
             "cannot verify visual outcome while a turn is active"
         }
-        val activeModel = checkNotNull(model) {
-            "trusted VN97 model is not active"
-        }
-        check(activeModel.info.hasVisionProjection) {
-            "activated VN97 model has no production vision weights"
+        val activeInference = checkNotNull(inference) {
+            "VN97 R2 inference is not open"
         }
         val prompt = buildString {
             append("VN97VISVERIFY1\n")
@@ -315,7 +324,7 @@ class VN97AppAssistant(
             append(afterObservation.take(MAX_VISUAL_VERIFY_FIELD_CHARS))
             append("\nverification=")
         }
-        NativeCognitionInferenceEngine(activeModel)
+        activeInference
             .generateText(prompt, maxNewTokens)
             .trim()
             .ifEmpty {
@@ -423,24 +432,12 @@ class VN97AppAssistant(
         check(openIfActivatedLocked()) {
             "trusted VN97 model is not active"
         }
-        val activeModel = checkNotNull(model) {
-            "trusted VN97 model is not active"
+        check(preparedAudio.frameCount > 0) {
+            "prepared VN97 audio input must not be empty"
         }
-        check(activeModel.info.hasAudioProjection) {
-            "activated VN97 model has no production speech weights"
-        }
-
-        val transcript =
-            NativeCognitionInferenceEngine(activeModel)
-                .transcribeAudio(preparedAudio)
-        runTurn(
-            userMessage = transcript,
-            maxAdvances =
-                minOf(
-                    maxAdvances,
-                    resourceDecision
-                        .maxInteractiveAdvances,
-                ),
+        check(resourceDecision.maxInteractiveAdvances > 0)
+        throw IllegalStateException(
+            "R2 audio transcription ONNX path is not packaged; legacy model inference fallback is disabled"
         )
     }
 
@@ -463,12 +460,9 @@ class VN97AppAssistant(
         check(!activeResources.session.hasActiveTurn) {
             "cannot benchmark while an assistant turn is active"
         }
-        val activeModel = checkNotNull(model) {
-            "trusted VN97 model is not active"
-        }
-        application.platformRuntime.collectProductionMobileEvidence(
-            model = activeModel,
-            config = config,
+        check(config.samples > 0)
+        throw IllegalStateException(
+            "legacy mobile evidence path is disabled for R2 production; use the R2-E5 physical-device hardening campaign"
         )
     }
 
@@ -599,18 +593,27 @@ class VN97AppAssistant(
                     )
                 )
                 ?: return false
+        var openedInference: VN97R2CognitionInference? = null
         val assistant =
             try {
+                openedInference =
+                    application.r2Runtime
+                        .openCognition(opened)
                 application.platformRuntime
                     .createProductionMemoryBackedAssistant(
                         model = opened,
                         grants = productionGrants(),
+                        inference = openedInference,
                     )
             } catch (exc: Throwable) {
+                runCatching { openedInference?.close() }
+                    .exceptionOrNull()
+                    ?.let(exc::addSuppressed)
                 opened.close()
                 throw exc
             }
         model = opened
+        inference = openedInference
         resources = assistant
         pendingResult = null
         return true
@@ -625,6 +628,18 @@ class VN97AppAssistant(
             failure = exc
         } finally {
             resources = null
+            try {
+                inference?.close()
+            } catch (exc: Throwable) {
+                val firstFailure = failure
+                if (firstFailure == null) {
+                    failure = exc
+                } else {
+                    firstFailure.addSuppressed(exc)
+                }
+            } finally {
+                inference = null
+            }
             try {
                 model?.close()
             } catch (exc: Throwable) {
