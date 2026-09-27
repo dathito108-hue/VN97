@@ -32,3 +32,8 @@ android {
         warningsAsErrors = true
     }
 }
+
+
+dependencies {
+    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.30.0")
+}
