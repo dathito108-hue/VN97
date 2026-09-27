@@ -288,6 +288,24 @@ def _load_pilot_probes(
     return tuple(probes), digest
 
 
+def _load_run_metadata(path: Path) -> dict[str, object]:
+    data = _read_bounded_regular_file(
+        path,
+        max_bytes=64 * 1024,
+    )
+    try:
+        value = json.loads(data.decode("utf-8", errors="strict"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise RuntimeError(
+            "R2-C run metadata is not valid UTF-8 JSON"
+        ) from exc
+    if not isinstance(value, dict):
+        raise RuntimeError("R2-C run metadata must be an object")
+    if value.get("schema") != "VN97R2DENSERUN1":
+        raise RuntimeError("R2-C run metadata schema mismatch")
+    return value
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     if args.require_pilot_gate and args.profile != "pilot":
@@ -306,6 +324,7 @@ def main(argv: list[str] | None = None) -> int:
     output = Path(args.output_dir)
     work = Path(args.work_dir)
     resume_path = work / "dense-resume.pt"
+    run_metadata_path = work / "r2-dense-run.json"
 
     if output.exists() and (
         output.is_symlink() or not output.is_dir()
@@ -530,12 +549,57 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 0
 
-    initial_validation = evaluate_dense_loss(
-        model,
-        validation_windows,
-        batch_size=args.batch_size,
-        device=training_device,
-    )
+    if args.resume:
+        run_metadata = _load_run_metadata(run_metadata_path)
+        if run_metadata.get("dataset_identity") != dataset_identity:
+            raise RuntimeError(
+                "R2-C resume run metadata dataset identity mismatch"
+            )
+        if (
+            run_metadata.get("config_fingerprint")
+            != config.fingerprint()
+        ):
+            raise RuntimeError(
+                "R2-C resume run metadata config fingerprint mismatch"
+            )
+        if run_metadata.get("tokenizer_sha256") != tokenizer_sha:
+            raise RuntimeError(
+                "R2-C resume run metadata tokenizer mismatch"
+            )
+        initial_raw = run_metadata.get("initial_validation")
+        if not isinstance(initial_raw, dict):
+            raise RuntimeError(
+                "R2-C resume run metadata lacks initial validation"
+            )
+        initial_validation = {
+            "target_tokens": int(initial_raw["target_tokens"]),
+            "mean_loss": float(initial_raw["mean_loss"]),
+            "top1_accuracy": float(initial_raw["top1_accuracy"]),
+        }
+    else:
+        initial_validation = evaluate_dense_loss(
+            model,
+            validation_windows,
+            batch_size=args.batch_size,
+            device=training_device,
+        )
+        run_metadata = {
+            "schema": "VN97R2DENSERUN1",
+            "dataset_identity": dataset_identity,
+            "config_fingerprint": config.fingerprint(),
+            "tokenizer_sha256": tokenizer_sha,
+            "initial_validation": initial_validation,
+        }
+        _atomic_write(
+            run_metadata_path,
+            json.dumps(
+                run_metadata,
+                ensure_ascii=False,
+                sort_keys=True,
+                indent=2,
+                allow_nan=False,
+            ).encode("utf-8") + b"\n",
+        )
 
     dense_config = R2DenseTrainingConfig(
         epochs=args.epochs,
@@ -582,6 +646,7 @@ def main(argv: list[str] | None = None) -> int:
                     else "host_available_ram"
                 ),
             },
+            "initial_validation": initial_validation,
             "training": {
                 "steps": result.steps,
                 "target_tokens": result.target_tokens,
