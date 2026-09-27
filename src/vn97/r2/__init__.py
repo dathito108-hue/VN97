@@ -87,6 +87,16 @@ from .pilot_evaluation import (
     evaluate_pilot_probes,
     lexical_token_f1,
 )
+from .onnx_profiling import (
+    R2E3_ALLOWED_KINDS,
+    R2E3_ALLOWED_PROVIDERS,
+    R2E3_RECEIPT_SCHEMA,
+    R2E3Measurement,
+    build_r2e3_receipt,
+    percentile_nearest_rank,
+    rank_measurements,
+    verify_r2e3_receipt,
+)
 from .onnx_export import (
     R2_ONNX_BUNDLE_SCHEMA,
     R2_ONNX_INPUTS,

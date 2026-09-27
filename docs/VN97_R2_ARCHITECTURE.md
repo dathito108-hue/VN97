@@ -344,6 +344,10 @@ Production execution is split into fail-closed gates:
 - **R2-E2** exports explicit recurrent-state ONNX graphs: one-token step plus a
   selected subset of fixed chunk graphs, with deterministic schedule
   decomposition, checkpoint-bound manifests and PyTorch/ORT state parity.
+- **R2-E3** adds device-measured provider profiling over E2 bundles: isolated
+  NNAPI/XNNPACK/CPU trials (plus optional Qualcomm QNN), reusable prepared
+  invocation buffers, warmup/steady timing, provider fallback/failure evidence,
+  thermal/RAM snapshots, and portable profiling receipts for E4 autotuning.
 
 A passing R2-D5 receipt proves execution-memory feasibility only. It does not
 assert that the current preflight corpus volume is enough to train the 1B
@@ -381,11 +385,13 @@ Execution-path engineering is now split from precision lowering.
   provider policy. The mandatory S21 FE-class route is NNAPI -> XNNPACK -> ORT
   CPU; QNN is optional only on explicitly supported Qualcomm devices. E1 does
   not quantize weights and does not add a second AI model/backend.
-- **R2-E2 — ONNX State/Chunk Export** will expose explicit recurrent state
-  tensors and chunk graphs and prove ONNX/ORT parity against the E1 PyTorch
-  numerical oracle.
-- **R2-E3 — NNAPI/XNNPACK Profiling** will measure actual graph coverage,
-  latency, RAM and thermal behavior instead of assuming accelerator speed.
+- **R2-E2 — ONNX State/Chunk Export** exposes explicit recurrent state
+  tensors and fixed-size chunk graphs and proves ONNX/ORT parity against the
+  E1 PyTorch numerical oracle.
+- **R2-E3 — NNAPI/XNNPACK Profiling** measures provider selection/fallback,
+  warmup/steady latency, throughput, RAM and thermal behavior on real Android
+  hardware instead of assuming accelerator speed. Canonical receipt identity
+  uses integer timing evidence for Kotlin/Python portability.
 - **R2-E4 — Dynamic Scheduler Autotuning** will replace conservative E1
   thresholds only with sealed measured evidence.
 - **R2-E5 — Galaxy S21 FE Benchmark/Profile** will seal an on-device production
