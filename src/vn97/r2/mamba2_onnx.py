@@ -177,12 +177,19 @@ class VN97Mamba2OnnxLayer(nn.Module):
         value: torch.Tensor,
         gate: torch.Tensor,
     ) -> torch.Tensor:
-        # Official Mamba2 default is norm_before_gate=False.
+        # Official Mamba2 default is norm_before_gate=False. Keep every
+        # leading dimension so the same layer works for recurrent [B,D]
+        # and parallel-prefill [B,L,D] execution.
+        if value.shape != gate.shape:
+            raise ValueError("Mamba-2 gated RMSNorm value/gate shape mismatch")
+        if value.shape[-1] != self.config.d_inner:
+            raise ValueError("Mamba-2 gated RMSNorm width mismatch")
         source = value.float() * F.silu(gate.float())
+        group_size = self.config.d_inner // self.config.n_groups
         grouped = source.reshape(
-            source.shape[0],
+            *source.shape[:-1],
             self.config.n_groups,
-            self.config.d_inner // self.config.n_groups,
+            group_size,
         )
         inv = torch.rsqrt(
             grouped.square().mean(dim=-1, keepdim=True)
