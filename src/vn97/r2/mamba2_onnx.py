@@ -451,6 +451,7 @@ def _state_contract(
     config: Mamba2OnnxConfig,
     *,
     dtype: torch.dtype,
+    batch_size: int,
 ) -> dict[str, object]:
     bytes_per_element = torch.tensor([], dtype=dtype).element_size()
     conv_elements = (
@@ -472,7 +473,7 @@ def _state_contract(
         "conv_state": {
             "shape": [
                 config.n_layers,
-                "batch",
+                batch_size,
                 config.conv_dim,
                 config.d_conv,
             ],
@@ -482,7 +483,7 @@ def _state_contract(
         "ssm_state": {
             "shape": [
                 config.n_layers,
-                "batch",
+                batch_size,
                 config.n_heads,
                 config.head_dim,
                 config.d_state,
@@ -544,8 +545,10 @@ def export_mamba2_step_onnx(
         source_weight_sha256,
         label="G0.4 source weight SHA-256",
     )
-    if example_batch_size <= 0:
-        raise ValueError("example_batch_size must be positive")
+    if example_batch_size != 1:
+        raise ValueError(
+            "R2-G0.4 mobile ONNX currently requires batch_size=1"
+        )
     if output_dir.exists():
         if (
             output_dir.is_symlink()
@@ -576,14 +579,6 @@ def export_mamba2_step_onnx(
         do_constant_folding=True,
         input_names=list(VN97_MAMBA2_G04_INPUTS),
         output_names=list(VN97_MAMBA2_G04_OUTPUTS),
-        dynamic_axes={
-            "input_ids": {0: "batch"},
-            "conv_state": {1: "batch"},
-            "ssm_state": {1: "batch"},
-            "logits": {0: "batch"},
-            "next_conv_state": {1: "batch"},
-            "next_ssm_state": {1: "batch"},
-        },
         dynamo=True,
     )
     if _export_supports_external_data():
@@ -604,12 +599,14 @@ def export_mamba2_step_onnx(
         "config": config,
         "opset": VN97_MAMBA2_G04_OPSET,
         "graph_kind": "step",
+        "batch_size": example_batch_size,
         "graph_files": _collect_graph_files(root, "step.onnx"),
         "inputs": list(VN97_MAMBA2_G04_INPUTS),
         "outputs": list(VN97_MAMBA2_G04_OUTPUTS),
         "state_contract": _state_contract(
             model.config,
             dtype=model.parameter_dtype,
+            batch_size=example_batch_size,
         ),
         "same_weights_semantics": True,
         "quantization_used": False,
@@ -677,6 +674,8 @@ def verify_mamba2_g04_bundle(root: Path) -> dict[str, object]:
         "source_weight_sha256",
     ):
         _require_sha256(payload.get(field), label=f"G0.4 {field}")
+    if payload.get("batch_size") != 1:
+        raise ValueError("G0.4 mobile graph must use batch_size=1")
     if payload.get("same_weights_semantics") is not True:
         raise ValueError("G0.4 same-weight semantics are not locked")
     if payload.get("quantization_used") is not False:
@@ -749,9 +748,11 @@ def validate_ort_step_parity(
     batch_size: int = 1,
     seed: int = 9704,
 ) -> dict[str, float]:
-    if batch_size <= 0:
-        raise ValueError("batch_size must be positive")
     manifest = verify_mamba2_g04_bundle(bundle_dir)
+    if batch_size != int(manifest["batch_size"]):
+        raise ValueError(
+            "G0.4 parity batch size must match the static mobile graph"
+        )
     if manifest["graph_kind"] != "step":
         raise ValueError("G0.4 parity requires a step graph")
     generator = torch.Generator().manual_seed(seed)
