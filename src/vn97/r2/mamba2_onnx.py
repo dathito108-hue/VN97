@@ -452,10 +452,23 @@ def _state_contract(
     *,
     dtype: torch.dtype,
 ) -> dict[str, object]:
+    bytes_per_element = torch.tensor([], dtype=dtype).element_size()
+    conv_elements = (
+        config.n_layers
+        * config.conv_dim
+        * config.d_conv
+    )
+    ssm_elements = (
+        config.n_layers
+        * config.n_heads
+        * config.head_dim
+        * config.d_state
+    )
     return {
         "state_is_explicit": True,
         "state_carry_semantics": "exact_between_graph_invocations",
         "dtype": _dtype_name(dtype),
+        "bytes_per_element": bytes_per_element,
         "conv_state": {
             "shape": [
                 config.n_layers,
@@ -463,6 +476,8 @@ def _state_contract(
                 config.conv_dim,
                 config.d_conv,
             ],
+            "elements_per_batch": conv_elements,
+            "bytes_per_batch": conv_elements * bytes_per_element,
         },
         "ssm_state": {
             "shape": [
@@ -472,7 +487,13 @@ def _state_contract(
                 config.head_dim,
                 config.d_state,
             ],
+            "elements_per_batch": ssm_elements,
+            "bytes_per_batch": ssm_elements * bytes_per_element,
         },
+        "total_elements_per_batch": conv_elements + ssm_elements,
+        "total_bytes_per_batch": (
+            conv_elements + ssm_elements
+        ) * bytes_per_element,
     }
 
 
