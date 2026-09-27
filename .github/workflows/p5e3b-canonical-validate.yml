@@ -1,0 +1,27 @@
+name: VN97 P5E3B Canonical Validate
+
+on:
+  push:
+    branches:
+      - p5e3b-canonical-chat-validation
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Python syntax
+        run: python -m compileall -q src/vn97/p5e3b_canonical_validation_cli.py
+      - name: Shell syntax
+        run: bash -n tools/kaggle_p5e3b_validate.sh
+      - name: Canonical validation contract
+        run: |
+          grep -q 'generate_chat_completion' src/vn97/p5e3b_canonical_validation_cli.py
+          grep -q 'recover_chat_response_text' src/vn97/p5e3b_canonical_validation_cli.py
+          grep -q 'INCONCLUSIVE_ZERO_SIGNAL' src/vn97/p5e3b_canonical_validation_cli.py
+          grep -q 'HELD_OUT_GAIN' src/vn97/p5e3b_canonical_validation_cli.py
+          grep -q 'p5e3b-validate' pyproject.toml
