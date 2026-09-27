@@ -5,7 +5,6 @@ import hashlib
 import json
 import math
 from pathlib import Path
-from statistics import median
 from typing import Iterable, Mapping, Sequence
 
 
@@ -38,26 +37,19 @@ def _require_sha256(value: object, *, label: str) -> str:
     return value
 
 
-def percentile(values: Sequence[float], q: float) -> float:
+def percentile_nearest_rank(
+    values: Sequence[int],
+    q: float,
+) -> int:
     if not values:
         raise ValueError("values must not be empty")
-    if not 0.0 <= q <= 1.0:
-        raise ValueError("q must be in [0, 1]")
-    ordered = sorted(float(value) for value in values)
-    if any(not math.isfinite(value) or value <= 0.0 for value in ordered):
-        raise ValueError("latencies must be finite and positive")
-    if len(ordered) == 1:
-        return ordered[0]
-    position = q * (len(ordered) - 1)
-    lower = int(math.floor(position))
-    upper = int(math.ceil(position))
-    if lower == upper:
-        return ordered[lower]
-    fraction = position - lower
-    return (
-        ordered[lower] * (1.0 - fraction)
-        + ordered[upper] * fraction
-    )
+    if not 0.0 < q <= 1.0:
+        raise ValueError("q must be in (0, 1]")
+    ordered = sorted(int(value) for value in values)
+    if any(value <= 0 for value in ordered):
+        raise ValueError("latencies must be positive")
+    rank = max(1, math.ceil(q * len(ordered)))
+    return ordered[rank - 1]
 
 
 @dataclass(frozen=True)
@@ -69,8 +61,8 @@ class R2E3Measurement:
     actual_provider: str
     warmup_iterations: int
     steady_iterations: int
-    session_create_ms: float
-    steady_latencies_ms: tuple[float, ...]
+    session_create_ns: int
+    steady_latencies_ns: tuple[int, ...]
     memory_before_bytes: int
     memory_after_bytes: int
     thermal_before: int
@@ -88,13 +80,10 @@ class R2E3Measurement:
             raise ValueError("invalid actual provider")
         if self.warmup_iterations < 1 or self.steady_iterations < 3:
             raise ValueError("profiling requires warmup>=1 and steady>=3")
-        if len(self.steady_latencies_ms) != self.steady_iterations:
+        if len(self.steady_latencies_ns) != self.steady_iterations:
             raise ValueError("steady latency count mismatch")
-        if (
-            not math.isfinite(self.session_create_ms)
-            or self.session_create_ms <= 0.0
-        ):
-            raise ValueError("session_create_ms must be positive")
+        if self.session_create_ns <= 0:
+            raise ValueError("session_create_ns must be positive")
         if self.memory_before_bytes <= 0 or self.memory_after_bytes <= 0:
             raise ValueError("memory readings must be positive")
         if not 0 <= self.thermal_before <= 6:
@@ -107,14 +96,22 @@ class R2E3Measurement:
             and not self.fallback_used
         ):
             raise ValueError("provider substitution must mark fallback_used")
-        for value in self.steady_latencies_ms:
-            if not math.isfinite(value) or value <= 0.0:
+        for value in self.steady_latencies_ns:
+            if value <= 0:
                 raise ValueError("steady latencies must be positive")
 
     def summary(self) -> dict[str, object]:
-        p50 = percentile(self.steady_latencies_ms, 0.50)
-        p95 = percentile(self.steady_latencies_ms, 0.95)
-        tokens_per_second = 1000.0 * self.sequence_length / p50
+        p50 = percentile_nearest_rank(
+            self.steady_latencies_ns,
+            0.50,
+        )
+        p95 = percentile_nearest_rank(
+            self.steady_latencies_ns,
+            0.95,
+        )
+        tokens_per_second_milli = (
+            self.sequence_length * 1_000_000_000_000 // p50
+        )
         return {
             "graph_filename": self.graph_filename,
             "kind": self.kind,
@@ -124,12 +121,14 @@ class R2E3Measurement:
             "fallback_used": self.fallback_used,
             "warmup_iterations": self.warmup_iterations,
             "steady_iterations": self.steady_iterations,
-            "session_create_ms": self.session_create_ms,
-            "latency_p50_ms": p50,
-            "latency_p95_ms": p95,
-            "latency_min_ms": min(self.steady_latencies_ms),
-            "latency_max_ms": max(self.steady_latencies_ms),
-            "tokens_per_second_p50": tokens_per_second,
+            "session_create_ns": self.session_create_ns,
+            "latency_p50_ns": p50,
+            "latency_p95_ns": p95,
+            "latency_min_ns": min(self.steady_latencies_ns),
+            "latency_max_ns": max(self.steady_latencies_ns),
+            "tokens_per_second_milli_p50": (
+                tokens_per_second_milli
+            ),
             "memory_before_bytes": self.memory_before_bytes,
             "memory_after_bytes": self.memory_after_bytes,
             "memory_delta_bytes": (
@@ -150,8 +149,8 @@ def rank_measurements(
     summaries.sort(
         key=lambda item: (
             bool(item["fallback_used"]),
-            float(item["latency_p50_ms"]),
-            float(item["latency_p95_ms"]),
+            int(item["latency_p50_ns"]),
+            int(item["latency_p95_ns"]),
             str(item["requested_provider"]),
         )
     )
