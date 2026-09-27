@@ -240,9 +240,14 @@ object OrtAdaptiveScheduler {
 data class OrtSessionHandle(
     val session: OrtSession,
     val primaryProvider: OrtProviderKind,
+    private val sessionOptions: OrtSession.SessionOptions,
 ) : AutoCloseable {
     override fun close() {
-        session.close()
+        try {
+            session.close()
+        } finally {
+            sessionOptions.close()
+        }
     }
 }
 
@@ -331,9 +336,14 @@ class VN97OrtSessionFactory(
                 modelBytes,
                 options,
             )
-            return OrtSessionHandle(session, provider)
-        } finally {
+            return OrtSessionHandle(
+                session,
+                provider,
+                options,
+            )
+        } catch (error: Throwable) {
             options.close()
+            throw error
         }
     }
 
@@ -359,9 +369,14 @@ class VN97OrtSessionFactory(
                 modelPath,
                 options,
             )
-            return OrtSessionHandle(session, provider)
-        } finally {
+            return OrtSessionHandle(
+                session,
+                provider,
+                options,
+            )
+        } catch (error: Throwable) {
             options.close()
+            throw error
         }
     }
 
