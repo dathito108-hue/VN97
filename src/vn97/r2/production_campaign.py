@@ -513,10 +513,30 @@ def verify_r2d5_package(package_dir: Path) -> dict[str, object]:
         raise ValueError("R2-D5 package must remain preflight-only")
     if payload.get("release_used_for_training") is not False:
         raise ValueError("R2-D5 release split must remain held out")
+    if payload.get("purpose") != "measured_cuda_preflight":
+        raise ValueError("R2-D5 package purpose mismatch")
+    _require_commit(str(payload.get("repository_commit", "")))
+    safety_fraction = payload.get("safety_fraction")
+    if (
+        not isinstance(safety_fraction, (int, float))
+        or not 0.0 < float(safety_fraction) <= 1.0
+    ):
+        raise ValueError("R2-D5 safety fraction is invalid")
+    task_families = payload.get("task_families")
+    if (
+        not isinstance(task_families, list)
+        or not task_families
+        or any(not isinstance(item, str) or not item for item in task_families)
+        or task_families != sorted(set(task_families))
+    ):
+        raise ValueError("R2-D5 task-family identity is invalid")
 
+    corpus_verified = verify_r2d5_corpus(root)
     corpus_raw = payload.get("corpus")
     if not isinstance(corpus_raw, dict):
         raise ValueError("R2-D5 corpus evidence is missing")
+    if corpus_raw != corpus_verified.as_dict():
+        raise ValueError("R2-D5 corpus evidence mismatch")
     expected_manifest_sha = _require_sha256(
         corpus_raw.get("manifest_sha256"),
         label="R2-D5 corpus manifest SHA-256",
