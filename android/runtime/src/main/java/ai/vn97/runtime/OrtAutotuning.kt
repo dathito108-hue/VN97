@@ -366,7 +366,9 @@ class OrtProviderQuarantine(
         val count = (failures[provider] ?: 0) + 1
         failures[provider] = count
         if (count >= failureThreshold) {
-            quarantine[provider] = cooldownDecisions
+            // decide() decrements at entry, so +1 preserves exactly the
+            // configured number of subsequent scheduler decisions.
+            quarantine[provider] = cooldownDecisions + 1
         }
     }
 
