@@ -353,6 +353,12 @@ Production execution is split into fail-closed gates:
   measured chunk ordering, thermal/memory/latency hysteresis, XNNPACK thread
   limits, and temporary provider failure quarantine. Android rejects profiles
   from another E2 bundle or device identity and falls back to E1 policy.
+- **R2-E5** adds the Galaxy S21 FE on-device benchmark/hardening contract:
+  cold-state, warm recurrent, prefill, sustained and recovery phases over the
+  E4-tuned production path; safe control-path tests for hysteresis/quarantine;
+  exact E2/E3/E4/run provenance; normalized sustained latency guards; and a
+  sealed minimal-graph APK recommendation. CI cannot manufacture an E5 PASS;
+  official hardening requires real device evidence from the target family.
 
 A passing R2-D5 receipt proves execution-memory feasibility only. It does not
 assert that the current preflight corpus volume is enough to train the 1B
@@ -370,9 +376,10 @@ curriculum plan are proven, the remaining R2-D work is:
   contract into R2-D13 before spending GPU quota;
 - execute measured T4 preflight, seal the D13 ready receipt, then run
   quota-bounded R2-D7 dense pretraining;
-- after a validated dense checkpoint exists, export it through R2-E2 and use
-  R2-E3 measured Android profiling to select the smallest fast ONNX graph set
-  for the target S21 FE path before any later quantized/mobile lowering;
+- after a validated dense checkpoint exists, export it through R2-E2, build
+  real-device R2-E3/R2-E4 evidence, then run the R2-E5 S21 FE hardening
+  campaign before selecting the smallest safe ONNX graph set for APK packaging
+  or attempting any later quantized/mobile lowering;
 - instruction/reasoning stage training with its own R2-D8 policy;
 - tool/action stage training with its own R2-D8 policy;
 - capability stage training with its own R2-D8 policy;
@@ -401,8 +408,12 @@ Execution-path engineering is now split from precision lowering.
   graph-specific provider/chunk policy, thermal/memory/latency hysteresis and
   recoverable provider quarantine. CPU remains a measured fallback and may be
   the primary provider when it wins on-device.
-- **R2-E5 — Galaxy S21 FE Benchmark/Profile** will seal an on-device production
-  profile for the target phone class.
+- **R2-E5 — Galaxy S21 FE Benchmark/Hardening** requires a real
+  device-measured VN97R2E5RUN1 bound to exact E2/E3/E4 evidence, verifies
+  normalized sustained per-token latency, zero execution failures, thermal
+  recovery and safe control-state behavior, then seals VN97R2E5HARDEN1 plus a
+  conservative minimal ONNX graph set for APK packaging. CI validates the
+  harness only and cannot produce a production E5 PASS.
 
 Only after dense training and fresh validation:
 
