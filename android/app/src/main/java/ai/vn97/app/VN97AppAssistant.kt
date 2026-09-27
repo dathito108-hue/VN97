@@ -489,6 +489,9 @@ class VN97AppAssistant(
         )
 
     private fun openIfActivatedLocked(): Boolean {
+        application.r2BundledRuntime.installIfPresent(
+            required = BuildConfig.VN97_TURNKEY_REQUIRED,
+        )
         if (
             model != null &&
             resources != null

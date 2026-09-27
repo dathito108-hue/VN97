@@ -115,6 +115,11 @@ class VN97TurnkeyAcceptanceReceiver : BroadcastReceiver() {
                         "active turnkey package identity mismatch"
                     }
 
+                    app.r2BundledRuntime
+                        .installIfPresent(
+                            required = true
+                        )
+
                     val assistantOpen =
                         app.assistant
                             .openIfActivated() ||
