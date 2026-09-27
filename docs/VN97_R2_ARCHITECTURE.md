@@ -311,6 +311,10 @@ Production execution is split into fail-closed gates:
   training/validation/release packages, preserves source/license provenance,
   rejects cross-corpus leakage, and measures canonical supervised token/window
   scale without allocating the 1B model.
+- **R2-D7** streams verified D6 shards directly into the canonical dense
+  trainer, resumes from epoch/shard/record/window cursors only at optimizer
+  boundaries, keeps release shards out of training/evaluation, and proves
+  pause/resume parity against uninterrupted execution.
 
 A passing R2-D5 receipt proves execution-memory feasibility only. It does not
 assert that the current preflight corpus volume is enough to train the 1B
@@ -319,8 +323,9 @@ model to production intelligence and it does not authorize training.
 After measured feasibility and corpus-scale evidence are proven, the remaining
 R2-D work is:
 
-- deterministic streaming-shard training/resume;
-- dense pretraining/distillation;
+- measured GPU preflight execution and evidence sealing;
+- production corpus acquisition/sealing to the canonical scale floor;
+- quota-bounded dense pretraining/distillation through R2-D7;
 - instruction/reasoning;
 - tool/action training;
 - capability curriculum;
