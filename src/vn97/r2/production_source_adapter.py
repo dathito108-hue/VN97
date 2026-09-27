@@ -4,7 +4,8 @@ from dataclasses import asdict, dataclass
 import hashlib
 import json
 from pathlib import Path
-from typing import Callable, Mapping, Sequence
+import math
+from typing import Mapping, Sequence
 
 from ..corpus_io import atomic_write, read_bounded_regular_file
 from .production_acquisition import (
@@ -172,9 +173,26 @@ class R2D10SourceLock:
 
 @dataclass(frozen=True)
 class R2D10SourcePackLock:
+    shard_target_training_records: int
+    validation_fraction: float
+    release_fraction: float
     sources: tuple[R2D10SourceLock, ...]
 
     def __post_init__(self) -> None:
+        if self.shard_target_training_records <= 0:
+            raise ValueError(
+                "R2-D10 shard_target_training_records must be positive"
+            )
+        if (
+            not math.isfinite(self.validation_fraction)
+            or not math.isfinite(self.release_fraction)
+            or self.validation_fraction <= 0.0
+            or self.release_fraction <= 0.0
+            or self.validation_fraction >= 0.25
+            or self.release_fraction >= 0.25
+            or self.validation_fraction + self.release_fraction >= 0.5
+        ):
+            raise ValueError("R2-D10 D9 holdout fractions are invalid")
         if not self.sources:
             raise ValueError("R2-D10 source pack is empty")
         ids = [item.source_id for item in self.sources]
@@ -187,6 +205,11 @@ class R2D10SourcePackLock:
         return {
             "schema": R2D10_LOCK_SCHEMA,
             "profile_id": R2D9_PROFILE_ID,
+            "shard_target_training_records": (
+                self.shard_target_training_records
+            ),
+            "validation_fraction": self.validation_fraction,
+            "release_fraction": self.release_fraction,
             "sources": [
                 item.canonical_object()
                 for item in self.sources
@@ -201,16 +224,23 @@ class R2D10SourcePackLock:
 
 
 def load_r2d10_lock(path: Path) -> R2D10SourcePackLock:
-    root = path.resolve(strict=True)
-    if root.is_symlink():
+    if path.is_symlink():
         raise ValueError("R2-D10 lockfile must not be a symlink")
+    root = path.resolve(strict=True)
     payload = _strict_json(
         root.read_bytes(),
         label="R2-D10 lockfile",
     )
     if (
         not isinstance(payload, dict)
-        or set(payload) != {"schema", "profile_id", "sources"}
+        or set(payload) != {
+            "schema",
+            "profile_id",
+            "shard_target_training_records",
+            "validation_fraction",
+            "release_fraction",
+            "sources",
+        }
         or payload.get("schema") != R2D10_LOCK_SCHEMA
         or payload.get("profile_id") != R2D9_PROFILE_ID
         or not isinstance(payload.get("sources"), list)
@@ -273,10 +303,24 @@ def load_r2d10_lock(path: Path) -> R2D10SourcePackLock:
                 max_bytes=raw["max_bytes"],
             )
         )
+    shard_target = payload["shard_target_training_records"]
+    validation_fraction = payload["validation_fraction"]
+    release_fraction = payload["release_fraction"]
+    if (
+        type(shard_target) is not int
+        or not isinstance(validation_fraction, (int, float))
+        or isinstance(validation_fraction, bool)
+        or not isinstance(release_fraction, (int, float))
+        or isinstance(release_fraction, bool)
+    ):
+        raise ValueError("R2-D10 campaign policy fields are invalid")
     return R2D10SourcePackLock(
+        shard_target_training_records=shard_target,
+        validation_fraction=float(validation_fraction),
+        release_fraction=float(release_fraction),
         sources=tuple(
             sorted(sources, key=lambda item: item.source_id)
-        )
+        ),
     )
 
 
@@ -752,9 +796,11 @@ def build_r2d10_pack(
     d9_definition = {
         "schema": R2D9_DEFINITION_SCHEMA,
         "profile_id": R2D9_PROFILE_ID,
-        "shard_target_training_records": 10000,
-        "validation_fraction": 0.01,
-        "release_fraction": 0.01,
+        "shard_target_training_records": (
+            lock.shard_target_training_records
+        ),
+        "validation_fraction": lock.validation_fraction,
+        "release_fraction": lock.release_fraction,
         "sources": sorted(
             d9_sources,
             key=lambda item: str(item["source_id"]),
@@ -923,9 +969,11 @@ def verify_r2d10_pack(output_dir: Path) -> dict[str, object]:
     expected_d9 = {
         "schema": R2D9_DEFINITION_SCHEMA,
         "profile_id": R2D9_PROFILE_ID,
-        "shard_target_training_records": 10000,
-        "validation_fraction": 0.01,
-        "release_fraction": 0.01,
+        "shard_target_training_records": (
+            lock.shard_target_training_records
+        ),
+        "validation_fraction": lock.validation_fraction,
+        "release_fraction": lock.release_fraction,
         "sources": sorted(
             expected_d9_sources,
             key=lambda item: str(item["source_id"]),
