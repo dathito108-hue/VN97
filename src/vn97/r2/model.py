@@ -6,6 +6,7 @@ from typing import Iterable, Optional
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.utils.checkpoint import checkpoint
 
 from .config import VN97R2Config
 from .ssm import R2LayerState, R2RMSNorm, SelectiveSSMBlock
@@ -263,6 +264,102 @@ class VN97R2Model(nn.Module):
             layers=tuple(next_states),
             active_layers=active_layers,
         )
+
+    def forward_hidden_training(
+        self,
+        input_ids: torch.Tensor,
+        state: Optional[VN97R2State] = None,
+        *,
+        profile: str | int | None = None,
+        activation_checkpointing: bool = True,
+    ) -> tuple[torch.Tensor, VN97R2State]:
+        """Training path with optional per-block activation checkpointing.
+
+        This uses the same R2 blocks and weights as forward_hidden(). State is
+        threaded exactly across blocks; checkpointing only changes which
+        intermediate activations are retained for backward.
+        """
+        if input_ids.ndim != 2:
+            raise ValueError(
+                "input_ids must be [batch, seq], got "
+                f"{tuple(input_ids.shape)}"
+            )
+        if input_ids.shape[1] <= 0:
+            raise ValueError("sequence length must be positive")
+
+        active_layers = self.resolve_active_layers(profile)
+        hidden = self.embedding(input_ids)
+        current = self._validate_state(
+            state,
+            batch_size=input_ids.shape[0],
+            device=hidden.device,
+            dtype=hidden.dtype,
+            active_layers=active_layers,
+        )
+
+        next_states: list[R2LayerState] = []
+        x = hidden
+        for index in range(active_layers):
+            layer = self.layers[index]
+            layer_state = current.layers[index]
+
+            if activation_checkpointing and torch.is_grad_enabled():
+                def _layer_forward(
+                    layer_input: torch.Tensor,
+                    conv_state: torch.Tensor,
+                    ssm_state: torch.Tensor,
+                    *,
+                    _layer: SelectiveSSMBlock = layer,
+                ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+                    layer_output, next_state = _layer(
+                        layer_input,
+                        R2LayerState(
+                            conv=conv_state,
+                            ssm=ssm_state,
+                        ),
+                    )
+                    return (
+                        layer_output,
+                        next_state.conv,
+                        next_state.ssm,
+                    )
+
+                x, next_conv, next_ssm = checkpoint(
+                    _layer_forward,
+                    x,
+                    layer_state.conv,
+                    layer_state.ssm,
+                    use_reentrant=False,
+                )
+                next_state = R2LayerState(
+                    conv=next_conv,
+                    ssm=next_ssm,
+                )
+            else:
+                x, next_state = layer(x, layer_state)
+
+            next_states.append(next_state)
+
+        return x, VN97R2State(
+            layers=tuple(next_states),
+            active_layers=active_layers,
+        )
+
+    def forward_training(
+        self,
+        input_ids: torch.Tensor,
+        state: Optional[VN97R2State] = None,
+        *,
+        profile: str | int | None = None,
+        activation_checkpointing: bool = True,
+    ) -> tuple[torch.Tensor, VN97R2State]:
+        hidden, next_state = self.forward_hidden_training(
+            input_ids,
+            state,
+            profile=profile,
+            activation_checkpointing=activation_checkpointing,
+        )
+        return self._project_logits(hidden), next_state
 
     def forward(
         self,
