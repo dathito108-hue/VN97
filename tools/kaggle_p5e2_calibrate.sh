@@ -10,8 +10,8 @@ Defaults:
   output-dir=/kaggle/working/p5e2-calibrated-final
 
 P5E2 does not load Falcon3-Mamba. It runs a short native VN97 calibration on
-the transplanted 309M float-shadow student, training only the final eight
-VN97 layers, final norm, and factorized embedding projection.
+the transplanted 309M float-shadow student, training only the final eight VN97 layers and final norm. The transplanted
+embedding and the first 24 layers stay frozen to reduce VRAM and preserve the graft.
 EOF
   exit 2
 }
