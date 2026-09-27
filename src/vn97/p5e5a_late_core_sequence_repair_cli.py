@@ -144,7 +144,7 @@ def _load_p5e4l_seed(
     ):
         raise VN97P5E5AError("P5E4L adapter tokenizer identity mismatch")
 
-    tokenizer_sha = _sha256(tokenizer_path)
+    tokenizer_sha = _sha256_file(tokenizer_path)
     if tokenizer_sha != repaired_meta.get("tokenizer_sha256"):
         raise VN97P5E5AError("P5E4L copied tokenizer hash mismatch")
 
@@ -162,8 +162,8 @@ def _load_p5e4l_seed(
     return adapter, {
         "root": str(resolved),
         "status": report.get("status"),
-        "report_sha256": _sha256(report_path),
-        "adapter_sha256": _sha256(adapter_path),
+        "report_sha256": _sha256_file(report_path),
+        "adapter_sha256": _sha256_file(adapter_path),
         "tokenizer_sha256": tokenizer_sha,
         "best_epoch": report.get("adapter", {}).get("best_epoch"),
         "ready_for_qat": bool(report.get("ready_for_qat", False)),
