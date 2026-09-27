@@ -29,6 +29,11 @@ For the locked Mamba-2 2.7B source the state geometry is:
 The graph uses the same preserved weights and does not quantize, blend, resize,
 or reinitialize the inherited core.
 
+The G0.4 mobile graph is deliberately static `batch_size=1`. The earlier dynamic-batch
+prototype produced a shape-specialization mismatch in ONNX Runtime; VN97 mobile/F1
+already operates at batch one, so G0.4 locks the truthful runtime contract instead of
+advertising unsupported dynamic batching.
+
 ## Recurrent-state mobile budget
 
 For batch 1 the explicit state contains:
