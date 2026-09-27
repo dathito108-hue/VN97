@@ -245,60 +245,72 @@ import json
 import os
 
 from huggingface_hub import hf_hub_download
+from huggingface_hub.errors import LocalEntryNotFoundError
 
 repo_id = "tiiuae/Falcon3-Mamba-7B-Instruct"
 revision = os.environ["TEACHER_REVISION"]
 cache_dir = os.environ["HF_HOME"]
 
-path = Path(
-    hf_hub_download(
-        repo_id=repo_id,
-        filename="config.json",
-        revision=revision,
-        cache_dir=cache_dir,
-        local_files_only=True,
-    )
-)
-
-try:
-    json.loads(path.read_text(encoding="utf-8"))
-    print(f"P5D4A CACHE CONFIG valid path={path}")
-except Exception:
-    target = path.resolve(strict=False)
-    print(
-        "P5D4A CACHE CONFIG invalid; repairing "
-        f"path={path} target={target}"
-    )
-    try:
-        if path.exists() or path.is_symlink():
-            path.unlink()
-    except FileNotFoundError:
-        pass
-    if target != path:
-        try:
-            if target.exists():
-                target.unlink()
-        except FileNotFoundError:
-            pass
-
-    repaired = Path(
+def download_config() -> Path:
+    path = Path(
         hf_hub_download(
             repo_id=repo_id,
             filename="config.json",
             revision=revision,
             cache_dir=cache_dir,
             force_download=True,
+            local_files_only=False,
         )
     )
-    json.loads(
-        repaired.read_text(
-            encoding="utf-8"
+    json.loads(path.read_text(encoding="utf-8"))
+    return path
+
+try:
+    path = Path(
+        hf_hub_download(
+            repo_id=repo_id,
+            filename="config.json",
+            revision=revision,
+            cache_dir=cache_dir,
+            local_files_only=True,
         )
     )
+except LocalEntryNotFoundError:
+    print(
+        "P5D4A CACHE CONFIG missing; downloading only config.json"
+    )
+    repaired = download_config()
     print(
         "P5D4A CACHE CONFIG repaired "
         f"path={repaired} bytes={repaired.stat().st_size}"
     )
+else:
+    try:
+        json.loads(path.read_text(encoding="utf-8"))
+        print(f"P5D4A CACHE CONFIG valid path={path}")
+    except Exception:
+        target = path.resolve(strict=False)
+        print(
+            "P5D4A CACHE CONFIG invalid; repairing "
+            f"path={path} target={target}"
+        )
+        try:
+            if path.exists() or path.is_symlink():
+                path.unlink()
+        except FileNotFoundError:
+            pass
+        if target != path:
+            try:
+                if target.exists():
+                    target.unlink()
+            except FileNotFoundError:
+                pass
+
+        repaired = download_config()
+        print(
+            "P5D4A CACHE CONFIG repaired "
+            f"path={repaired} bytes={repaired.stat().st_size}"
+        )
 PY
 
 python -m vn97.p5d_teacher_corpus_cli \
