@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 import shutil
 
+import torch
+
 from ..cognition_adapter import TorchVN97InferenceEngine
 from ..training import VN97ChatMessage, VN97TrainingConfig
 from ..training_cli import (
@@ -26,6 +28,7 @@ from .evaluation import EvaluationDomain
 from .model import VN97R2Model
 from .pilot_contract import (
     assert_r2_pilot_scale,
+    available_memory_bytes,
     build_pilot_corpus_evidence,
     estimate_pilot_training_resources,
 )
@@ -114,6 +117,29 @@ def _parser() -> argparse.ArgumentParser:
         ),
     )
     return parser
+
+
+def _resolve_training_device(value: str) -> torch.device:
+    if value == "auto":
+        return torch.device(
+            "cuda" if torch.cuda.is_available() else "cpu"
+        )
+    resolved = torch.device(value)
+    if resolved.type == "cuda" and not torch.cuda.is_available():
+        raise RuntimeError("CUDA was requested but is not available")
+    return resolved
+
+
+def _available_training_memory(
+    device: torch.device,
+) -> int | None:
+    if device.type == "cuda":
+        try:
+            free_bytes, _ = torch.cuda.mem_get_info(device)
+        except (RuntimeError, ValueError):
+            return None
+        return int(free_bytes)
+    return available_memory_bytes()
 
 
 def _combined_identity(
@@ -279,10 +305,15 @@ def main(argv: list[str] | None = None) -> int:
     model = VN97R2Model(config)
     assert_tokenizer_compatible(model, tokenizer)
 
+    training_device = _resolve_training_device(args.device)
+    available_training_memory = _available_training_memory(
+        training_device
+    )
     resources = estimate_pilot_training_resources(
         config,
         sequence_length=args.sequence_length,
         batch_size=args.batch_size,
+        available_ram=available_training_memory,
     )
     if (
         args.profile == "pilot"
@@ -324,7 +355,7 @@ def main(argv: list[str] | None = None) -> int:
         model,
         validation_windows,
         batch_size=args.batch_size,
-        device=args.device,
+        device=training_device,
     )
 
     dataset_identity = _combined_identity(
@@ -351,7 +382,7 @@ def main(argv: list[str] | None = None) -> int:
         work_dir=args.work_dir,
         best_checkpoint_path=checkpoint_path,
         dataset_identity=dataset_identity,
-        device=args.device,
+        device=training_device,
     )
 
     best_model, checkpoint_evidence = load_r2_checkpoint(
@@ -445,7 +476,15 @@ def main(argv: list[str] | None = None) -> int:
         "validation_sha256": validation_sha,
         "tokenizer_sha256": tokenizer_sha,
         "corpus": corpus_evidence.as_dict(),
-        "resources": resources.as_dict(),
+        "resources": {
+            **resources.as_dict(),
+            "training_device": str(training_device),
+            "memory_scope": (
+                "cuda_free_vram"
+                if training_device.type == "cuda"
+                else "host_available_ram"
+            ),
+        },
         "training_windows": len(training_windows),
         "validation_windows": len(validation_windows),
         "initial_validation": initial_validation,
