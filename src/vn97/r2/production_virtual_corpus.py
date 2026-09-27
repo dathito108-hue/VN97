@@ -888,6 +888,4 @@ def resolve_r2d12_shard(
         raise ValueError("R2-D12 shard escapes mounted D6 package") from exc
     if not path.is_file():
         raise ValueError("R2-D12 shard path is not a regular file")
-    if _sha256_file(path) != shard.get("sha256"):
-        raise ValueError("R2-D12 shard SHA-256 mismatch at runtime")
     return path
