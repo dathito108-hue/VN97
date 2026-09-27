@@ -1,11 +1,9 @@
 package ai.vn97.platform
 
-import ai.vn97.runtime.NativeActivatedModel
 import ai.vn97.runtime.NativeCognitionBoundary
-import ai.vn97.runtime.NativeCognitionInferenceEngine
 import ai.vn97.runtime.NativeCognitionLimits
 import ai.vn97.runtime.NativeCognitionLoop
-import ai.vn97.runtime.NativeCognitionRuntimeConfig
+import ai.vn97.runtime.VN97R2CognitionInference
 import ai.vn97.runtime.NativeMemoryRetriever
 import ai.vn97.runtime.NativeReasoningBudget
 import ai.vn97.runtime.NativeTypedCognitionAdapter
@@ -49,7 +47,8 @@ class VN97PaperTradingAgent private constructor(
     private val account: VN97PaperTradingAccount,
     private val memory: NativeMemoryRetriever?,
     private val limits: VN97PaperTradingAgentLimits,
-) {
+    private val inference: VN97R2CognitionInference,
+) : AutoCloseable {
     fun evaluate(
         userGoal: String,
         snapshot: VN97MarketSnapshot,
@@ -187,20 +186,13 @@ class VN97PaperTradingAgent private constructor(
 
     companion object {
         fun production(
-            model: NativeActivatedModel,
+            inference: VN97R2CognitionInference,
             account: VN97PaperTradingAccount,
             memory: NativeMemoryRetriever? = null,
-            cognitionRuntimeConfig: NativeCognitionRuntimeConfig =
-                NativeCognitionRuntimeConfig(),
             limits: VN97PaperTradingAgentLimits =
                 VN97PaperTradingAgentLimits(),
         ): VN97PaperTradingAgent {
-            val cognition = NativeTypedCognitionAdapter(
-                NativeCognitionInferenceEngine(
-                    model = model,
-                    config = cognitionRuntimeConfig,
-                )
-            )
+            val cognition = NativeTypedCognitionAdapter(inference)
             val loop = NativeCognitionLoop(
                 backend = cognition,
                 limits = NativeCognitionLimits(
@@ -220,7 +212,12 @@ class VN97PaperTradingAgent private constructor(
                 account = account,
                 memory = memory,
                 limits = limits,
+                inference = inference,
             )
         }
     }
+    override fun close() {
+        inference.close()
+    }
+
 }

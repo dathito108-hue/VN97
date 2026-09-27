@@ -507,12 +507,61 @@ tasks.matching {
     )
 }
 
+val verifyR2TurnkeyRuntime by tasks.registering {
+    group = "verification"
+    description =
+        "Require the self-contained VN97 R2 ONNX runtime assets for release APKs."
+
+    doLast {
+        val root =
+            externalReleaseAssetRoot
+                ?.resolve("vn97-r2")
+                ?: layout.projectDirectory
+                    .dir("src/main/assets/vn97-r2")
+                    .asFile
+        check(root.isDirectory) {
+            "VN97 R2 release runtime directory is missing."
+        }
+        val required = listOf(
+            root.resolve("binding.vn97r2f2.json"),
+            root.resolve("tuning.vn97r2e4.json"),
+            root.resolve("runtime/runtime.vn97ort1.json"),
+            root.resolve("runtime/step.onnx"),
+        )
+        required.forEach { file ->
+            check(
+                file.isFile &&
+                    !Files.isSymbolicLink(file.toPath()) &&
+                    file.length() > 0L
+            ) {
+                "VN97 R2 required release asset is missing/unsafe: " +
+                    file.name
+            }
+        }
+        val chunks =
+            root.resolve("runtime")
+                .listFiles()
+                ?.filter {
+                    it.isFile &&
+                        !Files.isSymbolicLink(it.toPath()) &&
+                        Regex("^chunk-[1-9][0-9]*\\.onnx$")
+                            .matches(it.name) &&
+                        it.length() > 0L
+                }
+                .orEmpty()
+        check(chunks.isNotEmpty()) {
+            "VN97 R2 release requires at least one chunk ONNX graph."
+        }
+    }
+}
+
 tasks.matching {
     it.name == "preReleaseBuild"
 }.configureEach {
     dependsOn(
         verifyExternalReleaseAssetRoot,
         verifyTurnkeyBootstrap,
+        verifyR2TurnkeyRuntime,
         verifyReleaseSigning,
         verifyReleaseVersion,
     )

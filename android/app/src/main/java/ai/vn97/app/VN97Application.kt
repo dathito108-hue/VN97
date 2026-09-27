@@ -82,6 +82,12 @@ class VN97Application :
         VN97BundledBootstrap(this, provisioner)
     }
 
+    val r2BundledRuntime: VN97R2BundledRuntime by lazy(
+        LazyThreadSafetyMode.SYNCHRONIZED
+    ) {
+        VN97R2BundledRuntime(this)
+    }
+
     override fun onCreate() {
         super.onCreate()
         runtimeResources

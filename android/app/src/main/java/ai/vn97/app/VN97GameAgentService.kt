@@ -14,7 +14,8 @@ import ai.vn97.platform.VN97ExecutionHealthStore
 import ai.vn97.platform.VN97ExecutionWatchdog
 import ai.vn97.runtime.NativeActivatedInventoryModelLoader
 import ai.vn97.runtime.NativeCognitionBoundary
-import ai.vn97.runtime.NativeCognitionInferenceEngine
+import ai.vn97.runtime.NativePreparedVision
+import ai.vn97.runtime.VN97R2CognitionInference
 import ai.vn97.runtime.NativePlanController
 import ai.vn97.runtime.NativeTypedCognitionAdapter
 import android.app.Notification
@@ -313,10 +314,10 @@ class VN97GameAgentService : Service() {
                     "trusted VN97 model is not active"
                 }
                 model.use {
-                    check(model.info.hasVisionProjection) {
-                        "activated VN97 model has no production vision weights"
-                    }
-                    val engine = NativeCognitionInferenceEngine(model)
+                    VN97R2CognitionInference.open(
+                        context = app,
+                        model = model,
+                    ).use { engine ->
                     val cognition = NativeTypedCognitionAdapter(engine)
                     val grants =
                         M6AndroidProductionCapabilities
@@ -410,6 +411,7 @@ class VN97GameAgentService : Service() {
                                 throw exc
                             }
                         }
+                    }
                 }
             } finally {
                 if (reopenForeground) {
@@ -425,7 +427,7 @@ class VN97GameAgentService : Service() {
         app: VN97Application,
         goal: String,
         packageName: String,
-        engine: NativeCognitionInferenceEngine,
+        engine: VN97R2CognitionInference,
         coordinator: ai.vn97.platform.M6EndToEndExternalCoordinator,
         memory: ai.vn97.runtime.NativeMemoryStore,
         episodeMemory: VN97GameEpisodeMemory,
@@ -439,7 +441,7 @@ class VN97GameAgentService : Service() {
             app.screenCaptureBroker.awaitFreshFrame(
                 afterElapsedRealtimeNs = afterElapsedNs,
             )
-        var observation = engine.perceiveVision(frame.prepared)
+        var observation = summarizeVision(frame.prepared)
 
         while (true) {
             checkNotCancelled()
@@ -511,7 +513,7 @@ class VN97GameAgentService : Service() {
                 afterElapsedRealtimeNs = afterElapsedNs,
             )
             val afterObservation =
-                engine.perceiveVision(frame.prepared)
+                summarizeVision(frame.prepared)
             previousVerification = verifyOutcome(
                 engine = engine,
                 goal = goal,
@@ -639,7 +641,7 @@ class VN97GameAgentService : Service() {
     }
 
     private fun verifyOutcome(
-        engine: NativeCognitionInferenceEngine,
+        engine: VN97R2CognitionInference,
         goal: String,
         beforeObservation: String,
         afterObservation: String,
@@ -672,13 +674,50 @@ class VN97GameAgentService : Service() {
             )
             append("\nverification=")
         }
-        return engine.generateText(
-            prompt,
-            MAX_VERIFY_TOKENS,
-        ).trim().ifEmpty {
+        return engine.generateText(prompt, MAX_VERIFY_TOKENS).text.trim().ifEmpty {
             "No textual verification was produced; use the fresh after-frame."
         }.take(MAX_VERIFICATION_CHARS)
     }
+
+    private fun summarizeVision(
+        prepared: NativePreparedVision,
+    ): String {
+        val values = prepared.normalizedPatches
+        var sum = 0.0
+        var energy = 0.0
+        var minimum = Float.POSITIVE_INFINITY
+        var maximum = Float.NEGATIVE_INFINITY
+        values.forEach { value ->
+            require(value.isFinite()) {
+                "prepared vision contains non-finite feature"
+            }
+            sum += value
+            energy += value.toDouble() * value.toDouble()
+            if (value < minimum) minimum = value
+            if (value > maximum) maximum = value
+        }
+        val count = values.size.coerceAtLeast(1)
+        val mean = sum / count
+        val rms = kotlin.math.sqrt(energy / count)
+        return buildString {
+            append("VN97R2VISFEATURE1 width=")
+            append(prepared.width)
+            append(" height=")
+            append(prepared.height)
+            append(" patches=")
+            append(prepared.patchCount)
+            append(" mean=")
+            append("%.6f".format(java.util.Locale.US, mean))
+            append(" rms=")
+            append("%.6f".format(java.util.Locale.US, rms))
+            append(" min=")
+            append("%.6f".format(java.util.Locale.US, minimum))
+            append(" max=")
+            append("%.6f".format(java.util.Locale.US, maximum))
+            append(" semantic_vision=false")
+        }
+    }
+
 
     private fun waitForForeground(
         packageName: String,

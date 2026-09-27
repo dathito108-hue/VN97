@@ -128,7 +128,8 @@ class VN97AssistantSession(
     private val defaultMemory: NativeMemoryRetriever? = null,
     private val turnMemoryWriter: VN97TurnMemoryWriter? = null,
     private val turnMemoryRecovery: VN97TurnMemoryRecovery? = null,
-) {
+    private val closeHook: (() -> Unit)? = null,
+) : AutoCloseable {
     init {
         require(turnMemoryRecovery == null || turnMemoryWriter != null) {
             "turn memory recovery requires the canonical M7W writer"
@@ -496,4 +497,12 @@ class VN97AssistantSession(
             "principal contains unsupported characters"
         }
     }
+    @Synchronized
+    override fun close() {
+        active = null
+        activeMemory = null
+        pendingApproval = null
+        closeHook?.invoke()
+    }
+
 }
