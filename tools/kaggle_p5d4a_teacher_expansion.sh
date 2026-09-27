@@ -222,21 +222,26 @@ python -m pip install --disable-pip-version-check --no-cache-dir -q \
   "tokenizers==0.20.3" \
   "accelerate>=0.34,<2" \
   "huggingface_hub>=0.24,<1" \
+  "bitsandbytes==0.48.1" \
   safetensors \
   sentencepiece
 
 python - <<'PY'
+import bitsandbytes
 import tokenizers
 import transformers
 print(
     "P5D4A HF STACK "
     f"transformers={transformers.__version__} "
-    f"tokenizers={tokenizers.__version__}"
+    f"tokenizers={tokenizers.__version__} "
+    f"bitsandbytes={bitsandbytes.__version__}"
 )
 if transformers.__version__ != "4.46.1":
     raise SystemExit("P5D4A transformers compatibility pin was not applied")
 if tokenizers.__version__ != "0.20.3":
     raise SystemExit("P5D4A tokenizers compatibility pin was not applied")
+if bitsandbytes.__version__ != "0.48.1":
+    raise SystemExit("P5D4A bitsandbytes compatibility pin was not applied")
 PY
 
 HF_HOME="$HF_CACHE" TEACHER_REVISION="$TEACHER_REVISION" python - <<'PY'
@@ -313,16 +318,51 @@ else:
         )
 PY
 
-python -m vn97.p5d_teacher_corpus_cli \
-  --p3-corpus-dir "$P3_DIR" \
-  --dev-suite "$DEV_SUITE" \
-  --work-dir "$WORK" \
-  --output-dir "$FINAL" \
-  --teacher-revision "$TEACHER_REVISION" \
-  --p3-records 960 \
-  --p4-per-category 240 \
-  --accept-teacher-license TII-FALCON-LLM-2.0 \
+COMMON_ARGS=(
+  --p3-corpus-dir "$P3_DIR"
+  --dev-suite "$DEV_SUITE"
+  --work-dir "$WORK"
+  --output-dir "$FINAL"
+  --teacher-revision "$TEACHER_REVISION"
+  --p3-records 960
+  --p4-per-category 240
+  --accept-teacher-license TII-FALCON-LLM-2.0
   --progress-interval 20
+)
+
+echo "VN97 P5D4A WORKERS mode=dual_t4_llm_int8 worker_count=2"
+
+CUDA_VISIBLE_DEVICES=0 python -m vn97.p5d_teacher_corpus_cli \
+  "${COMMON_ARGS[@]}" \
+  --teacher-int8 \
+  --worker-index 0 \
+  --worker-count 2 \
+  --records-only &
+PID0=$!
+
+CUDA_VISIBLE_DEVICES=1 python -m vn97.p5d_teacher_corpus_cli \
+  "${COMMON_ARGS[@]}" \
+  --teacher-int8 \
+  --worker-index 1 \
+  --worker-count 2 \
+  --records-only &
+PID1=$!
+
+set +e
+wait "$PID0"
+STATUS0=$?
+wait "$PID1"
+STATUS1=$?
+set -e
+
+if [[ "$STATUS0" -ne 0 || "$STATUS1" -ne 0 ]]; then
+  echo "P5D4A teacher workers failed: gpu0=$STATUS0 gpu1=$STATUS1" >&2
+  exit 4
+fi
+
+python -m vn97.p5d_teacher_corpus_cli \
+  "${COMMON_ARGS[@]}" \
+  --finalize-only
 
 PARENT="$PARENT" FINAL="$FINAL" python - <<'PY'
 from pathlib import Path

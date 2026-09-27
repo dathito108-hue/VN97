@@ -88,6 +88,38 @@ def _parser() -> argparse.ArgumentParser:
         type=int,
         default=10,
     )
+    parser.add_argument(
+        "--teacher-int8",
+        action="store_true",
+        help=(
+            "Load the teacher with bitsandbytes LLM.int8() on one visible CUDA "
+            "device. Intended for independent single-GPU workers."
+        ),
+    )
+    parser.add_argument(
+        "--worker-index",
+        type=int,
+        default=0,
+    )
+    parser.add_argument(
+        "--worker-count",
+        type=int,
+        default=1,
+    )
+    parser.add_argument(
+        "--records-only",
+        action="store_true",
+        help=(
+            "Generate only this worker's assigned records and skip finalization."
+        ),
+    )
+    parser.add_argument(
+        "--finalize-only",
+        action="store_true",
+        help=(
+            "Finalize an already-complete work directory without loading the teacher."
+        ),
+    )
     return parser
 
 
@@ -435,6 +467,7 @@ def _load_dependencies():
         from transformers import (
             AutoModelForCausalLM,
             AutoTokenizer,
+            BitsAndBytesConfig,
         )
     except Exception as exc:
         raise VN97P5D1Error(
@@ -445,22 +478,34 @@ def _load_dependencies():
         model_info,
         AutoModelForCausalLM,
         AutoTokenizer,
+        BitsAndBytesConfig,
     )
 
 
 def _load_teacher(
     *,
     revision: str,
+    teacher_int8: bool,
 ):
-    if torch.cuda.device_count() < 2:
+    required_gpus = (
+        1
+        if teacher_int8
+        else 2
+    )
+    if (
+        torch.cuda.device_count()
+        < required_gpus
+    ):
         raise VN97P5D1Error(
-            "P5D1 teacher generation requires two CUDA GPUs"
+            "P5D1 teacher generation requires "
+            f"{required_gpus} CUDA GPU(s) for this execution mode"
         )
 
     (
         model_info,
         AutoModelForCausalLM,
         AutoTokenizer,
+        BitsAndBytesConfig,
     ) = _load_dependencies()
 
     info = model_info(
@@ -494,30 +539,71 @@ def _load_teacher(
             tokenizer.eos_token
         )
 
-    max_memory = {
-        0: "14GiB",
-        1: "14GiB",
-        "cpu": "20GiB",
-    }
-    model = (
-        AutoModelForCausalLM
-        .from_pretrained(
-            TEACHER_REPO,
-            revision=
-                resolved_revision,
-            torch_dtype=
-                torch.float16,
-            device_map=
-                "balanced",
-            max_memory=
-                max_memory,
-            low_cpu_mem_usage=True,
+    if teacher_int8:
+        quantization_config = (
+            BitsAndBytesConfig(
+                load_in_8bit=True,
+            )
         )
-    )
+        model = (
+            AutoModelForCausalLM
+            .from_pretrained(
+                TEACHER_REPO,
+                revision=
+                    resolved_revision,
+                torch_dtype=
+                    torch.float16,
+                quantization_config=
+                    quantization_config,
+                device_map={
+                    "": 0,
+                },
+                low_cpu_mem_usage=True,
+            )
+        )
+        execution_mode = (
+            "single_gpu_llm_int8"
+        )
+        setattr(
+            model,
+            "_vn97_single_device_teacher",
+            True,
+        )
+    else:
+        max_memory = {
+            0: "14GiB",
+            1: "14GiB",
+            "cpu": "20GiB",
+        }
+        model = (
+            AutoModelForCausalLM
+            .from_pretrained(
+                TEACHER_REPO,
+                revision=
+                    resolved_revision,
+                torch_dtype=
+                    torch.float16,
+                device_map=
+                    "balanced",
+                max_memory=
+                    max_memory,
+                low_cpu_mem_usage=True,
+            )
+        )
+        execution_mode = (
+            "balanced_fp16"
+        )
+        setattr(
+            model,
+            "_vn97_single_device_teacher",
+            False,
+        )
+
     model.eval()
 
     print(
         "VN97 P5D1 TEACHER READY "
+        f"execution={execution_mode} "
         f"device_map={getattr(model, 'hf_device_map', None)}",
         flush=True,
     )
@@ -570,24 +656,31 @@ def _teacher_generate(
         in inputs.items()
     }
 
+    generation_kwargs = {
+        "max_new_tokens":
+            prompt.max_new_tokens,
+        "do_sample":
+            False,
+        "use_cache":
+            True,
+        "pad_token_id":
+            tokenizer.pad_token_id,
+        "eos_token_id":
+            tokenizer.eos_token_id,
+    }
+    if not getattr(
+        model,
+        "_vn97_single_device_teacher",
+        False,
+    ):
+        generation_kwargs[
+            "cache_implementation"
+        ] = "static"
+
     with torch.inference_mode():
         output = model.generate(
             **inputs,
-            max_new_tokens=
-                prompt.max_new_tokens,
-            do_sample=False,
-            # Falcon3-Mamba's default recurrent cache is not safe with the
-            # balanced two-GPU dispatch used on Kaggle T4s. Transformers'
-            # Falcon-Mamba docs explicitly support static-cache generation
-            # under device_map dispatch. This restores recurrent decoding
-            # without the cuda:0/cuda:1 cache-state mismatch and avoids the
-            # prohibitively slow full-sequence recomputation of use_cache=False.
-            use_cache=True,
-            cache_implementation="static",
-            pad_token_id=
-                tokenizer.pad_token_id,
-            eos_token_id=
-                tokenizer.eos_token_id,
+            **generation_kwargs,
         )
 
     input_length = int(
@@ -875,6 +968,33 @@ def main(
         raise VN97P5D1Error(
             "progress interval must be positive"
         )
+    if args.worker_count <= 0:
+        raise VN97P5D1Error(
+            "worker-count must be positive"
+        )
+    if not (
+        0
+        <= args.worker_index
+        < args.worker_count
+    ):
+        raise VN97P5D1Error(
+            "worker-index must be in [0, worker-count)"
+        )
+    if (
+        args.records_only
+        and args.finalize_only
+    ):
+        raise VN97P5D1Error(
+            "records-only and finalize-only are mutually exclusive"
+        )
+    if (
+        args.worker_count > 1
+        and not args.records_only
+        and not args.finalize_only
+    ):
+        raise VN97P5D1Error(
+            "multi-worker generation requires --records-only"
+        )
 
     p3_root = Path(
         args.p3_corpus_dir
@@ -971,9 +1091,70 @@ def main(
         flush=True,
     )
 
+    if args.finalize_only:
+        if (
+            len(args.teacher_revision)
+            != 40
+            or any(
+                character
+                not in "0123456789abcdef"
+                for character
+                in args.teacher_revision.lower()
+            )
+        ):
+            raise VN97P5D1Error(
+                "finalize-only requires an exact 40-hex teacher revision"
+            )
+        _finalize(
+            prompts=prompts,
+            work=work,
+            output=output,
+            teacher_revision=
+                args.teacher_revision.lower(),
+            manifest_sha256=
+                manifest_sha,
+        )
+        return 0
+
+    assigned = [
+        prompt
+        for prompt in prompts
+        if (
+            int(
+                prompt.record_id[
+                    :16
+                ],
+                16,
+            )
+            % args.worker_count
+            == args.worker_index
+        )
+    ]
+    assigned_existing = sum(
+        1
+        for prompt in assigned
+        if _record_path(
+            work,
+            prompt.record_id,
+        ).is_file()
+    )
+    pending = (
+        len(assigned)
+        - assigned_existing
+    )
+    print(
+        "VN97 P5D1 WORKER "
+        f"index={args.worker_index} "
+        f"count={args.worker_count} "
+        f"assigned={len(assigned)} "
+        f"existing={assigned_existing} "
+        f"pending={pending} "
+        f"teacher_int8={args.teacher_int8}",
+        flush=True,
+    )
+
     model = None
     tokenizer = None
-    started = time.monotonic()
     (
         model,
         tokenizer,
@@ -981,13 +1162,15 @@ def main(
     ) = _load_teacher(
         revision=
             args.teacher_revision,
+        teacher_int8=
+            args.teacher_int8,
     )
 
+    started = time.monotonic()
+    generated = 0
     completed = 0
-    for index, prompt in enumerate(
-        prompts,
-        start=1,
-    ):
+
+    for prompt in assigned:
         path = _record_path(
             work,
             prompt.record_id,
@@ -1023,28 +1206,29 @@ def main(
             record,
         )
         completed += 1
+        generated += 1
 
         if (
-            completed
+            generated
             % args.progress_interval
             == 0
             or completed
-            == len(prompts)
+            == len(assigned)
         ):
             elapsed = (
                 time.monotonic()
                 - started
             )
             rate = (
-                completed
+                generated
                 / max(
                     elapsed,
                     1e-9,
                 )
             )
             remaining = (
-                len(prompts)
-                - completed
+                pending
+                - generated
             )
             eta = (
                 remaining
@@ -1055,8 +1239,9 @@ def main(
             )
             print(
                 "VN97 P5D1 PROGRESS "
-                f"records={completed}/{len(prompts)} "
-                f"percent={100.0 * completed / len(prompts):.2f} "
+                f"worker={args.worker_index}/{args.worker_count} "
+                f"generated={generated}/{pending} "
+                f"assigned_complete={completed}/{len(assigned)} "
                 f"elapsed_s={elapsed:.1f} "
                 f"eta_s={eta:.1f} "
                 f"category={prompt.category}",
@@ -1066,6 +1251,18 @@ def main(
     del model
     del tokenizer
     torch.cuda.empty_cache()
+
+    if args.records_only:
+        print(
+            "VN97P5D1WORKER "
+            "status=RECORDS_READY "
+            f"worker={args.worker_index}/{args.worker_count} "
+            f"assigned={len(assigned)} "
+            f"generated={generated} "
+            f"teacher_revision={resolved_revision}",
+            flush=True,
+        )
+        return 0
 
     _finalize(
         prompts=prompts,
