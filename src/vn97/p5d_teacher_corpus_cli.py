@@ -485,16 +485,27 @@ def _load_dependencies():
 def _load_teacher(
     *,
     revision: str,
+    teacher_int8: bool,
 ):
-    if torch.cuda.device_count() < 2:
+    required_gpus = (
+        1
+        if teacher_int8
+        else 2
+    )
+    if (
+        torch.cuda.device_count()
+        < required_gpus
+    ):
         raise VN97P5D1Error(
-            "P5D1 teacher generation requires two CUDA GPUs"
+            "P5D1 teacher generation requires "
+            f"{required_gpus} CUDA GPU(s) for this execution mode"
         )
 
     (
         model_info,
         AutoModelForCausalLM,
         AutoTokenizer,
+        BitsAndBytesConfig,
     ) = _load_dependencies()
 
     info = model_info(
@@ -528,30 +539,71 @@ def _load_teacher(
             tokenizer.eos_token
         )
 
-    max_memory = {
-        0: "14GiB",
-        1: "14GiB",
-        "cpu": "20GiB",
-    }
-    model = (
-        AutoModelForCausalLM
-        .from_pretrained(
-            TEACHER_REPO,
-            revision=
-                resolved_revision,
-            torch_dtype=
-                torch.float16,
-            device_map=
-                "balanced",
-            max_memory=
-                max_memory,
-            low_cpu_mem_usage=True,
+    if teacher_int8:
+        quantization_config = (
+            BitsAndBytesConfig(
+                load_in_8bit=True,
+            )
         )
-    )
+        model = (
+            AutoModelForCausalLM
+            .from_pretrained(
+                TEACHER_REPO,
+                revision=
+                    resolved_revision,
+                torch_dtype=
+                    torch.float16,
+                quantization_config=
+                    quantization_config,
+                device_map={
+                    "": 0,
+                },
+                low_cpu_mem_usage=True,
+            )
+        )
+        execution_mode = (
+            "single_gpu_llm_int8"
+        )
+        setattr(
+            model,
+            "_vn97_single_device_teacher",
+            True,
+        )
+    else:
+        max_memory = {
+            0: "14GiB",
+            1: "14GiB",
+            "cpu": "20GiB",
+        }
+        model = (
+            AutoModelForCausalLM
+            .from_pretrained(
+                TEACHER_REPO,
+                revision=
+                    resolved_revision,
+                torch_dtype=
+                    torch.float16,
+                device_map=
+                    "balanced",
+                max_memory=
+                    max_memory,
+                low_cpu_mem_usage=True,
+            )
+        )
+        execution_mode = (
+            "balanced_fp16"
+        )
+        setattr(
+            model,
+            "_vn97_single_device_teacher",
+            False,
+        )
+
     model.eval()
 
     print(
         "VN97 P5D1 TEACHER READY "
+        f"execution={execution_mode} "
         f"device_map={getattr(model, 'hf_device_map', None)}",
         flush=True,
     )
