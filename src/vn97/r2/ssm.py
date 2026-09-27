@@ -8,6 +8,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from ..scan import affine_prefix_scan
 from .config import VN97R2Config
 
 
@@ -37,11 +38,12 @@ class R2LayerState:
 
 
 class SelectiveSSMBlock(nn.Module):
-    """Mamba-like selective SSM reference block with constant recurrent state.
+    """VN97-native Mamba-like selective SSM.
 
-    This is a VN97-native implementation. It intentionally has no dependency on
-    Mamba, Transformer, attention, or an alternate model backend. The reference
-    path is written for correctness and future lowering into fused ARM/NPU kernels.
+    Full-sequence execution uses an associative affine prefix scan. Recurrent
+    token execution uses the mathematically identical constant-state update.
+    This makes training/prefill parallelizable while preserving a small mobile
+    autoregressive state.
     """
 
     def __init__(self, config: VN97R2Config) -> None:
@@ -121,7 +123,7 @@ class SelectiveSSMBlock(nn.Module):
             ),
         )
 
-    def _validate_state(
+    def _validate_step_state(
         self,
         x: torch.Tensor,
         state: Optional[R2LayerState],
@@ -131,20 +133,54 @@ class SelectiveSSMBlock(nn.Module):
                 "step expects [batch, d_model], got "
                 f"{tuple(x.shape)}"
             )
+        return self._validate_shapes(
+            batch_size=x.shape[0],
+            device=x.device,
+            dtype=x.dtype,
+            state=state,
+        )
+
+    def _validate_sequence_state(
+        self,
+        x: torch.Tensor,
+        state: Optional[R2LayerState],
+    ) -> R2LayerState:
+        if x.ndim != 3 or x.shape[-1] != self.config.d_model:
+            raise ValueError(
+                "forward expects [batch, seq, d_model], got "
+                f"{tuple(x.shape)}"
+            )
+        if x.shape[1] <= 0:
+            raise ValueError("sequence length must be positive")
+        return self._validate_shapes(
+            batch_size=x.shape[0],
+            device=x.device,
+            dtype=x.dtype,
+            state=state,
+        )
+
+    def _validate_shapes(
+        self,
+        *,
+        batch_size: int,
+        device: torch.device,
+        dtype: torch.dtype,
+        state: Optional[R2LayerState],
+    ) -> R2LayerState:
         if state is None:
             return self.initial_state(
-                x.shape[0],
-                device=x.device,
-                dtype=x.dtype,
+                batch_size,
+                device=device,
+                dtype=dtype,
             )
 
         expected_conv = (
-            x.shape[0],
+            batch_size,
             self.config.d_inner,
             max(self.config.d_conv - 1, 0),
         )
         expected_ssm = (
-            x.shape[0],
+            batch_size,
             self.config.d_inner,
             self.config.d_state,
         )
@@ -180,18 +216,41 @@ class SelectiveSSMBlock(nn.Module):
         ).sum(dim=-1) + self.conv_bias
         return F.silu(conv), new_state
 
-    def step(
+    def _causal_conv_sequence(
         self,
-        x: torch.Tensor,
-        state: Optional[R2LayerState] = None,
-    ) -> tuple[torch.Tensor, R2LayerState]:
-        residual = x
-        x = self.norm(x)
-        state = self._validate_state(x, state)
+        u: torch.Tensor,
+        conv_state: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        # u: [batch, sequence, d_inner]
+        channels = u.transpose(1, 2)
+        if self.config.d_conv == 1:
+            source = channels
+            new_state = conv_state
+        else:
+            source = torch.cat(
+                (conv_state, channels),
+                dim=-1,
+            )
+            new_state = source[:, :, -(self.config.d_conv - 1):]
 
-        u, gate = self.in_proj(x).chunk(2, dim=-1)
-        u, next_conv = self._causal_conv_step(u, state.conv)
+        convolved = F.conv1d(
+            source,
+            self.conv_weight.unsqueeze(1),
+            bias=self.conv_bias,
+            stride=1,
+            padding=0,
+            groups=self.config.d_inner,
+        )
+        if convolved.shape[-1] != u.shape[1]:
+            raise RuntimeError(
+                "R2 causal convolution produced wrong sequence length"
+            )
+        return F.silu(convolved.transpose(1, 2)), new_state
 
+    def _dynamics(
+        self,
+        u: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         dynamics = self.x_proj(u)
         dt_low_rank, b, c = torch.split(
             dynamics,
@@ -206,8 +265,33 @@ class SelectiveSSMBlock(nn.Module):
             min=self.config.dt_min,
             max=self.config.dt_max,
         )
+        return dt, b, c
 
-        a = -torch.exp(self.a_log).to(
+    def _continuous_a(
+        self,
+        *,
+        device: torch.device,
+        dtype: torch.dtype,
+    ) -> torch.Tensor:
+        return -torch.exp(self.a_log).to(
+            device=device,
+            dtype=dtype,
+        )
+
+    def step(
+        self,
+        x: torch.Tensor,
+        state: Optional[R2LayerState] = None,
+    ) -> tuple[torch.Tensor, R2LayerState]:
+        residual = x
+        x = self.norm(x)
+        state = self._validate_step_state(x, state)
+
+        u, gate = self.in_proj(x).chunk(2, dim=-1)
+        u, next_conv = self._causal_conv_step(u, state.conv)
+        dt, b, c = self._dynamics(u)
+
+        a = self._continuous_a(
             device=u.device,
             dtype=u.dtype,
         )
@@ -232,23 +316,70 @@ class SelectiveSSMBlock(nn.Module):
             ssm=next_ssm,
         )
 
-    def forward(
+    def forward_reference(
         self,
         x: torch.Tensor,
         state: Optional[R2LayerState] = None,
     ) -> tuple[torch.Tensor, R2LayerState]:
-        if x.ndim != 3 or x.shape[-1] != self.config.d_model:
-            raise ValueError(
-                "forward expects [batch, seq, d_model], got "
-                f"{tuple(x.shape)}"
-            )
-
+        """Token-by-token numerical reference used for equivalence tests."""
+        self._validate_sequence_state(x, state)
         outputs: list[torch.Tensor] = []
         current = state
         for index in range(x.shape[1]):
             y, current = self.step(x[:, index], current)
             outputs.append(y)
-
-        if not outputs:
-            raise ValueError("sequence length must be positive")
+        if current is None:
+            raise AssertionError("reference state was not produced")
         return torch.stack(outputs, dim=1), current
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        state: Optional[R2LayerState] = None,
+    ) -> tuple[torch.Tensor, R2LayerState]:
+        residual = x
+        normalized = self.norm(x)
+        state = self._validate_sequence_state(normalized, state)
+
+        u, gate = self.in_proj(normalized).chunk(2, dim=-1)
+        u, next_conv = self._causal_conv_sequence(
+            u,
+            state.conv,
+        )
+        dt, b, c = self._dynamics(u)
+
+        a = self._continuous_a(
+            device=u.device,
+            dtype=u.dtype,
+        )
+        z = (
+            dt.unsqueeze(-1)
+            * a.unsqueeze(0).unsqueeze(0)
+        )
+        d_a = torch.exp(z)
+        zoh = (
+            torch.expm1(z)
+            / a.unsqueeze(0).unsqueeze(0)
+        )
+        drive = (
+            zoh
+            * b.unsqueeze(2)
+            * u.unsqueeze(-1)
+        )
+
+        states, next_ssm = affine_prefix_scan(
+            d_a,
+            drive,
+            state.ssm,
+        )
+        y = (
+            states * c.unsqueeze(2)
+        ).sum(dim=-1)
+        y = y + self.d_skip * u
+        y = y * F.silu(gate)
+        y = self.out_proj(y)
+
+        return residual + y, R2LayerState(
+            conv=next_conv,
+            ssm=next_ssm,
+        )
