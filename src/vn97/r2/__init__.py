@@ -75,6 +75,20 @@ from .pilot_evaluation import (
     evaluate_pilot_probes,
     lexical_token_f1,
 )
+from .production_contract import (
+    R2_PRODUCTION_MAX_PARAMETERS,
+    R2_PRODUCTION_MIN_PARAMETERS,
+    R2_PRODUCTION_STAGES,
+    R2ProductionCorpusManifest,
+    R2ProductionResourceEstimate,
+    R2ProductionShard,
+    R2ProductionTrainingRecipe,
+    assert_production_training_contract,
+    assert_r2_production_scale,
+    assert_stage_transition,
+    corpus_task_families,
+    estimate_production_training_resources,
+)
 from .training_plan import (
     R2_CANONICAL_TRAINING_SEQUENCE,
     R2PromotionPolicy,
@@ -146,4 +160,16 @@ __all__ = [
     "evaluate_pilot_probes",
     "lexical_token_f1",
     "align_fast_path",
+    "R2_PRODUCTION_MAX_PARAMETERS",
+    "R2_PRODUCTION_MIN_PARAMETERS",
+    "R2_PRODUCTION_STAGES",
+    "R2ProductionCorpusManifest",
+    "R2ProductionResourceEstimate",
+    "R2ProductionShard",
+    "R2ProductionTrainingRecipe",
+    "assert_production_training_contract",
+    "assert_r2_production_scale",
+    "assert_stage_transition",
+    "corpus_task_families",
+    "estimate_production_training_resources",
 ]
