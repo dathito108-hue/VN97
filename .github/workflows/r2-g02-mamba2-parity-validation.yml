@@ -72,11 +72,12 @@ jobs:
           set -euo pipefail
           ROOT="$RUNNER_TEMP/parity"
           mkdir -p "$ROOT"
-          python - <<'PY'
+          PARITY_ROOT="$ROOT" python - <<'PY'
           import json
+          import os
           import torch
           from pathlib import Path
-          root = Path("$RUNNER_TEMP/parity")
+          root = Path(os.environ["PARITY_ROOT"])
           trace = {
               "layer0.hidden": torch.tensor([[1.0, 2.0]]),
               "layer0.conv_state": torch.tensor([[[1.0, 2.0]]]),
