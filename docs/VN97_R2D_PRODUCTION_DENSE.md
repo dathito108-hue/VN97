@@ -62,12 +62,15 @@ Before a production run, the recipe must enable:
 - full-parameter training.
 
 The resource estimator reports a conservative lower bound before activations.
-For AdamW it accounts for weights, gradients and optimizer/master-weight
-storage. Optimizer-state offload may move the 12-byte/parameter Adam/master
-budget to host memory.
+R2-D3 keeps canonical weights and gradients FP32 on the execution device.
+FP16/BF16 is used through autocast for compute, not as canonical weight
+storage. The persistent Adam first/second moments are FP32 on host memory
+(8 bytes/parameter) and each parameter tensor is streamed to CPU only while
+its AdamW update is computed.
 
-For a 16 GB T4, optimizer offload can make the static pre-activation lower
-bound fit, but that does **not** prove the run will fit. Activation storage,
+For a 16 GB T4, CPU optimizer-state offload can make the static
+pre-activation lower bound fit, but that does **not** prove the run will fit.
+Activation storage,
 temporary kernels, CUDA allocator fragmentation and data buffers still require
 runtime profiling. Therefore a T4 must not start 1B production training until
 the memory-efficient scan implementation and measured preflight are present.
@@ -85,16 +88,33 @@ R2-D should spend GPU quota only on work that requires GPU:
 Architecture, corpus identity, resume semantics, stage validation, report
 schemas and fail-closed gates should be validated on CPU/CI first.
 
-## Next implementation block
+## Implemented production execution blocks
 
-R2-D2 must implement the production execution path behind this contract:
+### R2-D2
 
-- memory-efficient selective scan suitable for backward;
-- activation checkpointing across R2 blocks;
-- mixed-precision autocast/scaler policy;
-- gradient accumulation;
-- optimizer-state offload or another exact full-parameter strategy;
-- resumable stage checkpoints bound to corpus/recipe identities;
-- measured VRAM preflight rather than static estimates alone.
+- exact chunked associative selective scan with checkpoint recomputation;
+- per-block activation checkpointing;
+- forward and gradient parity against the canonical R2 equations.
 
-No production GPU run is accepted until these gates pass.
+### R2-D3
+
+- FP32 canonical model weights with FP16/BF16 CUDA autocast;
+- full-parameter CPU-offloaded AdamW moments;
+- gradient accumulation at explicit optimizer-step boundaries;
+- dynamic FP16 loss scaling;
+- deterministic stage/corpus/recipe/trainer run identity;
+- pause/resume only at accumulation boundaries;
+- SHA-256 validation of the best checkpoint on resume;
+- measured CUDA peak allocated/reserved memory evidence;
+- measured evidence bound to exact architecture and recipe fingerprints;
+- CUDA production training fail-closed when measured preflight is absent or
+  fails.
+
+No QAT, INT4 or ternary path is introduced by these execution blocks.
+
+## Next gate
+
+Before spending a long GPU session, R2-D4 must package the production
+corpus/launcher and run a **measured, no-promotion GPU preflight** using the
+exact intended sequence length and micro-batch. Only a passing measured
+preflight may start production dense pretraining.
