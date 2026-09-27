@@ -133,6 +133,16 @@ from .production_curriculum import (
     load_r2d8_plan,
     verify_r2d8_plan,
 )
+from .production_frozen_campaign import (
+    R2D13_CAMPAIGN_SCHEMA,
+    R2D13_READY_SCHEMA,
+    R2D13_SUPPORTED_STAGE,
+    assert_r2d13_preflight_allowed,
+    build_r2d13_campaign,
+    seal_r2d13_ready,
+    verify_r2d13_campaign,
+    verify_r2d13_ready,
+)
 from .production_registry import (
     R2D11_DEFINITION_SCHEMA,
     R2D11_DIGEST_SCHEMA,
@@ -360,4 +370,12 @@ __all__ = [
     "projection_for_stage",
     "resolve_r2d12_shard",
     "verify_r2d12_view",
+    "R2D13_CAMPAIGN_SCHEMA",
+    "R2D13_READY_SCHEMA",
+    "R2D13_SUPPORTED_STAGE",
+    "assert_r2d13_preflight_allowed",
+    "build_r2d13_campaign",
+    "seal_r2d13_ready",
+    "verify_r2d13_campaign",
+    "verify_r2d13_ready",
 ]

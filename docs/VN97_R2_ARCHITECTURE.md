@@ -334,6 +334,10 @@ Production execution is split into fail-closed gates:
   multi-batch corpus, binds the complete frozen ledger chain and exact D6 index
   identities, assembles metadata-only stage projections, and lets D8/D7 consume
   all attached batches without copying or rebuilding shard data.
+- **R2-D13** freezes the dense-pretrain launch contract: D12 view/projection,
+  exact D8 plan, exact D5 preflight campaign, repository commit, production
+  recipe/trainer/quota settings, and a two-step measured-preflight -> ready
+  receipt gate before D7 may launch.
 
 A passing R2-D5 receipt proves execution-memory feasibility only. It does not
 assert that the current preflight corpus volume is enough to train the 1B
@@ -346,8 +350,11 @@ curriculum plan are proven, the remaining R2-D work is:
 - review/pin source releases, normalize them through R2-D10, admit them
   incrementally through R2-D11, and process only each newly admitted batch
   through R2-D9/D6 until the required stage projection reaches scale;
-- freeze a complete D11 generation with R2-D12, compile the stage-specific R2-D8
-  curriculum against that virtual view, then run quota-bounded R2-D7 training;
+- freeze a complete D11 generation with R2-D12, compile the stage-specific
+  R2-D8 curriculum, then freeze both plus the exact D5 preflight/training
+  contract into R2-D13 before spending GPU quota;
+- execute measured T4 preflight, seal the D13 ready receipt, then run
+  quota-bounded R2-D7 dense pretraining;
 - instruction/reasoning stage training with its own R2-D8 policy;
 - tool/action stage training with its own R2-D8 policy;
 - capability stage training with its own R2-D8 policy;
