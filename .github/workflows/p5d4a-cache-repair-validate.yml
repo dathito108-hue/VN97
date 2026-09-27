@@ -1,0 +1,24 @@
+name: VN97 P5D4A Cache Repair Validate
+
+on:
+  push:
+    branches:
+      - p5d4a-repair-corrupt-config-cache
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - name: Shell syntax
+        run: bash -n tools/kaggle_p5d4a_teacher_expansion.sh
+      - name: Cache repair contract
+        run: |
+          grep -q 'P5D4A CACHE CONFIG invalid; repairing' tools/kaggle_p5d4a_teacher_expansion.sh
+          grep -q 'force_download=True' tools/kaggle_p5d4a_teacher_expansion.sh
+          grep -q 'local_files_only=True' tools/kaggle_p5d4a_teacher_expansion.sh
+          grep -q 'P5D4A CACHE CONFIG repaired' tools/kaggle_p5d4a_teacher_expansion.sh
