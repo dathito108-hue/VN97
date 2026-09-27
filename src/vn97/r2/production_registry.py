@@ -49,6 +49,8 @@ def _sha256_bytes(value: bytes) -> str:
 
 
 def _sha256_file(path: Path) -> str:
+    if path.is_symlink() or not path.is_file():
+        raise ValueError(f"R2-D11 evidence must be a regular file: {path}")
     digest = hashlib.sha256()
     with path.open("rb") as handle:
         while True:
@@ -231,6 +233,8 @@ def init_r2d11_registry(
     registry_dir: Path,
 ) -> dict[str, object]:
     definition = load_r2d11_definition(definition_path)
+    if tokenizer_path.is_symlink():
+        raise ValueError("R2-D11 tokenizer must not be a symlink")
     tokenizer_source = tokenizer_path.resolve(strict=True)
     tokenizer = load_vn97tk1(tokenizer_source)
     tokenizer_sha = _sha256_file(tokenizer_source)
@@ -672,13 +676,19 @@ def _load_state_from_events(
                 raise ValueError(
                     "R2-D11 admission family evidence is invalid"
                 )
+            if set(family_records) != set(weights) or set(family_tokens) != set(weights):
+                raise ValueError(
+                    "R2-D11 admission family evidence keys mismatch"
+                )
             for family in weights:
-                admitted_records[family] += int(
-                    family_records.get(family, 0)
-                )
-                admitted_tokens[family] += int(
-                    family_tokens.get(family, 0)
-                )
+                record_value = int(family_records[family])
+                token_value = int(family_tokens[family])
+                if record_value < 0 or token_value < 0:
+                    raise ValueError(
+                        "R2-D11 admission counts/tokens must be non-negative"
+                    )
+                admitted_records[family] += record_value
+                admitted_tokens[family] += token_value
         elif event_type == "attach_campaign":
             pack_id = _require_sha256(
                 event.get("pack_id"),
@@ -700,10 +710,17 @@ def _load_state_from_events(
                 raise ValueError(
                     "R2-D11 attached token evidence is invalid"
                 )
-            for family in weights:
-                training_tokens[family] += int(
-                    family_tokens.get(family, 0)
+            if set(family_tokens) != set(weights):
+                raise ValueError(
+                    "R2-D11 attached token family keys mismatch"
                 )
+            for family in weights:
+                token_value = int(family_tokens[family])
+                if token_value < 0:
+                    raise ValueError(
+                        "R2-D11 attached tokens must be non-negative"
+                    )
+                training_tokens[family] += token_value
         else:
             raise ValueError("R2-D11 ledger event type is invalid")
 
@@ -866,6 +883,8 @@ def admit_r2d11_pack(
     assert isinstance(config, dict)
     assert isinstance(state, dict)
 
+    if pack_dir.is_symlink():
+        raise ValueError("R2-D11 pack-dir must not be a symlink")
     pack_root = pack_dir.resolve(strict=True)
     pack = verify_r2d10_pack(pack_root)
     pack_id = _require_sha256(
@@ -1222,6 +1241,12 @@ def attach_r2d11_campaign(
     assert isinstance(state, dict)
     assert isinstance(latest, dict)
 
+    if pack_dir.is_symlink():
+        raise ValueError("R2-D11 pack-dir must not be a symlink")
+    if campaign_dir.is_symlink():
+        raise ValueError("R2-D11 campaign-dir must not be a symlink")
+    if d6_package_dir.is_symlink():
+        raise ValueError("R2-D11 D6 package-dir must not be a symlink")
     d10 = verify_r2d10_pack(pack_dir.resolve(strict=True))
     pack_id = _require_sha256(
         d10.get("pack_id"),
@@ -1265,6 +1290,18 @@ def attach_r2d11_campaign(
             "R2-D11 D9 unique-record count differs from admission"
         )
 
+    if d6.get("release_held_out") is not True:
+        raise ValueError("R2-D11 D6 release holdout is not locked")
+    scale = d6.get("scale")
+    if not isinstance(scale, dict):
+        raise ValueError("R2-D11 D6 scale evidence is missing")
+    if (
+        float(scale.get("minimum_tokens_per_parameter", -1.0))
+        != R2D6_DEFAULT_MIN_TOKENS_PER_PARAMETER
+        or float(scale.get("target_tokens_per_parameter", -1.0))
+        != R2D6_DEFAULT_TARGET_TOKENS_PER_PARAMETER
+    ):
+        raise ValueError("R2-D11 D6 scale policy must remain canonical 8/20")
     if d6.get("tokenizer_sha256") != config.get(
         "tokenizer_sha256"
     ):
