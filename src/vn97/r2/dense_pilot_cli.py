@@ -335,6 +335,17 @@ def main(argv: list[str] | None = None) -> int:
             raise ValueError(
                 "--resume requires work-dir/dense-resume.pt"
             )
+        if not run_metadata_path.is_file():
+            raise ValueError(
+                "--resume requires work-dir/r2-dense-run.json"
+            )
+    elif not args.preflight_only and (
+        resume_path.exists() or run_metadata_path.exists()
+    ):
+        raise ValueError(
+            "work-dir contains prior R2-C run state; use --resume "
+            "or choose a clean work-dir"
+        )
     elif output.exists() and any(output.iterdir()):
         raise ValueError(
             "output-dir must be new or empty unless --resume is used"
