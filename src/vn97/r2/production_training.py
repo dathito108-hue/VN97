@@ -741,6 +741,19 @@ def train_production_stage(
             )
 
     resolved = _resolve_device(device)
+    if not recipe.optimizer_state_offload:
+        raise ValueError(
+            "R2-D3 trainer requires optimizer_state_offload=true"
+        )
+    if (
+        resolved.type == "cuda"
+        and recipe.precision == "bf16"
+        and not torch.cuda.is_bf16_supported()
+    ):
+        raise RuntimeError(
+            "requested BF16 is not supported by this CUDA device"
+        )
+
     available_device = None
     if resolved.type == "cuda":
         available_device = int(torch.cuda.mem_get_info(resolved)[0])
@@ -837,6 +850,7 @@ def train_production_stage(
 
     run_started = time.monotonic()
     paused = False
+    pause_next_group = start_group
 
     for epoch in range(start_epoch, trainer.epochs):
         order = list(range(len(training_windows)))
@@ -983,25 +997,7 @@ def train_production_stage(
                 and time.monotonic() - run_started >= max_run_seconds
             ):
                 paused = True
-                _save_resume(
-                    resume_path,
-                    identity=identity,
-                    epoch=epoch,
-                    next_group=group_index + 1,
-                    model=model,
-                    optimizer=optimizer,
-                    optimizer_steps=optimizer_steps,
-                    micro_steps=micro_steps,
-                    target_tokens=target_tokens,
-                    loss_sum=loss_sum,
-                    final_loss=final_loss,
-                    best_epoch=best_epoch,
-                    best_validation_loss=best_validation_loss,
-                    best_checkpoint_sha256=best_checkpoint_sha256,
-                    loss_scale=loss_scale,
-                    stable_scaled_steps=stable_scaled_steps,
-                    skipped_nonfinite_steps=skipped_nonfinite_steps,
-                )
+                pause_next_group = group_index + 1
                 break
 
         validation = evaluate_production_loss(
@@ -1032,6 +1028,27 @@ def train_production_stage(
             )
 
         if paused:
+            # Persist again after validation so best-checkpoint epoch/SHA
+            # cannot lag behind a checkpoint promoted by this paused epoch.
+            _save_resume(
+                resume_path,
+                identity=identity,
+                epoch=epoch,
+                next_group=pause_next_group,
+                model=model,
+                optimizer=optimizer,
+                optimizer_steps=optimizer_steps,
+                micro_steps=micro_steps,
+                target_tokens=target_tokens,
+                loss_sum=loss_sum,
+                final_loss=final_loss,
+                best_epoch=best_epoch,
+                best_validation_loss=best_validation_loss,
+                best_checkpoint_sha256=best_checkpoint_sha256,
+                loss_scale=loss_scale,
+                stable_scaled_steps=stable_scaled_steps,
+                skipped_nonfinite_steps=skipped_nonfinite_steps,
+            )
             break
 
         if epoch + 1 < trainer.epochs:
