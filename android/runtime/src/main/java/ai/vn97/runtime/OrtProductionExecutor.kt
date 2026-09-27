@@ -484,8 +484,13 @@ class VN97OrtProductionExecutor private constructor(
                         xnnpackThreads = invocation.xnnpackThreads,
                         device = initialDevice,
                     )
-                    validateSessionContract(opened.session)
-                    opened
+                    try {
+                        validateSessionContract(opened.session)
+                        opened
+                    } catch (error: Throwable) {
+                        opened.close()
+                        throw error
+                    }
                 }
                 handle.session.run(
                     inputs,
