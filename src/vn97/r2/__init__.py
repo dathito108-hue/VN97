@@ -1,3 +1,11 @@
+from .bridge import VN97R2InferenceView, assert_tokenizer_compatible
+from .evaluation import (
+    EvaluationDomain,
+    R2EvaluationDecision,
+    R2EvaluationMetrics,
+    R2ValidationGate,
+    R2ValidationThresholds,
+)
 from .capability import (
     CAPABILITY_PACK_SCHEMA,
     CapabilityManifest,
@@ -37,6 +45,11 @@ from .training_plan import (
 
 __all__ = [
     "CAPABILITY_PACK_SCHEMA",
+    "EvaluationDomain",
+    "R2EvaluationDecision",
+    "R2EvaluationMetrics",
+    "R2ValidationGate",
+    "R2ValidationThresholds",
     "CapabilityManifest",
     "CognitionDecision",
     "CognitionMode",
@@ -63,4 +76,6 @@ __all__ = [
     "save_r2_checkpoint",
     "sha256_file",
     "validate_delta",
+    "VN97R2InferenceView",
+    "assert_tokenizer_compatible",
 ]
