@@ -133,6 +133,18 @@ from .production_curriculum import (
     load_r2d8_plan,
     verify_r2d8_plan,
 )
+from .production_source_adapter import (
+    R2D10_ADAPTERS,
+    R2D10_ADAPTER_FAMILIES,
+    R2D10_LOCK_SCHEMA,
+    R2D10_PACK_SCHEMA,
+    R2D10SourceLock,
+    R2D10SourcePackLock,
+    adapt_r2d10_record,
+    build_r2d10_pack,
+    load_r2d10_lock,
+    verify_r2d10_pack,
+)
 from .production_streaming import (
     R2D7_STREAMING_RESUME_SCHEMA,
     R2StreamingCursor,
@@ -292,4 +304,14 @@ __all__ = [
     "build_r2d9_campaign",
     "load_r2d9_definition",
     "verify_r2d9_campaign",
+    "R2D10_ADAPTERS",
+    "R2D10_ADAPTER_FAMILIES",
+    "R2D10_LOCK_SCHEMA",
+    "R2D10_PACK_SCHEMA",
+    "R2D10SourceLock",
+    "R2D10SourcePackLock",
+    "adapt_r2d10_record",
+    "build_r2d10_pack",
+    "load_r2d10_lock",
+    "verify_r2d10_pack",
 ]
