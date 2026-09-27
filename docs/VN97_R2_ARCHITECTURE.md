@@ -176,6 +176,7 @@ R2 locks this order:
       -> instruction_reasoning
       -> tool_action
       -> capability
+      -> fast_path_alignment
       -> fresh_validation
       -> QAT
       -> mobile_lowering
@@ -240,13 +241,21 @@ trainable selective-SSM foundation.
 - dense-first training promotion policy;
 - CPU smoke pilot and tests.
 
-### R2-B — Compatibility bridge
+### R2-B — Compatibility bridge + dense pipeline
 
-- VN97TK1 tokenizer integration;
-- current cognition adapter compatibility;
-- canonical memory embedding path;
-- structured tool/action output schema;
-- migration loader for approved VN97 data/curricula.
+Implemented:
+- VN97TK1 package loader and exact vocabulary guard;
+- reuse of canonical chat-completion training segmentation/windows;
+- weight-sharing inference view compatible with current cognition engine;
+- current retrieval embedding path over R2 hidden states;
+- resumable dense trainer with deterministic epoch order;
+- best-checkpoint selection by held-out dense loss;
+- CPU/GPU-agnostic dense pilot CLI;
+- explicit fast-path alignment stage before fresh validation.
+
+Remaining in R2-B:
+- structured tool/action end-to-end generation gate against the current planner;
+- full memory/planner integration test with a trained R2 checkpoint.
 
 ### R2-C — Dense CPU/low-cost pilot
 
