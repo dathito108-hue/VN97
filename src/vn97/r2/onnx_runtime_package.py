@@ -9,7 +9,6 @@ from .onnx_autotune import verify_r2e4_profile
 from .onnx_export import (
     R2_ONNX_INPUTS,
     R2_ONNX_OUTPUTS,
-    load_r2_onnx_manifest,
     verify_r2_onnx_bundle,
 )
 
@@ -221,9 +220,20 @@ def verify_r2f1_runtime_package(
 ) -> dict[str, object]:
     if path.is_symlink() or not path.is_file():
         raise ValueError("F1 runtime package must be regular non-symlink file")
+    duplicates: list[str] = []
+
+    def hook(pairs):
+        value: dict[str, object] = {}
+        for key, item in pairs:
+            if key in value:
+                duplicates.append(key)
+            value[key] = item
+        return value
+
     try:
         payload = json.loads(
             path.read_text(encoding="utf-8", errors="strict"),
+            object_pairs_hook=hook,
             parse_constant=lambda raw: (
                 _ for _ in ()
             ).throw(ValueError(raw)),
@@ -234,8 +244,34 @@ def verify_r2f1_runtime_package(
         ValueError,
     ) as exc:
         raise ValueError("F1 runtime package must be strict UTF-8 JSON") from exc
-    if not isinstance(payload, dict):
-        raise ValueError("F1 runtime package must be one JSON object")
+    if duplicates or not isinstance(payload, dict):
+        raise ValueError(
+            "F1 runtime package must be one object without duplicate keys"
+        )
+    expected_fields = {
+        "schema",
+        "bundle_id",
+        "architecture_fingerprint",
+        "profile",
+        "tuning_id",
+        "active_layers",
+        "vocab_size",
+        "d_inner",
+        "d_state",
+        "d_conv_state",
+        "batch_size",
+        "inputs",
+        "outputs",
+        "graphs",
+        "supported_chunk_sizes",
+        "state_dtype",
+        "token_dtype",
+        "same_weights_semantics",
+        "quantization_used",
+        "runtime_id",
+    }
+    if set(payload) != expected_fields:
+        raise ValueError("F1 runtime package fields mismatch")
     if payload.get("schema") != R2F1_RUNTIME_SCHEMA:
         raise ValueError("F1 runtime package schema mismatch")
 
