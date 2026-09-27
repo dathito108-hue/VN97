@@ -395,6 +395,12 @@ class VN97OrtSessionFactory(
                 "session.intra_op.allow_spinning",
                 "0",
             )
+            if (provider != OrtProviderKind.CPU) {
+                options.addConfigEntry(
+                    "session.disable_cpu_ep_fallback",
+                    "1",
+                )
+            }
             when (provider) {
                 OrtProviderKind.QNN -> {
                     require(device.isQualcomm) {
