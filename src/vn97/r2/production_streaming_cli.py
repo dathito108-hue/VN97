@@ -10,7 +10,11 @@ from ..training_cli import _atomic_write
 from .config import r2_mobile_1b_config
 from .data_bridge import load_vn97tk1
 from .production_contract import R2ProductionTrainingRecipe
-from .production_corpus_scale import verify_r2d6_corpus_index
+from .production_corpus_scale import (
+    R2D6_DEFAULT_MIN_TOKENS_PER_PARAMETER,
+    R2D6_DEFAULT_TARGET_TOKENS_PER_PARAMETER,
+    verify_r2d6_corpus_index,
+)
 from .production_streaming import (
     load_r2d5_memory_receipt,
     production_manifest_from_r2d6,
@@ -65,6 +69,16 @@ def main(argv: list[str] | None = None) -> int:
     scale = index.get("scale")
     if not isinstance(scale, dict):
         raise RuntimeError("R2-D7 D6 scale evidence is missing")
+    if (
+        float(scale.get("minimum_tokens_per_parameter", float("nan")))
+        != R2D6_DEFAULT_MIN_TOKENS_PER_PARAMETER
+        or float(scale.get("target_tokens_per_parameter", float("nan")))
+        != R2D6_DEFAULT_TARGET_TOKENS_PER_PARAMETER
+    ):
+        raise RuntimeError(
+            "R2-D7 production CLI requires the canonical D6 8/20 "
+            "token-per-parameter scale policy"
+        )
     if scale.get("scale_floor_passed") is not True:
         raise RuntimeError(
             "R2-D7 refuses to allocate the production model because the "
@@ -111,18 +125,20 @@ def main(argv: list[str] | None = None) -> int:
             "R2-D7 D6 architecture/tokenizer identity mismatch"
         )
 
-    preflight = None
-    requested_cuda = str(args.device).startswith("cuda") or args.device == "auto"
-    if requested_cuda:
-        if args.preflight_receipt is None:
-            raise RuntimeError(
-                "R2-D7 CUDA training requires --preflight-receipt"
-            )
-        preflight = load_r2d5_memory_receipt(
-            Path(args.preflight_receipt),
-            architecture_fingerprint=config.fingerprint(),
-            recipe=recipe,
+    if not str(args.device).startswith("cuda"):
+        raise RuntimeError(
+            "R2-D7 production CLI requires an explicit CUDA device; "
+            "CPU execution is reserved for validation/tests"
         )
+    if args.preflight_receipt is None:
+        raise RuntimeError(
+            "R2-D7 CUDA training requires --preflight-receipt"
+        )
+    preflight = load_r2d5_memory_receipt(
+        Path(args.preflight_receipt),
+        architecture_fingerprint=config.fingerprint(),
+        recipe=recipe,
+    )
 
     manifest = production_manifest_from_r2d6(index)
     model, parent_evidence = load_production_stage_model(
