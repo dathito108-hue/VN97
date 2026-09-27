@@ -1,0 +1,27 @@
+name: VN97 P5E3C Target Rank Validate
+
+on:
+  push:
+    branches:
+      - p5e3c-target-rank-diagnostic
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Python syntax
+        run: python -m compileall -q src/vn97/p5e3c_target_rank_diagnostic_cli.py
+      - name: Shell syntax
+        run: bash -n tools/kaggle_p5e3c_diagnose.sh
+      - name: Diagnostic contract
+        run: |
+          grep -q 'teacher_forced_target_rank_diagnostic' tools/kaggle_p5e3c_diagnose.sh
+          grep -q 'forward_sequential_reference' src/vn97/p5e3c_target_rank_diagnostic_cli.py
+          grep -q 'LATENT_SIGNAL_GAIN' src/vn97/p5e3c_target_rank_diagnostic_cli.py
+          grep -q 'generation_gate_passed' src/vn97/p5e3c_target_rank_diagnostic_cli.py
+          grep -q 'p5e3c-diagnose' pyproject.toml
