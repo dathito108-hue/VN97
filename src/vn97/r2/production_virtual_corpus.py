@@ -122,7 +122,7 @@ def load_r2d12_mount_definition(
     path: Path,
 ) -> dict[str, str]:
     payload = _strict_json(
-        path.resolve(strict=True),
+        path,
         label="R2-D12 mount definition",
     )
     if set(payload) != {"schema", "packages"}:
@@ -528,14 +528,52 @@ def build_r2d12_view(
         registry_config_target
     )
 
-    ledger_source = frozen["ledger_path"]
-    if not isinstance(ledger_source, Path):
-        raise ValueError("R2-D12 frozen ledger path is invalid")
-    ledger_target = output / "r2d11-ledger-snapshot.json"
-    shutil.copyfile(ledger_source, ledger_target)
-    ledger_sha = _sha256_file(ledger_target)
-    if ledger_sha != frozen.get("ledger_sha256"):
-        raise IOError("R2-D12 ledger snapshot copy mismatch")
+    ledger_dir = output / "r2d11-ledger"
+    ledger_dir.mkdir()
+    ledger_chain: list[dict[str, object]] = []
+    previous_ledger_sha: str | None = None
+    for item_generation in range(generation + 1):
+        source = (
+            registry_root
+            / "ledger"
+            / f"{item_generation:06d}.json"
+        )
+        target = ledger_dir / f"{item_generation:06d}.json"
+        shutil.copyfile(source, target)
+        sha = _sha256_file(target)
+        payload = _strict_json(
+            target,
+            label="R2-D12 copied registry ledger",
+        )
+        if (
+            int(payload.get("generation", -1)) != item_generation
+            or payload.get("registry_id") != config.get("registry_id")
+            or payload.get("previous_ledger_sha256")
+            != previous_ledger_sha
+        ):
+            raise IOError(
+                "R2-D12 copied registry ledger chain is inconsistent"
+            )
+        snapshot_id = _require_sha256(
+            payload.get("snapshot_id"),
+            label="R2-D12 copied snapshot ID",
+        )
+        ledger_chain.append(
+            {
+                "generation": item_generation,
+                "sha256": sha,
+                "snapshot_id": snapshot_id,
+            }
+        )
+        previous_ledger_sha = sha
+
+    ledger_sha = ledger_chain[-1]["sha256"]
+    if (
+        ledger_sha != frozen.get("ledger_sha256")
+        or ledger_chain[-1]["snapshot_id"]
+        != snapshot.get("snapshot_id")
+    ):
+        raise IOError("R2-D12 frozen ledger chain tip mismatch")
 
     batches = [
         {
@@ -560,6 +598,7 @@ def build_r2d12_view(
             label="R2-D12 registry ledger SHA-256",
         ),
         "registry_config_sha256": registry_config_sha,
+        "registry_ledger_chain": ledger_chain,
         "attached_batches": batches,
         "virtual_index": virtual_index,
     }
@@ -676,31 +715,76 @@ def verify_r2d12_view(
         view.get("registry_config_sha256"),
         label="R2-D12 registry config SHA-256",
     )
-    if _sha256_file(
-        view_root / "r2d11-registry.json"
-    ) != registry_config_sha:
+    registry_config_path = view_root / "r2d11-registry.json"
+    if _sha256_file(registry_config_path) != registry_config_sha:
         raise ValueError("R2-D12 registry config evidence mismatch")
-
-    ledger_sha = _require_sha256(
-        view.get("registry_ledger_sha256"),
-        label="R2-D12 registry ledger SHA-256",
-    )
-    ledger_path = view_root / "r2d11-ledger-snapshot.json"
-    if _sha256_file(ledger_path) != ledger_sha:
-        raise ValueError("R2-D12 ledger evidence mismatch")
-    ledger_payload = _strict_json(
-        ledger_path,
-        label="R2-D12 ledger snapshot",
+    registry_config = _strict_json(
+        registry_config_path,
+        label="R2-D12 registry config evidence",
     )
     if (
-        ledger_payload.get("snapshot_id")
-        != view.get("registry_snapshot_id")
-        or int(ledger_payload.get("generation", -1))
-        != int(view.get("registry_generation", -2))
-        or ledger_payload.get("registry_id")
-        != view.get("registry_id")
+        registry_config.get("registry_id") != view.get("registry_id")
+        or registry_config.get("tokenizer_sha256")
+        != virtual_index.get("tokenizer_sha256")
+        or registry_config.get("architecture_fingerprint")
+        != virtual_index.get("architecture_fingerprint")
+        or int(registry_config.get("sequence_length", -1))
+        != int(virtual_index.get("sequence_length", -2))
+        or int(registry_config.get("parameter_count", -1))
+        != int(virtual_index["scale"].get("parameter_count", -2))
     ):
-        raise ValueError("R2-D12 ledger snapshot binding mismatch")
+        raise ValueError("R2-D12 registry config binding mismatch")
+
+    raw_chain = view.get("registry_ledger_chain")
+    generation = int(view.get("registry_generation", -1))
+    if (
+        not isinstance(raw_chain, list)
+        or len(raw_chain) != generation + 1
+        or generation < 0
+    ):
+        raise ValueError("R2-D12 registry ledger chain evidence is invalid")
+    previous_ledger_sha: str | None = None
+    ledger_dir = view_root / "r2d11-ledger"
+    for item_generation, item in enumerate(raw_chain):
+        if (
+            not isinstance(item, dict)
+            or set(item) != {"generation", "sha256", "snapshot_id"}
+            or int(item.get("generation", -1)) != item_generation
+        ):
+            raise ValueError("R2-D12 ledger chain entry is invalid")
+        expected_sha = _require_sha256(
+            item.get("sha256"),
+            label="R2-D12 ledger chain SHA-256",
+        )
+        expected_snapshot = _require_sha256(
+            item.get("snapshot_id"),
+            label="R2-D12 ledger chain snapshot ID",
+        )
+        ledger_path = ledger_dir / f"{item_generation:06d}.json"
+        if _sha256_file(ledger_path) != expected_sha:
+            raise ValueError("R2-D12 ledger evidence mismatch")
+        ledger_payload = _strict_json(
+            ledger_path,
+            label="R2-D12 ledger chain snapshot",
+        )
+        if (
+            ledger_payload.get("snapshot_id") != expected_snapshot
+            or ledger_payload.get("registry_id")
+            != view.get("registry_id")
+            or int(ledger_payload.get("generation", -1))
+            != item_generation
+            or ledger_payload.get("previous_ledger_sha256")
+            != previous_ledger_sha
+        ):
+            raise ValueError("R2-D12 ledger chain binding mismatch")
+        previous_ledger_sha = expected_sha
+
+    if (
+        previous_ledger_sha != view.get("registry_ledger_sha256")
+        or raw_chain[-1]["snapshot_id"]
+        != view.get("registry_snapshot_id")
+    ):
+        raise ValueError("R2-D12 frozen ledger chain tip mismatch")
 
     expected: dict[str, str] = {}
     for item in batches:
@@ -784,8 +868,9 @@ def project_r2d12_index(
     *,
     families: Sequence[str],
 ) -> dict[str, object]:
-    selected = tuple(sorted(set(families)))
-    if not selected or len(selected) != len(tuple(families)):
+    raw_families = tuple(families)
+    selected = tuple(sorted(set(raw_families)))
+    if not selected or len(selected) != len(raw_families):
         raise ValueError(
             "R2-D12 projection families must be unique and non-empty"
         )
