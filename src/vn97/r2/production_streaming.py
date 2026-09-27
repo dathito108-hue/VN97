@@ -30,7 +30,11 @@ from .production_contract import (
     assert_production_training_contract,
     assert_r2_production_scale,
 )
-from .production_corpus_scale import verify_r2d6_corpus_index
+from .production_corpus_scale import (
+    R2D6_DEFAULT_MIN_TOKENS_PER_PARAMETER,
+    R2D6_DEFAULT_TARGET_TOKENS_PER_PARAMETER,
+    verify_r2d6_corpus_index,
+)
 from .production_training import (
     CPUOffloadedAdamW,
     R2MeasuredMemoryEvidence,
@@ -708,29 +712,46 @@ def load_r2d5_memory_receipt(
     if int(payload.get("micro_batch_size", -1)) != recipe.micro_batch_size:
         raise ValueError("R2-D7 preflight micro-batch mismatch")
 
+    device_name = str(payload.get("device_name", ""))
+    reason = str(payload.get("reason", ""))
+    free_bytes = int(payload.get("free_device_bytes_before", -1))
+    total_bytes = int(payload.get("total_device_bytes", -1))
+    peak_allocated = int(payload.get("peak_allocated_bytes", -1))
+    peak_reserved = int(payload.get("peak_reserved_bytes", -1))
+    safety_fraction = float(
+        payload.get("safety_fraction", float("nan"))
+    )
+    if not device_name:
+        raise ValueError("R2-D7 preflight device name is missing")
+    if reason != "within_measured_safety_budget":
+        raise ValueError("R2-D7 preflight pass reason is invalid")
+    if (
+        free_bytes < 0
+        or total_bytes <= 0
+        or free_bytes > total_bytes
+        or peak_allocated < 0
+        or peak_reserved < peak_allocated
+        or not math.isfinite(safety_fraction)
+        or not 0.0 < safety_fraction <= 1.0
+        or peak_reserved > int(free_bytes * safety_fraction)
+    ):
+        raise ValueError(
+            "R2-D7 preflight memory evidence is internally inconsistent"
+        )
+
     return R2MeasuredMemoryEvidence(
         architecture_fingerprint=architecture_fingerprint,
         recipe_fingerprint=recipe.fingerprint(),
         sequence_length=recipe.sequence_length,
         micro_batch_size=recipe.micro_batch_size,
-        device_name=str(payload.get("device_name", "")),
-        free_device_bytes_before=int(
-            payload.get("free_device_bytes_before", -1)
-        ),
-        total_device_bytes=int(
-            payload.get("total_device_bytes", -1)
-        ),
-        peak_allocated_bytes=int(
-            payload.get("peak_allocated_bytes", -1)
-        ),
-        peak_reserved_bytes=int(
-            payload.get("peak_reserved_bytes", -1)
-        ),
-        safety_fraction=float(
-            payload.get("safety_fraction", float("nan"))
-        ),
+        device_name=device_name,
+        free_device_bytes_before=free_bytes,
+        total_device_bytes=total_bytes,
+        peak_allocated_bytes=peak_allocated,
+        peak_reserved_bytes=peak_reserved,
+        safety_fraction=safety_fraction,
         passed=True,
-        reason=str(payload.get("reason", "")),
+        reason=reason,
     )
 
 
@@ -748,6 +769,30 @@ def _validate_stream_package(
     scale = index.get("scale")
     if not isinstance(scale, Mapping):
         raise ValueError("R2-D7 D6 scale evidence is missing")
+    minimum_ratio = float(
+        scale.get("minimum_tokens_per_parameter", float("nan"))
+    )
+    target_ratio = float(
+        scale.get("target_tokens_per_parameter", float("nan"))
+    )
+    if (
+        not math.isclose(
+            minimum_ratio,
+            R2D6_DEFAULT_MIN_TOKENS_PER_PARAMETER,
+            rel_tol=0.0,
+            abs_tol=0.0,
+        )
+        or not math.isclose(
+            target_ratio,
+            R2D6_DEFAULT_TARGET_TOKENS_PER_PARAMETER,
+            rel_tol=0.0,
+            abs_tol=0.0,
+        )
+    ):
+        raise RuntimeError(
+            "R2-D7 requires the canonical D6 8/20 token-per-parameter "
+            "scale policy"
+        )
     if scale.get("scale_floor_passed") is not True:
         raise RuntimeError(
             "R2-D7 refuses production training below the D6 scale floor"
