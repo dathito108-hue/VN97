@@ -1233,6 +1233,11 @@ def train_streaming_production_stage(
                         "production_recipe_fingerprint": (
                             recipe.fingerprint()
                         ),
+                        "curriculum_plan_id": (
+                            None
+                            if curriculum_plan is None
+                            else curriculum_plan["plan_id"]
+                        ),
                         "production_trainer": asdict(trainer),
                         "optimizer_steps": optimizer_steps,
                         "micro_steps": micro_steps,
