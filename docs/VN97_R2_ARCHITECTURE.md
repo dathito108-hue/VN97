@@ -7,7 +7,9 @@
 > scaffold and must not be silently relabeled as the Mamba-2 transfer. See
 > `docs/VN97_R2G_MAMBA2_27B_TRANSFER.md`. Production switching is blocked until
 > exact source/VN97/ONNX hidden-state, recurrent-state and logit parity is proven
-> with real transferred weights.
+> with real transferred weights. R2-G0.2 now pins the official source artifact,
+> adds mmap ingestion, a VN97-native SSD reference and fail-closed parity evidence;
+> see `docs/VN97_R2G02_REAL_MAMBA2_PARITY.md`.
 
 
 ## Status
