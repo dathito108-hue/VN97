@@ -15,6 +15,7 @@ from .production_corpus_scale import (
     R2D6_DEFAULT_TARGET_TOKENS_PER_PARAMETER,
     verify_r2d6_corpus_index,
 )
+from .production_curriculum import load_r2d8_plan
 from .production_streaming import (
     load_r2d5_memory_receipt,
     production_manifest_from_r2d6,
@@ -38,6 +39,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--work-dir", required=True)
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--preflight-receipt", default=None)
+    parser.add_argument("--curriculum-plan", required=True)
     parser.add_argument("--sequence-length", type=int, default=128)
     parser.add_argument("--micro-batch-size", type=int, default=1)
     parser.add_argument(
@@ -89,6 +91,23 @@ def main(argv: list[str] | None = None) -> int:
     if int(index.get("sequence_length", -1)) != args.sequence_length:
         raise RuntimeError(
             "R2-D7 --sequence-length must equal the D6 index"
+        )
+
+    curriculum = load_r2d8_plan(
+        Path(args.curriculum_plan),
+        index,
+    )
+    if curriculum.get("stage") != "dense_pretrain":
+        raise RuntimeError(
+            "R2-D7 production CLI requires dense_pretrain curriculum"
+        )
+    if int(curriculum.get("epochs", -1)) != args.epochs:
+        raise RuntimeError(
+            "R2-D7 --epochs must match the R2-D8 curriculum"
+        )
+    if int(curriculum.get("seed", -1)) != args.seed:
+        raise RuntimeError(
+            "R2-D7 --seed must match the R2-D8 curriculum"
         )
 
     recipe = R2ProductionTrainingRecipe(
@@ -166,6 +185,7 @@ def main(argv: list[str] | None = None) -> int:
         device=args.device,
         measured_preflight=preflight,
         max_run_seconds=args.max_run_seconds,
+        curriculum_plan=curriculum,
     )
 
     report = {
@@ -173,6 +193,7 @@ def main(argv: list[str] | None = None) -> int:
         "d6_index_id": index["index_id"],
         "architecture_fingerprint": config.fingerprint(),
         "production_manifest_identity": manifest.identity(),
+        "curriculum_plan_id": curriculum["plan_id"],
         "recipe_fingerprint": recipe.fingerprint(),
         "trainer": asdict(trainer),
         "scale": scale,

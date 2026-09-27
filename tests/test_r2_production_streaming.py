@@ -12,6 +12,10 @@ from vn97.r2.config import r2_smoke_config
 from vn97.r2.data_bridge import load_vn97tk1
 from vn97.r2.model import VN97R2Model
 from vn97.r2.production_contract import R2ProductionTrainingRecipe
+from vn97.r2.production_curriculum import (
+    R2D8CurriculumDefinition,
+    compile_r2d8_plan,
+)
 from vn97.r2.production_corpus_scale import (
     R2D6CorpusInput,
     build_r2d6_corpus_index,
@@ -265,6 +269,24 @@ def test_stream_pause_resume_matches_uninterrupted_training(
         checkpoint_every_optimizer_steps=1,
         require_measured_cuda_preflight=False,
     )
+    index = verify_r2d6_corpus_index(package)
+    manifest_id = next(
+        item["source_manifest_id"]
+        for item in index["shards"]
+        if item["split"] == "training"
+    )
+    curriculum = compile_r2d8_plan(
+        index,
+        R2D8CurriculumDefinition(
+            stage="dense_pretrain",
+            epochs=trainer.epochs,
+            seed=trainer.seed,
+            family_weights=(("language", 1.0),),
+            primary_family_by_manifest=(
+                (manifest_id, "language"),
+            ),
+        ),
+    )
 
     import vn97.r2.production_streaming as streaming
 
@@ -289,6 +311,7 @@ def test_stream_pause_resume_matches_uninterrupted_training(
         best_checkpoint_path=tmp_path / "resume-best.pt",
         device="cpu",
         max_run_seconds=1e-12,
+        curriculum_plan=curriculum,
     )
     assert paused.completed is False
     assert paused.resume_checkpoint_sha256
@@ -303,6 +326,7 @@ def test_stream_pause_resume_matches_uninterrupted_training(
         work_dir=tmp_path / "resume-work",
         best_checkpoint_path=tmp_path / "resume-best.pt",
         device="cpu",
+        curriculum_plan=curriculum,
     )
     assert resumed.completed is True
     assert resumed.next_cursor == R2StreamingCursor(2, 0, 0, 0)
@@ -316,6 +340,7 @@ def test_stream_pause_resume_matches_uninterrupted_training(
         work_dir=tmp_path / "full-work",
         best_checkpoint_path=tmp_path / "full-best.pt",
         device="cpu",
+        curriculum_plan=curriculum,
     )
     assert full.completed is True
 

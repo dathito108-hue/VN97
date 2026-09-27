@@ -35,6 +35,10 @@ from .production_corpus_scale import (
     R2D6_DEFAULT_TARGET_TOKENS_PER_PARAMETER,
     verify_r2d6_corpus_index,
 )
+from .production_curriculum import (
+    curriculum_epoch_shards,
+    verify_r2d8_plan,
+)
 from .production_training import (
     CPUOffloadedAdamW,
     R2MeasuredMemoryEvidence,
@@ -190,7 +194,19 @@ def _epoch_shard_order(
     *,
     seed: int,
     epoch: int,
+    index: Mapping[str, object] | None = None,
+    curriculum_plan: Mapping[str, object] | None = None,
 ) -> tuple[dict[str, object], ...]:
+    if curriculum_plan is not None:
+        if index is None:
+            raise ValueError(
+                "R2-D7 curriculum scheduling requires the D6 index"
+            )
+        return curriculum_epoch_shards(
+            curriculum_plan,
+            index,
+            epoch=epoch,
+        )
     order = list(training_shards)
     if len(order) > 1:
         random.Random(seed + epoch).shuffle(order)
@@ -329,12 +345,15 @@ def iter_epoch_training_windows(
     cursor: R2StreamingCursor,
     seed: int,
     sequence_length: int,
+    curriculum_plan: Mapping[str, object] | None = None,
 ) -> Iterator[tuple[VN97TrainingWindow, R2StreamingCursor]]:
     training_shards = _split_shards(index, "training")
     order = _epoch_shard_order(
         training_shards,
         seed=seed,
         epoch=cursor.epoch,
+        index=index,
+        curriculum_plan=curriculum_plan,
     )
     if cursor.shard_position >= len(order):
         raise RuntimeError("R2-D7 cursor shard position is out of range")
@@ -531,6 +550,7 @@ def _stream_run_identity(
     manifest: R2ProductionCorpusManifest,
     recipe: R2ProductionTrainingRecipe,
     trainer: R2ProductionTrainerConfig,
+    curriculum_plan: Mapping[str, object] | None = None,
 ) -> str:
     payload = {
         "architecture": model.config.fingerprint(),
@@ -542,6 +562,14 @@ def _stream_run_identity(
         "recipe": recipe.fingerprint(),
         "resume_schema": R2D7_STREAMING_RESUME_SCHEMA,
         "trainer": asdict(trainer),
+        "curriculum_plan_id": (
+            None
+            if curriculum_plan is None
+            else _require_sha256(
+                curriculum_plan.get("plan_id"),
+                label="R2-D7 curriculum plan id",
+            )
+        ),
     }
     return hashlib.sha256(
         b"VN97R2D7TRAIN\0" + _canonical_json(payload)
@@ -608,6 +636,7 @@ def _cursor_order_digest(
     cursor: R2StreamingCursor,
     seed: int,
     epochs: int,
+    curriculum_plan: Mapping[str, object] | None = None,
 ) -> str:
     if cursor.epoch >= epochs:
         return ""
@@ -616,6 +645,8 @@ def _cursor_order_digest(
             _split_shards(index, "training"),
             seed=seed,
             epoch=cursor.epoch,
+            index=index,
+            curriculum_plan=curriculum_plan,
         )
     )
 
@@ -628,6 +659,7 @@ def _load_stream_resume(
     index: Mapping[str, object],
     seed: int,
     epochs: int,
+    curriculum_plan: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     resume = torch.load(
         path,
@@ -659,6 +691,7 @@ def _load_stream_resume(
         cursor=cursor,
         seed=seed,
         epochs=epochs,
+        curriculum_plan=curriculum_plan,
     )
     if resume.get("epoch_order_digest") != expected_order:
         raise RuntimeError("R2-D7 resume shard order mismatch")
@@ -820,6 +853,7 @@ def train_streaming_production_stage(
     device: str | torch.device = "auto",
     measured_preflight: R2MeasuredMemoryEvidence | None = None,
     max_run_seconds: float | None = None,
+    curriculum_plan: Mapping[str, object] | None = None,
 ) -> R2StreamingTrainingResult:
     if max_run_seconds is not None and max_run_seconds <= 0.0:
         raise ValueError("max_run_seconds must be positive when provided")
@@ -827,6 +861,22 @@ def train_streaming_production_stage(
     package = Path(package_dir)
     index = verify_r2d6_corpus_index(package)
     _validate_stream_package(model, package, index, recipe)
+
+    if curriculum_plan is not None:
+        verified_plan = verify_r2d8_plan(curriculum_plan, index)
+        if verified_plan.get("stage") != "dense_pretrain":
+            raise ValueError(
+                "R2-D7 currently requires a dense_pretrain curriculum"
+            )
+        if int(verified_plan.get("epochs", -1)) != trainer.epochs:
+            raise ValueError(
+                "R2-D7 trainer epochs must match curriculum epochs"
+            )
+        if int(verified_plan.get("seed", -1)) != trainer.seed:
+            raise ValueError(
+                "R2-D7 trainer seed must match curriculum seed"
+            )
+        curriculum_plan = verified_plan
 
     manifest = production_manifest_from_r2d6(index)
     _assert_model_provenance(
@@ -902,6 +952,7 @@ def train_streaming_production_stage(
         manifest,
         recipe,
         trainer,
+        curriculum_plan,
     )
     d6_index_id = str(index["index_id"])
 
@@ -937,6 +988,7 @@ def train_streaming_production_stage(
             index=index,
             seed=trainer.seed,
             epochs=trainer.epochs,
+            curriculum_plan=curriculum_plan,
         )
         model.load_state_dict(
             resume["model_state_dict"],
@@ -984,6 +1036,7 @@ def train_streaming_production_stage(
             cursor=cursor,
             seed=trainer.seed,
             sequence_length=recipe.sequence_length,
+            curriculum_plan=curriculum_plan,
         )
         model.train()
 
@@ -1122,6 +1175,7 @@ def train_streaming_production_stage(
                         cursor=cursor,
                         seed=trainer.seed,
                         epochs=trainer.epochs,
+                        curriculum_plan=curriculum_plan,
                     ),
                     model=model,
                     optimizer=optimizer,
@@ -1179,6 +1233,11 @@ def train_streaming_production_stage(
                         "production_recipe_fingerprint": (
                             recipe.fingerprint()
                         ),
+                        "curriculum_plan_id": (
+                            None
+                            if curriculum_plan is None
+                            else curriculum_plan["plan_id"]
+                        ),
                         "production_trainer": asdict(trainer),
                         "optimizer_steps": optimizer_steps,
                         "micro_steps": micro_steps,
@@ -1205,6 +1264,7 @@ def train_streaming_production_stage(
                     cursor=cursor,
                     seed=trainer.seed,
                     epochs=trainer.epochs,
+                    curriculum_plan=curriculum_plan,
                 ),
                 model=model,
                 optimizer=optimizer,
@@ -1234,6 +1294,7 @@ def train_streaming_production_stage(
                     cursor=cursor,
                     seed=trainer.seed,
                     epochs=trainer.epochs,
+                    curriculum_plan=curriculum_plan,
                 ),
                 model=model,
                 optimizer=optimizer,
