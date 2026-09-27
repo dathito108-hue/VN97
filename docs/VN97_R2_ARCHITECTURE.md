@@ -315,20 +315,24 @@ Production execution is split into fail-closed gates:
   trainer, resumes from epoch/shard/record/window cursors only at optimizer
   boundaries, keeps release shards out of training/evaluation, and proves
   pause/resume parity against uninterrupted execution.
+- **R2-D8** compiles stage-aware task-family weights into immutable per-epoch
+  shard schedules, requires an explicit primary family for each training source
+  manifest, enforces realized token-share accuracy, and binds the curriculum
+  plan ID into D7 run/resume/checkpoint evidence.
 
 A passing R2-D5 receipt proves execution-memory feasibility only. It does not
 assert that the current preflight corpus volume is enough to train the 1B
 model to production intelligence and it does not authorize training.
 
-After measured feasibility and corpus-scale evidence are proven, the remaining
-R2-D work is:
+After measured feasibility, corpus-scale evidence and a deterministic
+curriculum plan are proven, the remaining R2-D work is:
 
 - measured GPU preflight execution and evidence sealing;
 - production corpus acquisition/sealing to the canonical scale floor;
-- quota-bounded dense pretraining/distillation through R2-D7;
-- instruction/reasoning;
-- tool/action training;
-- capability curriculum;
+- quota-bounded dense pretraining through R2-D7 using an R2-D8 plan;
+- instruction/reasoning stage training with its own R2-D8 policy;
+- tool/action stage training with its own R2-D8 policy;
+- capability stage training with its own R2-D8 policy;
 - fast-path alignment;
 - fresh multi-axis validation.
 
