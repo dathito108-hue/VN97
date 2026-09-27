@@ -11,7 +11,7 @@ import torch
 import torch.nn.functional as F
 
 from ..training import IGNORE_INDEX, VN97TrainingWindow
-from .checkpoint import save_r2_checkpoint
+from .checkpoint import save_r2_checkpoint, sha256_file
 from .model import VN97R2Model
 
 
@@ -189,6 +189,7 @@ def _save_resume(
     final_loss: float,
     best_epoch: int,
     best_validation_loss: float,
+    best_checkpoint_sha256: str,
 ) -> None:
     temp = path.with_name(path.name + ".tmp")
     torch.save(
@@ -208,6 +209,7 @@ def _save_resume(
             "final_loss": final_loss,
             "best_epoch": best_epoch,
             "best_validation_loss": best_validation_loss,
+            "best_checkpoint_sha256": best_checkpoint_sha256,
         },
         temp,
     )
@@ -292,6 +294,15 @@ def train_dense(
         best_validation_loss = float(
             resume["best_validation_loss"]
         )
+        best_checkpoint_sha256 = str(
+            resume.get("best_checkpoint_sha256", "")
+        )
+        if (
+            best_epoch >= 0
+            and not best_checkpoint_sha256
+            and best_path.is_file()
+        ):
+            best_checkpoint_sha256 = sha256_file(best_path)
 
     for epoch in range(start_epoch, config.epochs):
         order = list(range(len(training_windows)))
@@ -353,6 +364,7 @@ def train_dense(
                     final_loss=final_loss,
                     best_epoch=best_epoch,
                     best_validation_loss=best_validation_loss,
+                    best_checkpoint_sha256=best_checkpoint_sha256,
                 )
 
         validation = evaluate_dense_loss(
@@ -390,6 +402,7 @@ def train_dense(
                 final_loss=final_loss,
                 best_epoch=best_epoch,
                 best_validation_loss=best_validation_loss,
+                best_checkpoint_sha256=best_checkpoint_sha256,
             )
         start_batch = 0
 
