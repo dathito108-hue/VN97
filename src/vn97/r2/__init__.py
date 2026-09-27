@@ -110,6 +110,18 @@ from .production_contract import (
     corpus_task_families,
     estimate_production_training_resources,
 )
+from .production_curriculum import (
+    R2D8_ALLOWED_FAMILIES,
+    R2D8_DEFINITION_SCHEMA,
+    R2D8_MAX_ABSOLUTE_WEIGHT_ERROR,
+    R2D8_PLAN_SCHEMA,
+    R2D8CurriculumDefinition,
+    compile_r2d8_plan,
+    curriculum_epoch_shards,
+    load_r2d8_definition,
+    load_r2d8_plan,
+    verify_r2d8_plan,
+)
 from .production_streaming import (
     R2D7_STREAMING_RESUME_SCHEMA,
     R2StreamingCursor,
@@ -250,4 +262,14 @@ __all__ = [
     "load_r2d5_memory_receipt",
     "production_manifest_from_r2d6",
     "train_streaming_production_stage",
+    "R2D8_ALLOWED_FAMILIES",
+    "R2D8_DEFINITION_SCHEMA",
+    "R2D8_MAX_ABSOLUTE_WEIGHT_ERROR",
+    "R2D8_PLAN_SCHEMA",
+    "R2D8CurriculumDefinition",
+    "compile_r2d8_plan",
+    "curriculum_epoch_shards",
+    "load_r2d8_definition",
+    "load_r2d8_plan",
+    "verify_r2d8_plan",
 ]
