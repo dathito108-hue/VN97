@@ -1,0 +1,27 @@
+name: VN97 P5E4C Validate
+
+on:
+  push:
+    branches:
+      - p5e4c-final-norm-decoder-repair
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Python syntax
+        run: python -m compileall -q src/vn97/p5e4c_decoder_repair_cli.py
+      - name: Shell syntax
+        run: bash -n tools/kaggle_p5e4c_repair.sh
+      - name: Decoder repair contract
+        run: |
+          grep -q 'final_norm.weight' src/vn97/p5e4c_decoder_repair_cli.py
+          grep -q 'exclude_final_norm=True' src/vn97/p5e4c_decoder_repair_cli.py
+          grep -q 'fresh_holdout_required' src/vn97/p5e4c_decoder_repair_cli.py
+          grep -q 'ready_for_qat' src/vn97/p5e4c_decoder_repair_cli.py
+          grep -q 'p5e4c-repair' pyproject.toml
