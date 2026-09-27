@@ -237,7 +237,7 @@ object OrtAdaptiveScheduler {
     }
 }
 
-data class OrtSessionHandle(
+class OrtSessionHandle(
     val session: OrtSession,
     val primaryProvider: OrtProviderKind,
     private val sessionOptions: OrtSession.SessionOptions,
