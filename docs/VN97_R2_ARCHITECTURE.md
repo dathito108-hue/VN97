@@ -307,14 +307,19 @@ Production execution is split into fail-closed gates:
 - **R2-D5** packages a complete immutable VN97CORPUS1 + VN97TK1 T4 preflight
   campaign, keeps the release split held out, binds the generated Kaggle
   script, and seals passing measured evidence into a no-promotion receipt.
+- **R2-D6** composes multiple sealed corpora into deterministic sharded
+  training/validation/release packages, preserves source/license provenance,
+  rejects cross-corpus leakage, and measures canonical supervised token/window
+  scale without allocating the 1B model.
 
 A passing R2-D5 receipt proves execution-memory feasibility only. It does not
 assert that the current preflight corpus volume is enough to train the 1B
 model to production intelligence and it does not authorize training.
 
-After measured feasibility is proven, the remaining R2-D work is:
+After measured feasibility and corpus-scale evidence are proven, the remaining
+R2-D work is:
 
-- production-corpus scale/curriculum;
+- deterministic streaming-shard training/resume;
 - dense pretraining/distillation;
 - instruction/reasoning;
 - tool/action training;
