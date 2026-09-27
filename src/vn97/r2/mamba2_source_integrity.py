@@ -11,6 +11,8 @@ import torch
 from .mamba2_transfer import (
     Mamba2SourceSpec,
     VN97_MAMBA2_SOURCE_MODEL_ID,
+    VN97_MAMBA2_SOURCE_TOKENIZER_ID,
+    VN97_MAMBA2_SOURCE_TOKENIZER_REVISION,
     sha256_file,
     validate_source_state_dict,
 )
@@ -43,6 +45,8 @@ class Mamba2SourceReceipt:
     schema: str
     source_model_id: str
     source_revision: str
+    tokenizer_model_id: str
+    tokenizer_revision: str
     config_sha256: str
     weight_sha256: str
     weight_size_bytes: int
@@ -146,6 +150,8 @@ def inspect_pinned_source(
         schema=VN97_MAMBA2_SOURCE_RECEIPT_SCHEMA,
         source_model_id=VN97_MAMBA2_SOURCE_MODEL_ID,
         source_revision=source_revision,
+        tokenizer_model_id=VN97_MAMBA2_SOURCE_TOKENIZER_ID,
+        tokenizer_revision=VN97_MAMBA2_SOURCE_TOKENIZER_REVISION,
         config_sha256=sha256_file(config_path),
         weight_sha256=weight_sha,
         weight_size_bytes=weight_path.stat().st_size,
