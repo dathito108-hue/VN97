@@ -338,6 +338,12 @@ Production execution is split into fail-closed gates:
   exact D8 plan, exact D5 preflight campaign, repository commit, production
   recipe/trainer/quota settings, and a two-step measured-preflight -> ready
   receipt gate before D7 may launch.
+- **R2-E1** locks Android ONNX Runtime adaptive execution over the same VN97
+  weights/state semantics: sequential, hybrid and parallel scheduling with
+  NNAPI/XNNPACK/CPU routing and optional Qualcomm QNN.
+- **R2-E2** exports explicit recurrent-state ONNX graphs: one-token step plus a
+  selected subset of fixed chunk graphs, with deterministic schedule
+  decomposition, checkpoint-bound manifests and PyTorch/ORT state parity.
 
 A passing R2-D5 receipt proves execution-memory feasibility only. It does not
 assert that the current preflight corpus volume is enough to train the 1B
@@ -355,6 +361,9 @@ curriculum plan are proven, the remaining R2-D work is:
   contract into R2-D13 before spending GPU quota;
 - execute measured T4 preflight, seal the D13 ready receipt, then run
   quota-bounded R2-D7 dense pretraining;
+- after a validated dense checkpoint exists, export it through R2-E2 and use
+  R2-E3 measured Android profiling to select the smallest fast ONNX graph set
+  for the target S21 FE path before any later quantized/mobile lowering;
 - instruction/reasoning stage training with its own R2-D8 policy;
 - tool/action stage training with its own R2-D8 policy;
 - capability stage training with its own R2-D8 policy;
