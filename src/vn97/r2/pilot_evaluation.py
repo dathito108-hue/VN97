@@ -84,6 +84,47 @@ class R2PilotProbeMetrics:
     authority_route_correct_rate: float
     protocol_exact_match_rate: float
 
+    def __post_init__(self) -> None:
+        counts = {
+            "tasks": self.tasks,
+            "natural_language_tasks": self.natural_language_tasks,
+            "structured_tasks": self.structured_tasks,
+            "tool_action_tasks": self.tool_action_tasks,
+            "external_write_tasks": self.external_write_tasks,
+        }
+        if self.tasks <= 0:
+            raise ValueError("pilot metrics tasks must be positive")
+        for name, value in counts.items():
+            if value < 0 or value > self.tasks:
+                raise ValueError(
+                    f"{name} must be in [0, tasks]"
+                )
+        if self.natural_language_tasks + self.structured_tasks != self.tasks:
+            raise ValueError(
+                "natural + structured pilot task counts must equal tasks"
+            )
+        if self.tool_action_tasks > self.structured_tasks:
+            raise ValueError(
+                "tool_action_tasks cannot exceed structured_tasks"
+            )
+        if self.external_write_tasks > self.tool_action_tasks:
+            raise ValueError(
+                "external_write_tasks cannot exceed tool_action_tasks"
+            )
+
+        for name in (
+            "generation_success_rate",
+            "lexical_target_f1",
+            "instruction_following_rate",
+            "structured_valid_rate",
+            "tool_call_correct_rate",
+            "authority_route_correct_rate",
+            "protocol_exact_match_rate",
+        ):
+            value = float(getattr(self, name))
+            if not 0.0 <= value <= 1.0:
+                raise ValueError(f"{name} must be in [0, 1]")
+
     def as_dict(self) -> dict[str, object]:
         return asdict(self)
 
@@ -97,6 +138,11 @@ class R2PilotGateThresholds:
     tool_call_correct_rate: float = 0.80
     authority_route_correct_rate: float = 1.0
     protocol_exact_match_rate: float = 0.80
+
+    def __post_init__(self) -> None:
+        for name, value in asdict(self).items():
+            if not 0.0 <= float(value) <= 1.0:
+                raise ValueError(f"{name} must be in [0, 1]")
 
 
 @dataclass(frozen=True)
