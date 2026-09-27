@@ -89,6 +89,18 @@ from .production_contract import (
     corpus_task_families,
     estimate_production_training_resources,
 )
+from .production_training import (
+    CPUOffloadedAdamW,
+    PRODUCTION_RESUME_SCHEMA,
+    R2MeasuredMemoryEvidence,
+    R2ProductionTrainerConfig,
+    R2ProductionTrainingResult,
+    assert_stage_model_origin,
+    evaluate_production_loss,
+    load_production_stage_model,
+    measure_cuda_training_preflight,
+    train_production_stage,
+)
 from .training_plan import (
     R2_CANONICAL_TRAINING_SEQUENCE,
     R2PromotionPolicy,
@@ -172,4 +184,14 @@ __all__ = [
     "assert_stage_transition",
     "corpus_task_families",
     "estimate_production_training_resources",
+    "CPUOffloadedAdamW",
+    "PRODUCTION_RESUME_SCHEMA",
+    "R2MeasuredMemoryEvidence",
+    "R2ProductionTrainerConfig",
+    "R2ProductionTrainingResult",
+    "assert_stage_model_origin",
+    "evaluate_production_loss",
+    "load_production_stage_model",
+    "measure_cuda_training_preflight",
+    "train_production_stage",
 ]
