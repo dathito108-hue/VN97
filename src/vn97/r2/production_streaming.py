@@ -1082,6 +1082,7 @@ def train_streaming_production_stage(
             seed=trainer.seed,
             sequence_length=recipe.sequence_length,
             curriculum_plan=curriculum_plan,
+            shard_roots=shard_roots,
         )
         model.train()
 
@@ -1272,6 +1273,7 @@ def train_streaming_production_stage(
                     stage="dense_pretrain",
                     metadata={
                         "r2d6_index_id": d6_index_id,
+                        "corpus_index_schema": index.get("schema"),
                         "streaming_run_identity": identity,
                         "production_manifest_identity": (
                             manifest.identity()
