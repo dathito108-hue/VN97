@@ -104,7 +104,7 @@ def _parser() -> argparse.ArgumentParser:
         "--allow-low-memory",
         action="store_true",
         help=(
-            "Override the conservative R2-C RAM preflight. The run may OOM; "
+            "Override the conservative R2-C memory preflight. The run may OOM; "
             "this flag does not weaken model/evaluation gates."
         ),
     )
@@ -264,6 +264,15 @@ def _load_pilot_probes(
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    if args.require_pilot_gate and args.profile != "pilot":
+        raise ValueError(
+            "--require-pilot-gate requires --profile pilot"
+        )
+    if args.require_pilot_gate and args.probe_jsonl is None:
+        raise ValueError(
+            "--require-pilot-gate requires --probe-jsonl"
+        )
+
     output = Path(args.output_dir)
     if output.exists() and (
         output.is_symlink()
@@ -297,6 +306,37 @@ def main(argv: list[str] | None = None) -> int:
         reject_overlap=True,
     )
 
+    probes: tuple[R2PilotProbe, ...] | None = None
+    probe_sha: str | None = None
+    if args.probe_jsonl is not None:
+        probes, probe_sha = _load_pilot_probes(
+            Path(args.probe_jsonl),
+            max_input_bytes=args.probe_max_input_bytes,
+            max_examples=args.probe_max_examples,
+        )
+        if args.require_pilot_gate:
+            if not any(
+                probe.domain is EvaluationDomain.NATURAL_LANGUAGE
+                for probe in probes
+            ):
+                raise ValueError(
+                    "R2-C acceptance probe suite lacks natural_language"
+                )
+            if not any(
+                probe.domain is EvaluationDomain.TOOL_ACTION
+                for probe in probes
+            ):
+                raise ValueError(
+                    "R2-C acceptance probe suite lacks tool_action"
+                )
+            if not any(
+                probe.requires_external_write
+                for probe in probes
+            ):
+                raise ValueError(
+                    "R2-C acceptance probe suite lacks external-write probe"
+                )
+
     if args.profile == "pilot":
         config = r2_cpu_pilot_config(tokenizer.vocab_size)
         assert_r2_pilot_scale(config)
@@ -309,11 +349,20 @@ def main(argv: list[str] | None = None) -> int:
     available_training_memory = _available_training_memory(
         training_device
     )
+    # Do not silently fall back to host RAM when CUDA VRAM discovery fails.
+    # Zero keeps the preflight fail-closed unless the user explicitly accepts
+    # OOM risk with --allow-low-memory.
+    resource_available_memory = (
+        0
+        if training_device.type == "cuda"
+        and available_training_memory is None
+        else available_training_memory
+    )
     resources = estimate_pilot_training_resources(
         config,
         sequence_length=args.sequence_length,
         batch_size=args.batch_size,
-        available_ram=available_training_memory,
+        available_ram=resource_available_memory,
     )
     if (
         args.profile == "pilot"
@@ -321,7 +370,7 @@ def main(argv: list[str] | None = None) -> int:
         and not args.allow_low_memory
     ):
         raise RuntimeError(
-            "R2-C RAM preflight rejected this run: "
+            "R2-C memory preflight rejected this run: "
             f"recommended={resources.recommended_ram_bytes} "
             f"available={resources.available_ram_bytes}. "
             "Reduce sequence/batch size or pass --allow-low-memory "
@@ -427,19 +476,13 @@ def main(argv: list[str] | None = None) -> int:
     if len(embedding) != best_model.config.d_model:
         raise RuntimeError("R2 cognition bridge embedding size mismatch")
 
-    probe_sha: str | None = None
     probe_metrics = None
     probe_results = None
     probe_gate = R2PilotGateDecision(
         passed=False,
         reasons=("probe_suite_missing",),
     )
-    if args.probe_jsonl is not None:
-        probes, probe_sha = _load_pilot_probes(
-            Path(args.probe_jsonl),
-            max_input_bytes=args.probe_max_input_bytes,
-            max_examples=args.probe_max_examples,
-        )
+    if probes is not None:
         probe_metrics, probe_results = evaluate_pilot_probes(
             best_model,
             tokenizer,
