@@ -1,0 +1,27 @@
+name: VN97 P5E4D Validate
+
+on:
+  push:
+    branches:
+      - p5e4d-fresh-decoder-validation
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Python syntax
+        run: python -m compileall -q src/vn97/p5e4d_fresh_decoder_validation_cli.py
+      - name: Shell syntax
+        run: bash -n tools/kaggle_p5e4d_validate.sh
+      - name: Fresh decoder validation contract
+        run: |
+          grep -q 'reused_p5e4b_manifest=false' tools/kaggle_p5e4d_validate.sh
+          grep -q 'FRESH_DECODER_GENERATION_GAIN' src/vn97/p5e4d_fresh_decoder_validation_cli.py
+          grep -q 'ready_for_qat' src/vn97/p5e4d_fresh_decoder_validation_cli.py
+          grep -q 'immutable_state_match' src/vn97/p5e4d_fresh_decoder_validation_cli.py
+          grep -q 'p5e4d-validate' pyproject.toml
