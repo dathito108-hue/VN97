@@ -1,3 +1,21 @@
+from .data_bridge import (
+    assert_r2_data_compatible,
+    build_causal_windows,
+    build_completion_windows,
+    load_vn97tk1,
+    windows_to_tensors,
+)
+from .dense_training import (
+    R2DenseTrainingConfig,
+    R2DenseTrainingResult,
+    evaluate_dense_loss,
+    train_dense,
+)
+from .fast_path_training import (
+    R2FastPathConfig,
+    R2FastPathResult,
+    align_fast_path,
+)
 from .bridge import VN97R2InferenceView, assert_tokenizer_compatible
 from .evaluation import (
     EvaluationDomain,
@@ -45,6 +63,10 @@ from .training_plan import (
 
 __all__ = [
     "CAPABILITY_PACK_SCHEMA",
+    "R2DenseTrainingConfig",
+    "R2DenseTrainingResult",
+    "R2FastPathConfig",
+    "R2FastPathResult",
     "EvaluationDomain",
     "R2EvaluationDecision",
     "R2EvaluationMetrics",
@@ -78,4 +100,12 @@ __all__ = [
     "validate_delta",
     "VN97R2InferenceView",
     "assert_tokenizer_compatible",
+    "assert_r2_data_compatible",
+    "build_causal_windows",
+    "build_completion_windows",
+    "load_vn97tk1",
+    "windows_to_tensors",
+    "evaluate_dense_loss",
+    "train_dense",
+    "align_fast_path",
 ]
