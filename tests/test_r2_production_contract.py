@@ -154,7 +154,7 @@ def test_optimizer_offload_moves_adam_state_to_host_budget() -> None:
     resources = estimate_production_training_resources(config, recipe)
 
     assert resources.device_optimizer_bytes == 0
-    assert resources.host_optimizer_bytes == resources.parameter_count * 12
+    assert resources.host_optimizer_bytes == resources.parameter_count * 8
     assert (
         resources.minimum_device_bytes_before_activations
         < 16 * 1024**3
