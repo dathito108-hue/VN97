@@ -26,9 +26,10 @@ class VN97R2State:
 class VN97R2Model(nn.Module):
     """Single-backbone VN97-R2 language model.
 
-    The same weights support a fast early-exit path and a full-depth path.
-    There is no second model/backend. Runtime callers choose how many leading
-    blocks are active for a whole recurrent stream.
+    Full sequence/prefill uses each block's associative scan path. Token
+    generation uses the same equations through constant recurrent state.
+    Fast/deep profiles select depth in the same weight set; no second model or
+    backend is introduced.
     """
 
     def __init__(self, config: VN97R2Config) -> None:
@@ -188,13 +189,14 @@ class VN97R2Model(nn.Module):
         )
         return self._project_logits(hidden), next_state
 
-    def forward_hidden(
+    def forward_hidden_reference(
         self,
         input_ids: torch.Tensor,
         state: Optional[VN97R2State] = None,
         *,
         profile: str | int | None = None,
     ) -> tuple[torch.Tensor, VN97R2State]:
+        """Token-by-token whole-model reference for scan parity tests."""
         if input_ids.ndim != 2:
             raise ValueError(
                 "input_ids must be [batch, seq], got "
@@ -222,6 +224,45 @@ class VN97R2Model(nn.Module):
             )
             outputs.append(token_hidden)
         return torch.stack(outputs, dim=1), current
+
+    def forward_hidden(
+        self,
+        input_ids: torch.Tensor,
+        state: Optional[VN97R2State] = None,
+        *,
+        profile: str | int | None = None,
+    ) -> tuple[torch.Tensor, VN97R2State]:
+        if input_ids.ndim != 2:
+            raise ValueError(
+                "input_ids must be [batch, seq], got "
+                f"{tuple(input_ids.shape)}"
+            )
+        if input_ids.shape[1] <= 0:
+            raise ValueError("sequence length must be positive")
+
+        active_layers = self.resolve_active_layers(profile)
+        hidden = self.embedding(input_ids)
+        current = self._validate_state(
+            state,
+            batch_size=input_ids.shape[0],
+            device=hidden.device,
+            dtype=hidden.dtype,
+            active_layers=active_layers,
+        )
+
+        next_states: list[R2LayerState] = []
+        x = hidden
+        for index in range(active_layers):
+            x, next_layer_state = self.layers[index](
+                x,
+                current.layers[index],
+            )
+            next_states.append(next_layer_state)
+
+        return x, VN97R2State(
+            layers=tuple(next_states),
+            active_layers=active_layers,
+        )
 
     def forward(
         self,
