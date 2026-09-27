@@ -81,6 +81,12 @@ class VN97AutonomousWorkManager(
             plan = seed.plan,
             principal = VN97AppAssistant.APP_PRINCIPAL,
         )
+        try {
+            application.r2Continuity.bind(jobId)
+        } catch (exc: Throwable) {
+            scheduler.cancelAssistantAndDelete(jobId)
+            throw exc
+        }
         val createdNs = seed.plan.createdNs
         var record = VN97AutonomousGoalRecord(
             jobId = jobId,
@@ -108,6 +114,7 @@ class VN97AutonomousWorkManager(
             store.save(record)
         } catch (exc: Throwable) {
             scheduler.cancelAssistantAndDelete(jobId)
+            runCatching { application.r2Continuity.delete(jobId) }
             throw exc
         }
 
@@ -155,6 +162,7 @@ class VN97AutonomousWorkManager(
         }
 
         closeForegroundApprovalLocked()
+        application.r2Continuity.requireCurrent(waiting.jobId)
         return application.withSovereignExecution {
             scheduler.cancel(waiting.jobId)
             val reopen =
@@ -429,6 +437,7 @@ class VN97AutonomousWorkManager(
             closeForegroundApprovalLocked()
         }
         scheduler.cancelAssistantAndDelete(jobId)
+        runCatching { application.r2Continuity.delete(jobId) }
         return record.copy(
             state = VN97AutonomousGoalState.CANCELLED,
             updatedNs = wallNowNs(),
@@ -453,6 +462,7 @@ class VN97AutonomousWorkManager(
         ) {
             "autonomous continuation has no VN97GOA1 record"
         }
+        application.r2Continuity.requireCurrent(context.jobId)
         requireContextIdentity(initial, context)
         if (initial.terminal) return ContinuationOutcome.COMPLETE
 
@@ -814,6 +824,12 @@ class VN97AutonomousWorkManager(
             plan = seed.plan,
             principal = current.principal,
         )
+        try {
+            application.r2Continuity.bind(jobId)
+        } catch (exc: Throwable) {
+            scheduler.cancelAssistantAndDelete(jobId)
+            throw exc
+        }
         var successor = VN97AutonomousGoalRecord(
             jobId = jobId,
             planId = binding.planId,
@@ -838,6 +854,7 @@ class VN97AutonomousWorkManager(
             store.save(successor)
         } catch (exc: Throwable) {
             scheduler.cancelAssistantAndDelete(jobId)
+            runCatching { application.r2Continuity.delete(jobId) }
             throw exc
         }
 

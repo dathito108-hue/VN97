@@ -25,6 +25,12 @@ class VN97Application :
         VN97R2RuntimeManager(this)
     }
 
+    val r2Continuity: VN97R2ContinuityGuard by lazy(
+        LazyThreadSafetyMode.SYNCHRONIZED
+    ) {
+        VN97R2ContinuityGuard(this)
+    }
+
     val assistant: VN97AppAssistant by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         VN97AppAssistant(this)
     }

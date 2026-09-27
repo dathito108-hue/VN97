@@ -33,6 +33,14 @@ class VN97R2RuntimeManager(
     fun runtimeRoot(): File =
         File(application.noBackupFilesDir, RUNTIME_RELATIVE_ROOT)
 
+    fun currentBinding(): ai.vn97.runtime.VN97R2AssistantBinding =
+        ai.vn97.runtime.VN97R2AssistantBinding.load(
+            File(
+                runtimeRoot(),
+                ai.vn97.runtime.VN97R2AssistantBinding.FILENAME,
+            )
+        )
+
     fun supportsAudioModelPath(): Boolean = false
 
     fun supportsVisionModelPath(): Boolean = false
