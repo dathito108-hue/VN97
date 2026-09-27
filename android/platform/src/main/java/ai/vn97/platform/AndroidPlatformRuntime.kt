@@ -3,7 +3,8 @@ package ai.vn97.platform
 import ai.vn97.runtime.NativeActivatedModel
 import ai.vn97.runtime.VN97AcquisitionProvenanceLedger
 import ai.vn97.runtime.VN97AcquisitionProvenanceRecord
-import ai.vn97.runtime.NativeCognitionInferenceEngine
+import ai.vn97.runtime.NativeCognitionInference
+import ai.vn97.runtime.VN97R2CognitionInference
 import ai.vn97.runtime.NativeCognitionLimits
 import ai.vn97.runtime.NativeCognitionRuntimeConfig
 import ai.vn97.runtime.NativeMemoryKind
@@ -336,12 +337,12 @@ class AndroidPlatformRuntime(
         turnMemoryWriter: VN97TurnMemoryWriter?,
         turnMemoryRecovery: VN97TurnMemoryRecovery?,
     ): VN97AssistantSession {
-        val cognition = NativeTypedCognitionAdapter(
-            NativeCognitionInferenceEngine(
-                model = model,
-                config = cognitionRuntimeConfig,
-            )
+        val inference = VN97R2CognitionInference.open(
+            context = appContext,
+            model = model,
+            config = cognitionRuntimeConfig,
         )
+        val cognition = NativeTypedCognitionAdapter(inference)
         return VN97AssistantSession(
             coordinator = createProductionExternalCoordinator(
                 cognition = cognition,
@@ -353,6 +354,7 @@ class AndroidPlatformRuntime(
             defaultMemory = memory,
             turnMemoryWriter = turnMemoryWriter,
             turnMemoryRecovery = turnMemoryRecovery,
+            closeHook = { inference.close() },
         )
     }
 
@@ -372,15 +374,15 @@ class AndroidPlatformRuntime(
         require(memory.vectorDim == model.info.dModel) {
             "VN97MEM1 vector dimension does not match activated model dModel"
         }
-        val engine = NativeCognitionInferenceEngine(
-            model = model,
-            config = cognitionRuntimeConfig,
-        )
         val root = File(appContext.noBackupFilesDir, "vn97-memory")
         return VN97TurnMemoryWriter(
             backend = NativeVN97TurnMemoryBackend(memory),
             embedder = VN97TurnMemoryEmbedder { text, vectorDim ->
-                engine.embedText(text, vectorDim)
+                VN97R2CognitionInference.embedTokenizerFeatures(
+                    model = model,
+                    text = text,
+                    vectorDim = vectorDim,
+                )
             },
             journalRoot = root,
             journalFileName = journalFileName,
@@ -551,16 +553,15 @@ class AndroidPlatformRuntime(
         require(memory.vectorDim == model.info.dModel) {
             "knowledge proposal VN97MEM1 dimension does not match activated model"
         }
-        val inference = NativeCognitionInferenceEngine(
-            model = model,
-            config = cognitionRuntimeConfig,
-        )
         return VN97KnowledgeAcquisitionProposalEngine(
             recall = { goal ->
-                val vector = inference.embedText(
-                    "VN97 knowledge gap evidence for: $goal",
-                    memory.vectorDim,
-                )
+                val vector =
+                    VN97R2CognitionInference.embedTokenizerFeatures(
+                        model = model,
+                        text =
+                            "VN97 knowledge gap evidence for: $goal",
+                        vectorDim = memory.vectorDim,
+                    )
                 memory.retrieve(
                     query = NativeMemoryQuery(
                         vector = vector,
@@ -623,10 +624,24 @@ class AndroidPlatformRuntime(
             trustRoot = File(root, "trust"),
             ledgerRoot = File(root, "ledger"),
             memory = memory,
-            inference = NativeCognitionInferenceEngine(
-                model = model,
-                config = cognitionRuntimeConfig,
-            ),
+            inference = object : NativeCognitionInference {
+                override fun generateOperation(
+                    operation: ai.vn97.runtime.NativeCognitionOperation,
+                    requestJson: String,
+                ): String = error(
+                    "knowledge import does not permit cognition generation"
+                )
+
+                override fun embedText(
+                    text: String,
+                    vectorDim: Int,
+                ): FloatArray =
+                    VN97R2CognitionInference.embedTokenizerFeatures(
+                        model = model,
+                        text = text,
+                        vectorDim = vectorDim,
+                    )
+            },
         )
     }
 

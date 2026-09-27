@@ -133,6 +133,43 @@ class VN97R2CognitionInference private constructor(
         const val TUNING_FILE = "tuning.vn97r2e4.json"
         const val BINDING_FILE = "binding.vn97r2f2.json"
 
+        fun embedTokenizerFeatures(
+            model: NativeActivatedModel,
+            text: String,
+            vectorDim: Int,
+        ): FloatArray {
+            require(vectorDim == model.info.dModel) {
+                "F2 memory vector dimension must match VN97 dModel"
+            }
+            val ids = model.encodeUtf8(
+                text = text,
+                addBos = false,
+                addText = false,
+                addEos = false,
+            )
+            val out = FloatArray(vectorDim)
+            ids.forEachIndexed { position, token ->
+                val mixed = mixF2(token, position)
+                val index =
+                    (mixed and Int.MAX_VALUE) % vectorDim
+                val sign =
+                    if ((mixed ushr 31) == 0) 1.0f else -1.0f
+                out[index] +=
+                    sign / sqrt((position + 1).toFloat())
+            }
+            var norm2 = 0.0
+            out.forEach {
+                norm2 += it.toDouble() * it.toDouble()
+            }
+            if (norm2 != 0.0) {
+                val inv = (1.0 / sqrt(norm2)).toFloat()
+                for (i in out.indices) {
+                    out[i] *= inv
+                }
+            }
+            return out
+        }
+
         fun open(
             context: Context,
             model: NativeActivatedModel,
@@ -281,35 +318,11 @@ class VN97R2CognitionInference private constructor(
         vectorDim: Int,
     ): FloatArray = synchronized(lock) {
         check(!closed) { "F2 cognition bridge is closed" }
-        require(vectorDim == model.info.dModel) {
-            "F2 memory vector dimension must match VN97 dModel"
-        }
-        val ids = model.encodeUtf8(
+        embedTokenizerFeatures(
+            model = model,
             text = text,
-            addBos = false,
-            addText = false,
-            addEos = false,
+            vectorDim = vectorDim,
         )
-        val out = FloatArray(vectorDim)
-        ids.forEachIndexed { position, token ->
-            val mixed = mixF2(token, position)
-            val index = (mixed and Int.MAX_VALUE) % vectorDim
-            val sign =
-                if ((mixed ushr 31) == 0) 1.0f else -1.0f
-            out[index] +=
-                sign / sqrt((position + 1).toFloat())
-        }
-        var norm2 = 0.0
-        out.forEach {
-            norm2 += it.toDouble() * it.toDouble()
-        }
-        if (norm2 != 0.0) {
-            val inv = (1.0 / sqrt(norm2)).toFloat()
-            for (i in out.indices) {
-                out[i] *= inv
-            }
-        }
-        out
     }
 
     override fun close() {

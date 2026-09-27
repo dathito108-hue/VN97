@@ -9,7 +9,6 @@ import ai.vn97.platform.VN97MobileEvidenceRecord
 import ai.vn97.platform.VN97ProductionAssistantResources
 import ai.vn97.runtime.NativeActivatedInventoryModelLoader
 import ai.vn97.runtime.NativeActivatedModel
-import ai.vn97.runtime.NativeCognitionInferenceEngine
 import ai.vn97.runtime.NativePreparedAudio
 import ai.vn97.runtime.NativePreparedVision
 import ai.vn97.runtime.VN97KnowledgeAcquisitionResult
@@ -238,30 +237,11 @@ class VN97AppAssistant(
     fun perceiveVision(
         preparedVision: NativePreparedVision,
     ): String = exclusive {
-        check(pendingResult == null) {
-            "cannot run perception while approval is pending"
-        }
-        application.runtimeResources
-            .requireRunnable(
-                VN97RuntimeExecutionClass.HEAVY
-            )
-        check(openIfActivatedLocked()) {
-            "trusted VN97 model is not active"
-        }
-        val activeResources = checkNotNull(resources) {
-            "trusted VN97 model is not active"
-        }
-        check(!activeResources.session.hasActiveTurn) {
-            "cannot run perception while an assistant turn is active"
-        }
-        val activeModel = checkNotNull(model) {
-            "trusted VN97 model is not active"
-        }
-        check(activeModel.info.hasVisionProjection) {
-            "activated VN97 model has no production vision weights"
-        }
-        NativeCognitionInferenceEngine(activeModel)
-            .perceiveVision(preparedVision)
+        preparedVision.hashCode()
+        error(
+            "R2 production vision is gated: no identity-bound ONNX " +
+                "vision graph is installed; legacy inference is disabled"
+        )
     }
 
     fun verifyVisualOutcome(
@@ -270,59 +250,14 @@ class VN97AppAssistant(
         afterObservation: String,
         maxNewTokens: Int = 384,
     ): String = exclusive {
-        require(goal.isNotBlank()) { "visual verification goal must not be blank" }
-        require(beforeObservation.isNotBlank()) {
-            "beforeObservation must not be blank"
-        }
-        require(afterObservation.isNotBlank()) {
-            "afterObservation must not be blank"
-        }
-        require(maxNewTokens in 1..1024) {
-            "visual verification token budget is invalid"
-        }
-        check(pendingResult == null) {
-            "cannot verify visual outcome while approval is pending"
-        }
-        application.runtimeResources
-            .requireRunnable(
-                VN97RuntimeExecutionClass.HEAVY
-            )
-        check(openIfActivatedLocked()) {
-            "trusted VN97 model is not active"
-        }
-        val activeResources = checkNotNull(resources) {
-            "trusted VN97 model is not active"
-        }
-        check(!activeResources.session.hasActiveTurn) {
-            "cannot verify visual outcome while a turn is active"
-        }
-        val activeModel = checkNotNull(model) {
-            "trusted VN97 model is not active"
-        }
-        check(activeModel.info.hasVisionProjection) {
-            "activated VN97 model has no production vision weights"
-        }
-        val prompt = buildString {
-            append("VN97VISVERIFY1\n")
-            append("Use only the supplied before/after visual observations. ")
-            append("State whether the user goal is visibly satisfied and what ")
-            append("remains uncertain. Do not request or execute tools.\n")
-            append("goal=")
-            append(goal.take(MAX_VISUAL_VERIFY_FIELD_CHARS))
-            append("\nbefore=")
-            append(beforeObservation.take(MAX_VISUAL_VERIFY_FIELD_CHARS))
-            append("\nafter=")
-            append(afterObservation.take(MAX_VISUAL_VERIFY_FIELD_CHARS))
-            append("\nverification=")
-        }
-        NativeCognitionInferenceEngine(activeModel)
-            .generateText(prompt, maxNewTokens)
-            .trim()
-            .ifEmpty {
-                throw IllegalStateException(
-                    "VN97 visual verification returned empty output"
-                )
-            }
+        require(goal.isNotBlank())
+        require(beforeObservation.isNotBlank())
+        require(afterObservation.isNotBlank())
+        require(maxNewTokens in 1..1024)
+        error(
+            "R2 production vision verification is gated until the " +
+                "identity-bound ONNX multimodal package is installed"
+        )
     }
 
     fun hasActiveTurn(): Boolean = synchronized(lock) {
@@ -408,39 +343,11 @@ class VN97AppAssistant(
         preparedAudio: NativePreparedAudio,
         maxAdvances: Int = 8,
     ): VN97AppTurnResult = exclusive {
-        require(maxAdvances > 0) {
-            "maxAdvances must be positive"
-        }
-        check(pendingResult == null) {
-            "an assistant turn is already waiting for approval"
-        }
-        val resourceDecision =
-            application.runtimeResources
-                .requireRunnable(
-                    VN97RuntimeExecutionClass
-                        .INTERACTIVE
-                )
-        check(openIfActivatedLocked()) {
-            "trusted VN97 model is not active"
-        }
-        val activeModel = checkNotNull(model) {
-            "trusted VN97 model is not active"
-        }
-        check(activeModel.info.hasAudioProjection) {
-            "activated VN97 model has no production speech weights"
-        }
-
-        val transcript =
-            NativeCognitionInferenceEngine(activeModel)
-                .transcribeAudio(preparedAudio)
-        runTurn(
-            userMessage = transcript,
-            maxAdvances =
-                minOf(
-                    maxAdvances,
-                    resourceDecision
-                        .maxInteractiveAdvances,
-                ),
+        require(maxAdvances > 0)
+        preparedAudio.hashCode()
+        error(
+            "R2 production speech inference is gated: no identity-bound " +
+                "ONNX audio graph is installed; legacy inference is disabled"
         )
     }
 
