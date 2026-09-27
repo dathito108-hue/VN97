@@ -133,6 +133,18 @@ from .production_curriculum import (
     load_r2d8_plan,
     verify_r2d8_plan,
 )
+from .production_registry import (
+    R2D11_DEFINITION_SCHEMA,
+    R2D11_DIGEST_SCHEMA,
+    R2D11_LEDGER_SCHEMA,
+    R2D11_REGISTRY_SCHEMA,
+    R2D11RegistryDefinition,
+    admit_r2d11_pack,
+    attach_r2d11_campaign,
+    init_r2d11_registry,
+    load_r2d11_definition,
+    verify_r2d11_registry,
+)
 from .production_source_adapter import (
     R2D10_ADAPTERS,
     R2D10_ADAPTER_FAMILIES,
@@ -314,4 +326,14 @@ __all__ = [
     "build_r2d10_pack",
     "load_r2d10_lock",
     "verify_r2d10_pack",
+    "R2D11_DEFINITION_SCHEMA",
+    "R2D11_DIGEST_SCHEMA",
+    "R2D11_LEDGER_SCHEMA",
+    "R2D11_REGISTRY_SCHEMA",
+    "R2D11RegistryDefinition",
+    "admit_r2d11_pack",
+    "attach_r2d11_campaign",
+    "init_r2d11_registry",
+    "load_r2d11_definition",
+    "verify_r2d11_registry",
 ]
