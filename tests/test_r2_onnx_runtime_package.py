@@ -194,3 +194,26 @@ def test_compile_rejects_graph_contract_drift() -> None:
             manifest,
             _tuning(),
         )
+
+
+def test_verify_rejects_duplicate_or_extra_fields(tmp_path: Path) -> None:
+    payload = compile_r2f1_runtime_package(
+        _manifest(),
+        _tuning(),
+    )
+    encoded = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    duplicate = encoded[:-1] + ',"runtime_id":"' + payload["runtime_id"] + '"}'
+    path = tmp_path / "duplicate.json"
+    path.write_text(duplicate, encoding="utf-8")
+    with pytest.raises(ValueError, match="duplicate keys"):
+        verify_r2f1_runtime_package(path)
+
+    payload["unexpected"] = True
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match="fields mismatch"):
+        verify_r2f1_runtime_package(path)
