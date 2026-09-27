@@ -16,6 +16,17 @@ from .production_acquisition import (
 
 R2D10_LOCK_SCHEMA = "VN97R2D10LOCK1"
 R2D10_PACK_SCHEMA = "VN97R2D10PACK1"
+R2D10_ADAPTER_FAMILIES = {
+    "messages": tuple(sorted(R2D9_ALLOWED_FAMILIES)),
+    "dolly": ("instruction", "language"),
+    "gsm8k": ("reasoning",),
+    "instruction_io": ("instruction",),
+    "question_answer": ("language", "reasoning"),
+    "prompt_response": ("instruction", "language"),
+    "tool_trace": ("tool",),
+    "action_trace": ("action",),
+    "capability_demo": ("capability",),
+}
 R2D10_ADAPTERS = (
     "action_trace",
     "capability_demo",
@@ -141,6 +152,10 @@ class R2D10SourceLock:
             raise ValueError("R2-D10 family is not canonical")
         if self.adapter not in R2D10_ADAPTERS:
             raise ValueError("R2-D10 adapter is unsupported")
+        if self.family not in R2D10_ADAPTER_FAMILIES[self.adapter]:
+            raise ValueError(
+                "R2-D10 adapter is not compatible with source family"
+            )
         _safe_relative_path(self.path, label="source path")
         _require_sha256(
             self.expected_sha256,
@@ -847,14 +862,19 @@ def verify_r2d10_pack(output_dir: Path) -> dict[str, object]:
             receipt.get("normalized_path"),
             label="normalized_path",
         )
-        normalized = (root / relative).resolve(strict=True)
+        candidate = root / relative
+        if candidate.is_symlink():
+            raise ValueError(
+                "R2-D10 normalized output must not be a symlink"
+            )
+        normalized = candidate.resolve(strict=True)
         try:
             normalized.relative_to(root)
         except ValueError as exc:
             raise ValueError(
                 "R2-D10 normalized path escapes pack"
             ) from exc
-        if normalized.is_symlink() or not normalized.is_file():
+        if not normalized.is_file():
             raise ValueError(
                 "R2-D10 normalized output must be a regular file"
             )
