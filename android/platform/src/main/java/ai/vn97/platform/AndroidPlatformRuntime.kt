@@ -593,10 +593,16 @@ class AndroidPlatformRuntime(
                 }
             },
             generator = { prompt ->
-                inference.generateText(
-                    prompt = prompt,
-                    maxNewTokens = 384,
-                ).trim()
+                VN97R2CognitionInference.open(
+                    context = appContext,
+                    model = model,
+                    config = cognitionRuntimeConfig,
+                ).use { inference ->
+                    inference.generateText(
+                        prompt = prompt,
+                        maxNewTokens = 384,
+                    ).text.trim()
+                }
             },
         )
     }
@@ -702,9 +708,13 @@ class VN97ProductionAssistantResources internal constructor(
 ) : AutoCloseable {
     override fun close() {
         try {
-            turnMemoryWriter.close()
+            session.close()
         } finally {
-            memory.close()
+            try {
+                turnMemoryWriter.close()
+            } finally {
+                memory.close()
+            }
         }
     }
 }

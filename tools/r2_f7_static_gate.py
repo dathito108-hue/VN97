@@ -27,6 +27,7 @@ continuity = text("android/app/src/main/java/ai/vn97/app/VN97AutonomousWorkManag
 require("VN97R2F2BRIDGE1" in bridge, "F2 identity-bound bridge")
 require("VN97OrtProductionExecutor.open" in bridge, "F2 uses F1 ORT executor")
 require("executor.prefill" in bridge and "executor.step" in bridge, "F2 prefill/step generation")
+require((ROOT / "tools/r2_f2_make_binding.py").is_file(), "F2 binding generator is present")
 require("NativeCognitionInferenceEngine" not in platform, "F3 platform has no legacy cognition")
 require("VN97R2CognitionInference.open" in platform, "F3 assistant/planner uses R2")
 require("NativeCognitionInferenceEngine" not in game, "F5 game has no legacy cognition")
@@ -49,3 +50,26 @@ print("Physical/device truth gates (not claimed by CI):")
 print(" - Samsung Galaxy S21 FE benchmark: PENDING_PHYSICAL_DEVICE")
 print(" - production dense checkpoint / 1B training claim: PENDING_REAL_CHECKPOINT")
 print(" - semantic vision/audio ONNX package: PENDING_MULTIMODAL_ONNX")
+
+# Exercise the F2 binding generator logic without any model/benchmark claim.
+import importlib.util
+spec = importlib.util.spec_from_file_location(
+    "r2_binding", ROOT / "tools/r2_f2_make_binding.py"
+)
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+fake_sha_a = "a" * 64
+fake_sha_b = "b" * 64
+sample = {
+    "schema": "VN97R2F1RUNTIME1",
+    "runtime_id": fake_sha_a,
+    "bundle_id": fake_sha_b,
+    "vocab_size": 258,
+    "same_weights_semantics": True,
+    "quantization_used": False,
+}
+binding = module.build_binding(sample, "c" * 64)
+require(binding["runtime_id"] == fake_sha_a, "F2 binding generator preserves runtime identity")
+require(binding["bundle_id"] == fake_sha_b, "F2 binding generator preserves bundle identity")
+require(binding["tokenizer_model_id"] == "c" * 64, "F2 binding generator binds tokenizer checkpoint")
+require(binding["vocab_size"] == 258, "F2 binding generator preserves vocab contract")

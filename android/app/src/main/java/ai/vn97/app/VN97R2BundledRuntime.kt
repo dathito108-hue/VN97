@@ -122,7 +122,7 @@ class VN97R2BundledRuntime(
             val out = File(destination, relative)
             check(out.parentFile?.mkdirs() != false)
             digest.update(relative.toByteArray(Charsets.UTF_8))
-            digest.update(0)
+            digest.update(0.toByte())
             assets.open(assetPath).use { input ->
                 FileOutputStream(out).use { output ->
                     val buffer = ByteArray(64 * 1024)
