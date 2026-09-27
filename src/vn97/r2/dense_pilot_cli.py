@@ -109,6 +109,15 @@ def _parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--preflight-only",
+        action="store_true",
+        help=(
+            "Validate corpus, split isolation, model scale, memory budget, "
+            "window construction and probe coverage without any model "
+            "forward/backward pass."
+        ),
+    )
+    parser.add_argument(
         "--require-pilot-gate",
         action="store_true",
         help=(
@@ -400,6 +409,96 @@ def main(argv: list[str] | None = None) -> int:
         window_config,
     )
 
+    dataset_identity = _combined_identity(
+        train_sha=train_sha,
+        validation_sha=validation_sha,
+        tokenizer_sha=tokenizer_sha,
+        profile=args.profile,
+    )
+
+    if args.preflight_only:
+        probe_coverage = {
+            "natural_language": (
+                probes is not None
+                and any(
+                    probe.domain is EvaluationDomain.NATURAL_LANGUAGE
+                    for probe in probes
+                )
+            ),
+            "tool_action": (
+                probes is not None
+                and any(
+                    probe.domain is EvaluationDomain.TOOL_ACTION
+                    for probe in probes
+                )
+            ),
+            "external_write": (
+                probes is not None
+                and any(
+                    probe.requires_external_write
+                    for probe in probes
+                )
+            ),
+        }
+        preflight = {
+            "schema": "VN97R2DENSEPREFLIGHT1",
+            "status": "PASS",
+            "profile": args.profile,
+            "architecture_id": config.architecture_id,
+            "config_fingerprint": config.fingerprint(),
+            "parameter_count": config.estimated_parameter_count(),
+            "pilot_scale_50m_150m": (
+                args.profile == "pilot"
+                and 50_000_000
+                <= config.estimated_parameter_count()
+                <= 150_000_000
+            ),
+            "dataset_identity": dataset_identity,
+            "train_sha256": train_sha,
+            "validation_sha256": validation_sha,
+            "tokenizer_sha256": tokenizer_sha,
+            "corpus": corpus_evidence.as_dict(),
+            "resources": {
+                **resources.as_dict(),
+                "training_device": str(training_device),
+                "memory_scope": (
+                    "cuda_free_vram"
+                    if training_device.type == "cuda"
+                    else "host_available_ram"
+                ),
+            },
+            "training_windows": len(training_windows),
+            "validation_windows": len(validation_windows),
+            "probe_suite_sha256": probe_sha,
+            "probe_count": 0 if probes is None else len(probes),
+            "probe_coverage": probe_coverage,
+            "quantization_used": False,
+            "model_forward_executed": False,
+            "training_executed": False,
+        }
+        _atomic_write(
+            output / "r2-dense-pilot-preflight.json",
+            json.dumps(
+                preflight,
+                ensure_ascii=False,
+                sort_keys=True,
+                indent=2,
+                allow_nan=False,
+            ).encode("utf-8") + b"\n",
+        )
+        print(
+            "VN97R2DENSEPREFLIGHT "
+            f"status=PASS profile={args.profile} "
+            f"parameters={config.estimated_parameter_count()} "
+            f"device={training_device} "
+            f"recommended_memory={resources.recommended_ram_bytes} "
+            f"available_memory={resources.available_ram_bytes} "
+            f"train_windows={len(training_windows)} "
+            f"validation_windows={len(validation_windows)}",
+            flush=True,
+        )
+        return 0
+
     initial_validation = evaluate_dense_loss(
         model,
         validation_windows,
@@ -407,12 +506,6 @@ def main(argv: list[str] | None = None) -> int:
         device=training_device,
     )
 
-    dataset_identity = _combined_identity(
-        train_sha=train_sha,
-        validation_sha=validation_sha,
-        tokenizer_sha=tokenizer_sha,
-        profile=args.profile,
-    )
     dense_config = R2DenseTrainingConfig(
         epochs=args.epochs,
         batch_size=args.batch_size,
