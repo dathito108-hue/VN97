@@ -576,13 +576,14 @@ def _teacher_generate(
             max_new_tokens=
                 prompt.max_new_tokens,
             do_sample=False,
-            # Falcon3-Mamba's recurrent cache is not device-map aware in
-            # transformers 4.46.1. With a balanced two-GPU load, cache state
-            # is created on the first CUDA device while later mixer weights
-            # live on the second device, causing a cuda:0/cuda:1 mismatch.
-            # Disabling cache keeps the same greedy teacher semantics and
-            # reuses the proven multi-GPU full-forward path from P5D3A.
-            use_cache=False,
+            # Falcon3-Mamba's default recurrent cache is not safe with the
+            # balanced two-GPU dispatch used on Kaggle T4s. Transformers'
+            # Falcon-Mamba docs explicitly support static-cache generation
+            # under device_map dispatch. This restores recurrent decoding
+            # without the cuda:0/cuda:1 cache-state mismatch and avoids the
+            # prohibitively slow full-sequence recomputation of use_cache=False.
+            use_cache=True,
+            cache_implementation="static",
             pad_token_id=
                 tokenizer.pad_token_id,
             eos_token_id=
