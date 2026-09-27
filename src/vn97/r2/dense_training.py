@@ -5,6 +5,7 @@ import hashlib
 import json
 from pathlib import Path
 import random
+import time
 from typing import Sequence
 
 import torch
@@ -51,6 +52,8 @@ class R2DenseTrainingResult:
     best_epoch: int
     best_validation_loss: float
     best_checkpoint_sha256: str
+    completed: bool = True
+    resume_checkpoint_sha256: str = ""
 
 
 def _device(value: str | torch.device) -> torch.device:
@@ -253,11 +256,14 @@ def train_dense(
     best_checkpoint_path: str | Path,
     dataset_identity: str,
     device: str | torch.device = "auto",
+    max_run_seconds: float | None = None,
 ) -> R2DenseTrainingResult:
     if not training_windows:
         raise ValueError("training windows must not be empty")
     if not validation_windows:
         raise ValueError("validation windows must not be empty")
+    if max_run_seconds is not None and max_run_seconds <= 0.0:
+        raise ValueError("max_run_seconds must be positive when provided")
 
     width = len(training_windows[0].input_ids)
     if any(len(item.input_ids) != width for item in training_windows):
@@ -330,6 +336,9 @@ def train_dense(
             best_checkpoint_sha256=best_checkpoint_sha256,
         )
 
+    run_started = time.monotonic()
+    paused = False
+
     for epoch in range(start_epoch, config.epochs):
         order = list(range(len(training_windows)))
         if len(order) > 1:
@@ -343,7 +352,16 @@ def train_dense(
             raise RuntimeError("R2 dense resume batch is out of range")
 
         model.train()
+        pause_next_batch = batch_begin
         for batch_index in range(batch_begin, len(batches)):
+            if (
+                max_run_seconds is not None
+                and time.monotonic() - run_started >= max_run_seconds
+            ):
+                paused = True
+                pause_next_batch = batch_index
+                break
+
             inputs, labels = _batch(
                 training_windows,
                 batches[batch_index],
@@ -375,6 +393,7 @@ def train_dense(
                 (labels != IGNORE_INDEX).sum().item()
             )
             steps += 1
+            pause_next_batch = batch_index + 1
 
             if steps % config.checkpoint_every_steps == 0:
                 _save_resume(
@@ -410,9 +429,28 @@ def train_dense(
                 metadata={
                     "dataset_identity": dataset_identity,
                     "epoch": epoch,
+                    "steps": steps,
                     "validation": validation,
                 },
             )
+
+        if paused:
+            _save_resume(
+                resume_path,
+                identity=identity,
+                epoch=epoch,
+                next_batch=pause_next_batch,
+                model=model,
+                optimizer=optimizer,
+                steps=steps,
+                target_tokens=target_tokens,
+                loss_sum=loss_sum,
+                final_loss=final_loss,
+                best_epoch=best_epoch,
+                best_validation_loss=best_validation_loss,
+                best_checkpoint_sha256=best_checkpoint_sha256,
+            )
+            break
 
         if epoch + 1 < config.epochs:
             _save_resume(
@@ -430,15 +468,35 @@ def train_dense(
                 best_validation_loss=best_validation_loss,
                 best_checkpoint_sha256=best_checkpoint_sha256,
             )
+            if (
+                max_run_seconds is not None
+                and time.monotonic() - run_started >= max_run_seconds
+            ):
+                paused = True
+                break
         start_batch = 0
-
-    resume_path.unlink(missing_ok=True)
 
     if steps <= 0 or target_tokens <= 0:
         raise RuntimeError("R2 dense training completed without work")
     if best_epoch < 0 or not best_checkpoint_sha256:
         raise RuntimeError("R2 dense training selected no checkpoint")
 
+    if paused:
+        if not resume_path.is_file():
+            raise RuntimeError("R2 dense pause did not persist resume state")
+        return R2DenseTrainingResult(
+            steps=steps,
+            target_tokens=target_tokens,
+            mean_loss=loss_sum / steps,
+            final_loss=final_loss,
+            best_epoch=best_epoch,
+            best_validation_loss=best_validation_loss,
+            best_checkpoint_sha256=best_checkpoint_sha256,
+            completed=False,
+            resume_checkpoint_sha256=sha256_file(resume_path),
+        )
+
+    resume_path.unlink(missing_ok=True)
     return R2DenseTrainingResult(
         steps=steps,
         target_tokens=target_tokens,
@@ -447,4 +505,6 @@ def train_dense(
         best_epoch=best_epoch,
         best_validation_loss=best_validation_loss,
         best_checkpoint_sha256=best_checkpoint_sha256,
+        completed=True,
+        resume_checkpoint_sha256="",
     )
