@@ -198,12 +198,32 @@ class R2D6ScaleEvidence:
 
 def load_r2d6_definition(path: Path) -> tuple[R2D6CorpusInput, ...]:
     definition = path.resolve(strict=True)
+    duplicates: list[str] = []
+
+    def hook(pairs):
+        out: dict[str, object] = {}
+        for key, value in pairs:
+            if key in out:
+                duplicates.append(key)
+            out[key] = value
+        return out
+
     try:
         value = json.loads(
-            definition.read_text(encoding="utf-8", errors="strict")
+            definition.read_text(encoding="utf-8", errors="strict"),
+            object_pairs_hook=hook,
+            parse_constant=lambda raw: (
+                _ for _ in ()
+            ).throw(ValueError(raw)),
         )
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise ValueError("R2-D6 definition must be UTF-8 JSON") from exc
+    except (
+        UnicodeDecodeError,
+        json.JSONDecodeError,
+        ValueError,
+    ) as exc:
+        raise ValueError("R2-D6 definition must be strict UTF-8 JSON") from exc
+    if duplicates:
+        raise ValueError("R2-D6 definition contains duplicate keys")
     if (
         not isinstance(value, dict)
         or set(value) != {"schema", "corpora"}
@@ -381,6 +401,7 @@ def build_r2d6_corpus_index(
 
     global_records: dict[str, tuple[str, str]] = {}
     shards: list[R2D6ShardEvidence] = []
+    source_manifests: list[dict[str, object]] = []
     split_totals = {
         split: {
             "bytes": 0,
@@ -401,6 +422,15 @@ def build_r2d6_corpus_index(
             root / "corpus.vn97corpus1.json",
             output / "manifests" / manifest_name,
             expected_sha256=evidence.manifest_sha256,
+        )
+        source_manifests.append(
+            {
+                "filename": f"manifests/{manifest_name}",
+                "manifest_id": evidence.manifest_id,
+                "sha256": evidence.manifest_sha256,
+                "source_licenses": list(evidence.source_licenses),
+                "task_families": list(item.task_families),
+            }
         )
 
         for split in R2D5_SPLITS:
@@ -499,6 +529,10 @@ def build_r2d6_corpus_index(
         "release_held_out": True,
         "scale": scale.as_dict(),
         "schema": R2D6_INDEX_SCHEMA,
+        "source_manifests": sorted(
+            source_manifests,
+            key=lambda item: str(item["manifest_id"]),
+        ),
         "sequence_length": sequence_length,
         "shards": [
             item.canonical_object()
@@ -565,6 +599,72 @@ def verify_r2d6_corpus_index(package_dir: Path) -> dict[str, object]:
     if payload.get("architecture_fingerprint") != config.fingerprint():
         raise ValueError("R2-D6 architecture fingerprint mismatch")
 
+    manifest_ids_raw = payload.get("corpus_manifest_ids")
+    source_manifests_raw = payload.get("source_manifests")
+    if (
+        not isinstance(manifest_ids_raw, list)
+        or not manifest_ids_raw
+        or manifest_ids_raw != sorted(set(manifest_ids_raw))
+        or not isinstance(source_manifests_raw, list)
+        or not source_manifests_raw
+    ):
+        raise ValueError("R2-D6 source manifest map is invalid")
+
+    source_manifest_map: dict[str, dict[str, object]] = {}
+    for raw in source_manifests_raw:
+        if not isinstance(raw, dict):
+            raise ValueError("R2-D6 source manifest entry is invalid")
+        if set(raw) != {
+            "filename",
+            "manifest_id",
+            "sha256",
+            "source_licenses",
+            "task_families",
+        }:
+            raise ValueError("R2-D6 source manifest fields are invalid")
+        manifest_id = _require_sha256(
+            raw.get("manifest_id"),
+            label="R2-D6 source manifest id",
+        )
+        manifest_sha = _require_sha256(
+            raw.get("sha256"),
+            label="R2-D6 source manifest SHA-256",
+        )
+        if manifest_id in source_manifest_map:
+            raise ValueError("R2-D6 source manifest IDs are not unique")
+        filename = raw.get("filename")
+        if (
+            not isinstance(filename, str)
+            or not filename
+            or Path(filename).is_absolute()
+            or ".." in Path(filename).parts
+        ):
+            raise ValueError("R2-D6 source manifest filename is invalid")
+        path = root / filename
+        if path.is_symlink() or not path.is_file():
+            raise ValueError("R2-D6 source manifest path is invalid")
+        if _sha256_file(path) != manifest_sha:
+            raise ValueError("R2-D6 source manifest hash mismatch")
+        licenses = raw.get("source_licenses")
+        families = raw.get("task_families")
+        if (
+            not isinstance(licenses, list)
+            or not licenses
+            or any(not isinstance(item, str) or not item for item in licenses)
+            or licenses != sorted(set(licenses))
+            or not isinstance(families, list)
+            or not families
+            or any(not isinstance(item, str) or not item for item in families)
+            or families != sorted(set(families))
+        ):
+            raise ValueError(
+                "R2-D6 source manifest license/task identity is invalid"
+            )
+        source_manifest_map[manifest_id] = raw
+
+    if sorted(source_manifest_map) != manifest_ids_raw:
+        raise ValueError("R2-D6 source manifest ID set mismatch")
+
     raw_shards = payload.get("shards")
     if not isinstance(raw_shards, list) or not raw_shards:
         raise ValueError("R2-D6 shard list is invalid")
@@ -584,6 +684,37 @@ def verify_r2d6_corpus_index(package_dir: Path) -> dict[str, object]:
         if shard.shard_id in seen_ids:
             raise ValueError("R2-D6 shard IDs are not unique")
         seen_ids.add(shard.shard_id)
+        source_manifest = source_manifest_map.get(
+            shard.source_manifest_id
+        )
+        if source_manifest is None:
+            raise ValueError("R2-D6 shard source manifest is unknown")
+        if (
+            source_manifest["sha256"]
+            != shard.source_manifest_sha256
+        ):
+            raise ValueError(
+                "R2-D6 shard source manifest SHA-256 mismatch"
+            )
+        if (
+            tuple(source_manifest["task_families"])
+            != shard.task_families
+            or tuple(source_manifest["source_licenses"])
+            != shard.source_licenses
+        ):
+            raise ValueError(
+                "R2-D6 shard source provenance mismatch"
+            )
+        expected_shard_id = hashlib.sha256(
+            b"VN97R2D6SHARD1\0"
+            + shard.source_manifest_id.encode("ascii")
+            + b"\0"
+            + shard.split.encode("ascii")
+            + b"\0"
+            + shard.sha256.encode("ascii")
+        ).hexdigest()
+        if shard.shard_id != expected_shard_id:
+            raise ValueError("R2-D6 shard identity mismatch")
         shard_path = root / shard.filename
         if shard_path.is_symlink() or not shard_path.is_file():
             raise ValueError("R2-D6 shard path is invalid")
