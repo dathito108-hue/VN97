@@ -76,6 +76,23 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--device", default="auto")
     parser.add_argument("--seed", type=int, default=9705)
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help=(
+            "Resume from work-dir/dense-resume.pt and reuse the existing "
+            "output directory/best checkpoint."
+        ),
+    )
+    parser.add_argument(
+        "--max-run-seconds",
+        type=float,
+        default=None,
+        help=(
+            "Gracefully pause dense training at a batch boundary after this "
+            "wall-clock budget, persist resume state, and skip final probes."
+        ),
+    )
 
     parser.add_argument(
         "--probe-jsonl",
@@ -281,14 +298,28 @@ def main(argv: list[str] | None = None) -> int:
         raise ValueError(
             "--require-pilot-gate requires --probe-jsonl"
         )
+    if args.max_run_seconds is not None and args.max_run_seconds <= 0.0:
+        raise ValueError("--max-run-seconds must be positive")
+    if args.resume and args.preflight_only:
+        raise ValueError("--resume cannot be combined with --preflight-only")
 
     output = Path(args.output_dir)
+    work = Path(args.work_dir)
+    resume_path = work / "dense-resume.pt"
+
     if output.exists() and (
-        output.is_symlink()
-        or not output.is_dir()
-        or any(output.iterdir())
+        output.is_symlink() or not output.is_dir()
     ):
-        raise ValueError("output-dir must be new or empty")
+        raise ValueError("output-dir must be a regular directory")
+    if args.resume:
+        if not resume_path.is_file():
+            raise ValueError(
+                "--resume requires work-dir/dense-resume.pt"
+            )
+    elif output.exists() and any(output.iterdir()):
+        raise ValueError(
+            "output-dir must be new or empty unless --resume is used"
+        )
     output.mkdir(parents=True, exist_ok=True)
 
     tokenizer_path = Path(args.tokenizer).resolve(strict=True)
@@ -525,7 +556,70 @@ def main(argv: list[str] | None = None) -> int:
         best_checkpoint_path=checkpoint_path,
         dataset_identity=dataset_identity,
         device=training_device,
+        max_run_seconds=args.max_run_seconds,
     )
+
+    if not result.completed:
+        shutil.copyfile(
+            tokenizer_path,
+            output / "tokenizer.vn97tk1",
+        )
+        progress = {
+            "schema": "VN97R2DENSEPROGRESS1",
+            "status": "PAUSED",
+            "profile": args.profile,
+            "architecture_id": config.architecture_id,
+            "config_fingerprint": config.fingerprint(),
+            "parameter_count": model.parameter_count(),
+            "dataset_identity": dataset_identity,
+            "corpus": corpus_evidence.as_dict(),
+            "resources": {
+                **resources.as_dict(),
+                "training_device": str(training_device),
+                "memory_scope": (
+                    "cuda_free_vram"
+                    if training_device.type == "cuda"
+                    else "host_available_ram"
+                ),
+            },
+            "training": {
+                "steps": result.steps,
+                "target_tokens": result.target_tokens,
+                "mean_loss": result.mean_loss,
+                "final_loss": result.final_loss,
+                "best_epoch": result.best_epoch,
+                "best_validation_loss": result.best_validation_loss,
+                "best_checkpoint_sha256": result.best_checkpoint_sha256,
+                "completed": False,
+                "resume_checkpoint_sha256": (
+                    result.resume_checkpoint_sha256
+                ),
+            },
+            "resume_path": str(resume_path),
+            "probe_suite_sha256": probe_sha,
+            "pilot_accepted": False,
+            "quantization_used": False,
+        }
+        _atomic_write(
+            output / "r2-dense-pilot-progress.json",
+            json.dumps(
+                progress,
+                ensure_ascii=False,
+                sort_keys=True,
+                indent=2,
+                allow_nan=False,
+            ).encode("utf-8") + b"\n",
+        )
+        print(
+            "VN97R2DENSEPILOT "
+            f"status=PAUSED profile={args.profile} "
+            f"steps={result.steps} "
+            f"best_val_loss={result.best_validation_loss:.6f} "
+            f"resume_sha256={result.resume_checkpoint_sha256} "
+            f"work_dir={work}",
+            flush=True,
+        )
+        return 0
 
     best_model, checkpoint_evidence = load_r2_checkpoint(
         checkpoint_path,
@@ -634,6 +728,10 @@ def main(argv: list[str] | None = None) -> int:
             "best_checkpoint_sha256": (
                 result.best_checkpoint_sha256
             ),
+            "completed": result.completed,
+            "resume_checkpoint_sha256": (
+                result.resume_checkpoint_sha256
+            ),
         },
         "final_validation": final_validation,
         "relative_validation_loss_improvement": (
@@ -663,6 +761,9 @@ def main(argv: list[str] | None = None) -> int:
             indent=2,
             allow_nan=False,
         ).encode("utf-8") + b"\n",
+    )
+    (output / "r2-dense-pilot-progress.json").unlink(
+        missing_ok=True
     )
     print(
         "VN97R2DENSEPILOT "
