@@ -968,6 +968,33 @@ def main(
         raise VN97P5D1Error(
             "progress interval must be positive"
         )
+    if args.worker_count <= 0:
+        raise VN97P5D1Error(
+            "worker-count must be positive"
+        )
+    if not (
+        0
+        <= args.worker_index
+        < args.worker_count
+    ):
+        raise VN97P5D1Error(
+            "worker-index must be in [0, worker-count)"
+        )
+    if (
+        args.records_only
+        and args.finalize_only
+    ):
+        raise VN97P5D1Error(
+            "records-only and finalize-only are mutually exclusive"
+        )
+    if (
+        args.worker_count > 1
+        and not args.records_only
+        and not args.finalize_only
+    ):
+        raise VN97P5D1Error(
+            "multi-worker generation requires --records-only"
+        )
 
     p3_root = Path(
         args.p3_corpus_dir
@@ -1064,9 +1091,70 @@ def main(
         flush=True,
     )
 
+    if args.finalize_only:
+        if (
+            len(args.teacher_revision)
+            != 40
+            or any(
+                character
+                not in "0123456789abcdef"
+                for character
+                in args.teacher_revision.lower()
+            )
+        ):
+            raise VN97P5D1Error(
+                "finalize-only requires an exact 40-hex teacher revision"
+            )
+        _finalize(
+            prompts=prompts,
+            work=work,
+            output=output,
+            teacher_revision=
+                args.teacher_revision.lower(),
+            manifest_sha256=
+                manifest_sha,
+        )
+        return 0
+
+    assigned = [
+        prompt
+        for prompt in prompts
+        if (
+            int(
+                prompt.record_id[
+                    :16
+                ],
+                16,
+            )
+            % args.worker_count
+            == args.worker_index
+        )
+    ]
+    assigned_existing = sum(
+        1
+        for prompt in assigned
+        if _record_path(
+            work,
+            prompt.record_id,
+        ).is_file()
+    )
+    pending = (
+        len(assigned)
+        - assigned_existing
+    )
+    print(
+        "VN97 P5D1 WORKER "
+        f"index={args.worker_index} "
+        f"count={args.worker_count} "
+        f"assigned={len(assigned)} "
+        f"existing={assigned_existing} "
+        f"pending={pending} "
+        f"teacher_int8={args.teacher_int8}",
+        flush=True,
+    )
+
     model = None
     tokenizer = None
-    started = time.monotonic()
     (
         model,
         tokenizer,
@@ -1074,13 +1162,15 @@ def main(
     ) = _load_teacher(
         revision=
             args.teacher_revision,
+        teacher_int8=
+            args.teacher_int8,
     )
 
+    started = time.monotonic()
+    generated = 0
     completed = 0
-    for index, prompt in enumerate(
-        prompts,
-        start=1,
-    ):
+
+    for prompt in assigned:
         path = _record_path(
             work,
             prompt.record_id,
@@ -1116,28 +1206,29 @@ def main(
             record,
         )
         completed += 1
+        generated += 1
 
         if (
-            completed
+            generated
             % args.progress_interval
             == 0
             or completed
-            == len(prompts)
+            == len(assigned)
         ):
             elapsed = (
                 time.monotonic()
                 - started
             )
             rate = (
-                completed
+                generated
                 / max(
                     elapsed,
                     1e-9,
                 )
             )
             remaining = (
-                len(prompts)
-                - completed
+                pending
+                - generated
             )
             eta = (
                 remaining
@@ -1148,8 +1239,9 @@ def main(
             )
             print(
                 "VN97 P5D1 PROGRESS "
-                f"records={completed}/{len(prompts)} "
-                f"percent={100.0 * completed / len(prompts):.2f} "
+                f"worker={args.worker_index}/{args.worker_count} "
+                f"generated={generated}/{pending} "
+                f"assigned_complete={completed}/{len(assigned)} "
                 f"elapsed_s={elapsed:.1f} "
                 f"eta_s={eta:.1f} "
                 f"category={prompt.category}",
@@ -1159,6 +1251,18 @@ def main(
     del model
     del tokenizer
     torch.cuda.empty_cache()
+
+    if args.records_only:
+        print(
+            "VN97P5D1WORKER "
+            "status=RECORDS_READY "
+            f"worker={args.worker_index}/{args.worker_count} "
+            f"assigned={len(assigned)} "
+            f"generated={generated} "
+            f"teacher_revision={resolved_revision}",
+            flush=True,
+        )
+        return 0
 
     _finalize(
         prompts=prompts,
