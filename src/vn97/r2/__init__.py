@@ -87,6 +87,13 @@ from .pilot_evaluation import (
     evaluate_pilot_probes,
     lexical_token_f1,
 )
+from .onnx_runtime_package import (
+    R2F1_RUNTIME_FILENAME,
+    R2F1_RUNTIME_SCHEMA,
+    build_r2f1_runtime_package,
+    compile_r2f1_runtime_package,
+    verify_r2f1_runtime_package,
+)
 from .onnx_hardening import (
     R2E5_HARDENING_SCHEMA,
     R2E5_RUN_SCHEMA,
@@ -474,5 +481,10 @@ __all__ = [
     "seal_r2e5_hardening",
     "verify_r2e5_hardening",
     "verify_r2e5_run",
+    "R2F1_RUNTIME_FILENAME",
+    "R2F1_RUNTIME_SCHEMA",
+    "build_r2f1_runtime_package",
+    "compile_r2f1_runtime_package",
+    "verify_r2f1_runtime_package",
 
 ]

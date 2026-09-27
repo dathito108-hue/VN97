@@ -359,6 +359,11 @@ Production execution is split into fail-closed gates:
   exact E2/E3/E4/run provenance; normalized sustained latency guards; and a
   sealed minimal-graph APK recommendation. CI cannot manufacture an E5 PASS;
   official hardening requires real device evidence from the target family.
+- **R2-F1** turns E2/E4 evidence into a portable VN97R2F1RUNTIME1 descriptor
+  and one Android ONNX production executor. It uses file-backed ORT sessions,
+  bounded session caching, exact provider fallback, direct pinned input/logit
+  buffers, double-buffered explicit recurrent state and E4 latency/thermal/RAM
+  feedback. The same executor implements the E5 hardening interface.
 
 A passing R2-D5 receipt proves execution-memory feasibility only. It does not
 assert that the current preflight corpus volume is enough to train the 1B
@@ -427,7 +432,16 @@ single VN97 model semantics.
 
 ### R2-F — Android production integration
 
-- replace legacy intelligence checkpoint behind the existing VN97 interfaces;
+- **R2-F1 — ONNX Production Executor** binds the exact E2 bundle and E4 tuning
+  profile into VN97R2F1RUNTIME1, verifies graph SHA/size on Android, keeps
+  SessionOptions alive for the full ORT session lifetime, carries recurrent
+  state through pinned double buffers, bounds the session cache for mobile RAM,
+  and exposes production prefill/step plus the exact E5 executor path.
+- **R2-F2 — Chat/Cognition Bridge** will bind exact VN97TK1 tokenizer identity
+  and existing chat/cognition contracts to F1 without invoking legacy model
+  weights as a hidden second inference backend.
+- replace the remaining legacy intelligence checkpoint path behind the existing
+  VN97 interfaces only after the R2 bridge is proven;
 - keep VN97MEM1, planner, M6, tools, continuity, voice, overlay and agents;
 - final turnkey APK acceptance.
 

@@ -237,12 +237,17 @@ object OrtAdaptiveScheduler {
     }
 }
 
-data class OrtSessionHandle(
+class OrtSessionHandle(
     val session: OrtSession,
     val primaryProvider: OrtProviderKind,
+    private val sessionOptions: OrtSession.SessionOptions,
 ) : AutoCloseable {
     override fun close() {
-        session.close()
+        try {
+            session.close()
+        } finally {
+            sessionOptions.close()
+        }
     }
 }
 
@@ -259,23 +264,17 @@ class VN97OrtSessionFactory(
         var lastFailure: Throwable? = null
         for (provider in decision.providers) {
             try {
-                val options = sessionOptionsFor(
+                return createForProvider(
+                    modelBytes = modelBytes,
                     provider = provider,
-                    decision = decision,
+                    xnnpackThreads = decision.xnnpackThreads,
                     device = device,
                 )
-                try {
-                    val session = environment.createSession(
-                        modelBytes,
-                        options,
-                    )
-                    return OrtSessionHandle(session, provider)
-                } finally {
-                    options.close()
-                }
             } catch (error: OrtException) {
                 lastFailure = error
             } catch (error: UnsatisfiedLinkError) {
+                lastFailure = error
+            } catch (error: IllegalArgumentException) {
                 lastFailure = error
             }
         }
@@ -285,9 +284,105 @@ class VN97OrtSessionFactory(
         )
     }
 
+    fun create(
+        modelPath: String,
+        decision: OrtAdaptiveDecision,
+        device: OrtDeviceCapabilities,
+    ): OrtSessionHandle {
+        require(modelPath.isNotBlank()) {
+            "ONNX model path must not be blank"
+        }
+
+        var lastFailure: Throwable? = null
+        for (provider in decision.providers) {
+            try {
+                return createForProvider(
+                    modelPath = modelPath,
+                    provider = provider,
+                    xnnpackThreads = decision.xnnpackThreads,
+                    device = device,
+                )
+            } catch (error: OrtException) {
+                lastFailure = error
+            } catch (error: UnsatisfiedLinkError) {
+                lastFailure = error
+            } catch (error: IllegalArgumentException) {
+                lastFailure = error
+            }
+        }
+        throw IllegalStateException(
+            "unable to create VN97 ONNX Runtime session",
+            lastFailure,
+        )
+    }
+
+    fun createForProvider(
+        modelBytes: ByteArray,
+        provider: OrtProviderKind,
+        xnnpackThreads: Int,
+        device: OrtDeviceCapabilities,
+    ): OrtSessionHandle {
+        require(modelBytes.isNotEmpty()) { "ONNX model must not be empty" }
+        require(xnnpackThreads > 0) {
+            "xnnpackThreads must be positive"
+        }
+        val options = sessionOptionsFor(
+            provider = provider,
+            xnnpackThreads = xnnpackThreads,
+            device = device,
+        )
+        try {
+            val session = environment.createSession(
+                modelBytes,
+                options,
+            )
+            return OrtSessionHandle(
+                session,
+                provider,
+                options,
+            )
+        } catch (error: Throwable) {
+            options.close()
+            throw error
+        }
+    }
+
+    fun createForProvider(
+        modelPath: String,
+        provider: OrtProviderKind,
+        xnnpackThreads: Int,
+        device: OrtDeviceCapabilities,
+    ): OrtSessionHandle {
+        require(modelPath.isNotBlank()) {
+            "ONNX model path must not be blank"
+        }
+        require(xnnpackThreads > 0) {
+            "xnnpackThreads must be positive"
+        }
+        val options = sessionOptionsFor(
+            provider = provider,
+            xnnpackThreads = xnnpackThreads,
+            device = device,
+        )
+        try {
+            val session = environment.createSession(
+                modelPath,
+                options,
+            )
+            return OrtSessionHandle(
+                session,
+                provider,
+                options,
+            )
+        } catch (error: Throwable) {
+            options.close()
+            throw error
+        }
+    }
+
     private fun sessionOptionsFor(
         provider: OrtProviderKind,
-        decision: OrtAdaptiveDecision,
+        xnnpackThreads: Int,
         device: OrtDeviceCapabilities,
     ): OrtSession.SessionOptions {
         val options = OrtSession.SessionOptions()
@@ -300,6 +395,12 @@ class VN97OrtSessionFactory(
                 "session.intra_op.allow_spinning",
                 "0",
             )
+            if (provider != OrtProviderKind.CPU) {
+                options.addConfigEntry(
+                    "session.disable_cpu_ep_fallback",
+                    "1",
+                )
+            }
             when (provider) {
                 OrtProviderKind.QNN -> {
                     require(device.isQualcomm) {
@@ -318,15 +419,21 @@ class VN97OrtSessionFactory(
                     )
                 }
                 OrtProviderKind.NNAPI -> {
+                    require(device.nnapiAvailable && device.sdkInt >= 27) {
+                        "NNAPI is not available on this device"
+                    }
                     options.addNnapi(
                         EnumSet.of(NNAPIFlags.CPU_DISABLED)
                     )
                 }
                 OrtProviderKind.XNNPACK -> {
+                    require(device.xnnpackAvailable) {
+                        "XNNPACK is not available on this device"
+                    }
                     options.addXnnpack(
                         mapOf(
                             "intra_op_num_threads" to
-                                decision.xnnpackThreads.toString()
+                                xnnpackThreads.toString()
                         )
                     )
                 }
@@ -339,3 +446,4 @@ class VN97OrtSessionFactory(
         }
     }
 }
+
