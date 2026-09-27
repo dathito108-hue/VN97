@@ -24,7 +24,12 @@ from vn97.r2 import (
     sha256_file,
 )
 from vn97.r2.dense_pilot_cli import main as dense_pilot_main
-from vn97.r2.dense_training import _validate_resume_best_checkpoint
+import vn97.r2.dense_training as dense_training_module
+from vn97.r2.dense_training import (
+    R2DenseTrainingConfig,
+    _validate_resume_best_checkpoint,
+    train_dense,
+)
 from vn97.tokenizer import VN97Tokenizer, VN97TokenizerPackage
 from vn97.training import VN97ChatMessage, VN97TrainingConfig
 
@@ -91,7 +96,7 @@ def test_r2c_metric_contract_rejects_inconsistent_counts_and_rates() -> None:
             protocol_exact_match_rate=1.0,
         )
 
-    with pytest.raises(ValueError, match="\[0, 1\]"):
+    with pytest.raises(ValueError, match=r"\[0, 1\]"):
         R2PilotGateThresholds(
             generation_success_rate=1.1,
         )
@@ -152,9 +157,19 @@ def test_r2c_resource_preflight_is_conservative_and_observable() -> None:
     )
     assert low.parameter_count == config.estimated_parameter_count()
     assert low.optimizer_model_grad_bytes == low.parameter_count * 16
+    assert low.scan_rounds == 6
     assert low.activation_bytes > 0
     assert low.recommended_ram_bytes > low.optimizer_model_grad_bytes
     assert low.fits_available_ram is False
+
+    t4_like = estimate_pilot_training_resources(
+        config,
+        sequence_length=128,
+        batch_size=1,
+        available_ram=15 * 1024**3,
+    )
+    assert t4_like.scan_rounds == 7
+    assert t4_like.fits_available_ram is False
 
     high = estimate_pilot_training_resources(
         config,
@@ -223,6 +238,95 @@ def test_r2c_gate_is_fail_closed_when_required_probe_axes_are_missing() -> None:
     ).passed is True
 
 
+
+
+
+
+def test_r2c_time_budget_pause_resumes_same_dense_run(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    tokenizer = VN97Tokenizer()
+    config = r2_smoke_config(tokenizer.vocab_size)
+    training_windows = build_completion_windows(
+        tokenizer,
+        (
+            _chat("first?", "one"),
+            _chat("second?", "two"),
+        ),
+        VN97TrainingConfig(
+            sequence_length=32,
+            stride=16,
+            batch_size=1,
+            epochs=1,
+            max_windows=10,
+        ),
+    )
+    validation_windows = build_completion_windows(
+        tokenizer,
+        (_chat("heldout?", "three"),),
+        VN97TrainingConfig(
+            sequence_length=32,
+            stride=16,
+            batch_size=1,
+            epochs=1,
+            max_windows=10,
+        ),
+    )
+    training_config = R2DenseTrainingConfig(
+        epochs=1,
+        batch_size=1,
+        learning_rate=1e-3,
+        checkpoint_every_steps=1,
+        seed=77,
+    )
+    work = tmp_path / "work"
+    best = tmp_path / "best.r2.pt"
+
+    ticks = iter((0.0, 0.0, 10.0))
+    monkeypatch.setattr(
+        dense_training_module.time,
+        "monotonic",
+        lambda: next(ticks),
+    )
+    first_model = VN97R2Model(config)
+    paused = train_dense(
+        first_model,
+        training_windows,
+        validation_windows,
+        training_config,
+        work_dir=work,
+        best_checkpoint_path=best,
+        dataset_identity="r2c-resume-test",
+        device="cpu",
+        max_run_seconds=1.0,
+    )
+    assert paused.completed is False
+    assert paused.steps == 1
+    assert paused.resume_checkpoint_sha256
+    assert (work / "dense-resume.pt").is_file()
+    assert best.is_file()
+
+    monkeypatch.setattr(
+        dense_training_module.time,
+        "monotonic",
+        lambda: 0.0,
+    )
+    resumed_model = VN97R2Model(config)
+    completed = train_dense(
+        resumed_model,
+        training_windows,
+        validation_windows,
+        training_config,
+        work_dir=work,
+        best_checkpoint_path=best,
+        dataset_identity="r2c-resume-test",
+        device="cpu",
+    )
+    assert completed.completed is True
+    assert completed.steps == len(training_windows)
+    assert completed.resume_checkpoint_sha256 == ""
+    assert not (work / "dense-resume.pt").exists()
 
 
 def test_r2c_resume_guard_rejects_missing_or_tampered_best_checkpoint(
