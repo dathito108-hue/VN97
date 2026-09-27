@@ -162,6 +162,11 @@ def _validate_phase(phase: Mapping[str, object]) -> None:
         if (
             not isinstance(counts, dict)
             or not counts
+            or sum(
+                value
+                for value in counts.values()
+                if isinstance(value, int)
+            ) <= 0
             or any(
                 not isinstance(key, str)
                 or not key
@@ -408,7 +413,8 @@ def compile_r2e5_hardening(
         <= int(sustained["thermal_after"])
     )
     hardening_passed = (
-        control_passed
+        target_match
+        and control_passed
         and sustained_guard_passed
         and failure_guard_passed
         and recovery_thermal_passed
