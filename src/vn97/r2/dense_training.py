@@ -297,12 +297,24 @@ def train_dense(
         best_checkpoint_sha256 = str(
             resume.get("best_checkpoint_sha256", "")
         )
-        if (
-            best_epoch >= 0
-            and not best_checkpoint_sha256
-            and best_path.is_file()
-        ):
-            best_checkpoint_sha256 = sha256_file(best_path)
+        if best_epoch >= 0:
+            if not best_path.is_file():
+                raise RuntimeError(
+                    "R2 dense resume references a missing best checkpoint"
+                )
+            actual_best_sha256 = sha256_file(best_path)
+            if (
+                best_checkpoint_sha256
+                and actual_best_sha256 != best_checkpoint_sha256
+            ):
+                raise RuntimeError(
+                    "R2 dense resume best checkpoint SHA-256 mismatch"
+                )
+            best_checkpoint_sha256 = actual_best_sha256
+        elif best_checkpoint_sha256:
+            raise RuntimeError(
+                "R2 dense resume has checkpoint identity without best epoch"
+            )
 
     for epoch in range(start_epoch, config.epochs):
         order = list(range(len(training_windows)))
