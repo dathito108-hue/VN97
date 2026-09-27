@@ -75,6 +75,15 @@ from .pilot_evaluation import (
     evaluate_pilot_probes,
     lexical_token_f1,
 )
+from .production_campaign import (
+    R2D5_CAMPAIGN_SCHEMA,
+    R2D5_PREFLIGHT_RECEIPT_SCHEMA,
+    R2D5CorpusEvidence,
+    build_r2d5_preflight_package,
+    seal_r2d5_preflight,
+    verify_r2d5_corpus,
+    verify_r2d5_package,
+)
 from .production_contract import (
     R2_PRODUCTION_MAX_PARAMETERS,
     R2_PRODUCTION_MIN_PARAMETERS,
@@ -194,4 +203,11 @@ __all__ = [
     "load_production_stage_model",
     "measure_cuda_training_preflight",
     "train_production_stage",
+    "R2D5_CAMPAIGN_SCHEMA",
+    "R2D5_PREFLIGHT_RECEIPT_SCHEMA",
+    "R2D5CorpusEvidence",
+    "build_r2d5_preflight_package",
+    "seal_r2d5_preflight",
+    "verify_r2d5_corpus",
+    "verify_r2d5_package",
 ]
