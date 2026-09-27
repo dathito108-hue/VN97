@@ -28,6 +28,7 @@ PINNED_WEIGHT_SHA256 = (
 PINNED_WEIGHT_SIZE_BYTES = 5_405_424_282
 PINNED_WEIGHT_FILENAME = "pytorch_model.bin"
 PINNED_CONFIG_FILENAME = "config.json"
+PINNED_ORACLE_MAMBA_COMMIT = "e9594ce1c732d97440f0332fdc43170a2294dbfa"
 
 
 def _canonical_json(value: object) -> bytes:
