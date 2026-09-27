@@ -370,6 +370,61 @@ def _graph_record(
     }
 
 
+def _register_onnx_symbolics() -> None:
+    # ONNX has Exp but no native Expm1 operator. VN97 exact-ZOH relies on
+    # expm1 for numerical stability near zero, so the export-only symbolic
+    # uses a short Taylor expansion for small magnitudes instead of changing
+    # the canonical PyTorch equations.
+    def _expm1_symbolic(g, value):
+        one = g.op(
+            "Constant",
+            value_t=torch.tensor(1.0, dtype=torch.float32),
+        )
+        half = g.op(
+            "Constant",
+            value_t=torch.tensor(0.5, dtype=torch.float32),
+        )
+        sixth = g.op(
+            "Constant",
+            value_t=torch.tensor(
+                1.0 / 6.0,
+                dtype=torch.float32,
+            ),
+        )
+        threshold = g.op(
+            "Constant",
+            value_t=torch.tensor(1.0e-3, dtype=torch.float32),
+        )
+        square = g.op("Mul", value, value)
+        cube = g.op("Mul", square, value)
+        taylor = g.op(
+            "Add",
+            g.op(
+                "Add",
+                value,
+                g.op("Mul", half, square),
+            ),
+            g.op("Mul", sixth, cube),
+        )
+        direct = g.op(
+            "Sub",
+            g.op("Exp", value),
+            one,
+        )
+        small = g.op(
+            "Less",
+            g.op("Abs", value),
+            threshold,
+        )
+        return g.op("Where", small, taylor, direct)
+
+    torch.onnx.register_custom_op_symbolic(
+        "aten::expm1",
+        _expm1_symbolic,
+        R2_ONNX_OPSET,
+    )
+
+
 def _export_graph(
     adapter: nn.Module,
     *,
@@ -378,6 +433,7 @@ def _export_graph(
     ssm_state: torch.Tensor,
     output_path: Path,
 ) -> None:
+    _register_onnx_symbolics()
     output_path.parent.mkdir(parents=True, exist_ok=True)
     temp = output_path.with_name(output_path.name + ".tmp")
     temp.unlink(missing_ok=True)
