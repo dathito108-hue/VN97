@@ -832,6 +832,12 @@ def verify_r2d13_ready(
         ),
         recipe=recipe,
     )
+    if preflight_raw.get("campaign_id") != campaign.get(
+        "preflight_campaign_id"
+    ):
+        raise ValueError(
+            "R2-D13 preflight receipt belongs to another D5 campaign"
+        )
     expected = {
         "campaign_id": campaign["campaign_id"],
         "preflight_receipt_id": preflight_raw["receipt_id"],
