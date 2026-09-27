@@ -427,6 +427,7 @@ def load_production_stage_model(
     *,
     config=None,
     parent_checkpoint_path: str | Path | None = None,
+    initialization_seed: int | None = None,
 ) -> tuple[VN97R2Model, dict[str, object] | None]:
     if manifest.stage == "dense_pretrain":
         if config is None:
@@ -435,9 +436,23 @@ def load_production_stage_model(
             raise ValueError(
                 "dense_pretrain must not receive a parent checkpoint"
             )
+        if initialization_seed is None or initialization_seed < 0:
+            raise ValueError(
+                "dense_pretrain requires a non-negative initialization_seed"
+            )
         assert_r2_production_scale(config)
-        return VN97R2Model(config), None
+        torch.manual_seed(initialization_seed)
+        model = VN97R2Model(config)
+        model._r2_production_origin = {
+            "kind": "initialization",
+            "seed": int(initialization_seed),
+        }
+        return model, None
 
+    if initialization_seed is not None:
+        raise ValueError(
+            "post-pretrain stages must not set initialization_seed"
+        )
     if config is not None:
         raise ValueError(
             "post-pretrain stages derive config from the parent checkpoint"
@@ -451,7 +466,56 @@ def load_production_stage_model(
     )
     assert_r2_production_scale(model.config)
     assert_stage_model_origin(manifest, evidence)
+    model._r2_production_origin = {
+        "kind": "checkpoint",
+        "sha256": str(evidence["sha256"]),
+        "stage": str(evidence["stage"]),
+    }
     return model, evidence
+
+
+
+def _assert_model_provenance(
+    model: VN97R2Model,
+    manifest: R2ProductionCorpusManifest,
+    trainer: R2ProductionTrainerConfig,
+    parent_evidence: Mapping[str, object] | None,
+) -> None:
+    origin = getattr(model, "_r2_production_origin", None)
+    if not isinstance(origin, Mapping):
+        raise ValueError(
+            "production model lacks canonical initialization/checkpoint "
+            "provenance; use load_production_stage_model()"
+        )
+
+    if manifest.stage == "dense_pretrain":
+        if origin.get("kind") != "initialization":
+            raise ValueError(
+                "dense_pretrain model origin must be deterministic initialization"
+            )
+        if int(origin.get("seed", -1)) != trainer.seed:
+            raise ValueError(
+                "dense_pretrain initialization seed does not match trainer seed"
+            )
+        if parent_evidence is not None:
+            raise ValueError(
+                "dense_pretrain must not receive parent checkpoint evidence"
+            )
+        return
+
+    assert_stage_model_origin(manifest, parent_evidence)
+    if origin.get("kind") != "checkpoint":
+        raise ValueError(
+            "post-pretrain model must originate from a checkpoint"
+        )
+    if str(origin.get("sha256", "")) != manifest.parent_checkpoint_sha256:
+        raise ValueError(
+            "model checkpoint origin does not match manifest parent SHA-256"
+        )
+    if parent_evidence is None:
+        raise ValueError("post-pretrain parent evidence missing")
+    if str(origin.get("stage", "")) != str(parent_evidence.get("stage", "")):
+        raise ValueError("model checkpoint origin stage mismatch")
 
 
 @torch.inference_mode()
@@ -725,7 +789,12 @@ def train_production_stage(
         raise ValueError("max_run_seconds must be positive when provided")
 
     assert_r2_production_scale(model.config)
-    assert_stage_model_origin(manifest, parent_evidence)
+    _assert_model_provenance(
+        model,
+        manifest,
+        trainer,
+        parent_evidence,
+    )
 
     for split_name, windows in (
         ("training", training_windows),
