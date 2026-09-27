@@ -1,0 +1,39 @@
+name: P5E4L temporary validation
+
+on:
+  push:
+    branches:
+      - p5e4l-sequence-rescue
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Python syntax
+        run: python -m py_compile src/vn97/p5e4l_sequence_rescue_cli.py
+      - name: Shell syntax
+        run: bash -n tools/kaggle_p5e4l_rescue.sh
+      - name: P5E4L contracts
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          src = Path("src/vn97/p5e4l_sequence_rescue_cli.py").read_text()
+          pyproject = Path("pyproject.toml").read_text()
+          launcher = Path("tools/kaggle_p5e4l_rescue.sh").read_text()
+          required = [
+              "CORRECTION_RANK = 64",
+              "MERGED_RANK = PARENT_RANK + CORRECTION_RANK",
+              "SEQUENCE_RESCUE_SIGNAL",
+              "MIN_QAT_EXACT_RATE = 0.10",
+              "MIN_EXACT_GAIN = 8",
+              "ready_for_qat",
+              "frozen VN97 core changed during sequence rescue",
+              "best-correction.pt",
+              "DECODING_POLICY_NO_MATERIAL_GAIN",
+          ]
+          missing = [item for item in required if item not in src]
+          assert not missing, missing
+          assert 'vn97-p5e4l-rescue = "vn97.p5e4l_sequence_rescue_cli:main"' in pyproject
+          assert "python -m vn97.p5e4l_sequence_rescue_cli" in launcher
+          PY
