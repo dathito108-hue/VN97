@@ -15,7 +15,10 @@
 > `docs/VN97_R2G03_ZERO_COPY_CAPSULE.md`.
 > R2-G0.4 adds the correctness-first ONNX step lowering with explicit Mamba-2
 > conv/SSD state, external-data support and CPU ORT parity; see
-> `docs/VN97_R2G04_MAMBA2_ONNX.md`. Parallel SSD prefill remains G0.5.
+> `docs/VN97_R2G04_MAMBA2_ONNX.md`.
+> R2-G0.5 adds one shared-weight recurrent ONNX graph for both decode and
+> parallel SSD prefill via bounded `valid_length`; see
+> `docs/VN97_R2G05_PARALLEL_PREFILL.md`.
 
 
 ## Status
