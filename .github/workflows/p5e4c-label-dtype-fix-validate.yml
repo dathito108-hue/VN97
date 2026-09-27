@@ -1,0 +1,27 @@
+name: VN97 P5E4C Label Dtype Fix Validate
+
+on:
+  push:
+    branches:
+      - p5e4c-label-dtype-fix
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Python syntax
+        run: python -m compileall -q src/vn97/p5e4c_decoder_repair_cli.py
+      - name: Dtype contract
+        run: |
+          grep -q 'dtype=torch.long' src/vn97/p5e4c_decoder_repair_cli.py
+          python - <<'PY'
+          import torch
+          labels = torch.tensor([[1, 2, -100]], dtype=torch.int32)
+          labels = labels.to(dtype=torch.long)
+          assert labels.dtype == torch.int64
+          PY
