@@ -121,6 +121,7 @@ def _validate_phase(phase: Mapping[str, object]) -> None:
         "name",
         "kind",
         "iterations",
+        "tokens_per_iteration",
         "latencies_ns",
         "provider_counts",
         "graph_counts",
@@ -141,10 +142,13 @@ def _validate_phase(phase: Mapping[str, object]) -> None:
     }:
         raise ValueError("E5 phase kind is invalid")
     iterations = phase["iterations"]
+    tokens_per_iteration = phase["tokens_per_iteration"]
     latencies = phase["latencies_ns"]
     if (
         not isinstance(iterations, int)
         or iterations <= 0
+        or not isinstance(tokens_per_iteration, int)
+        or tokens_per_iteration <= 0
         or not isinstance(latencies, list)
         or len(latencies) != iterations
         or any(
@@ -375,8 +379,16 @@ def compile_r2e5_hardening(
         sustained["latencies_ns"],
         0.95,
     )
+    warm_per_token_p95 = (
+        warm_p95 // int(warm["tokens_per_iteration"])
+    )
+    sustained_per_token_p95 = (
+        sustained_p95 // int(sustained["tokens_per_iteration"])
+    )
+    if warm_per_token_p95 <= 0 or sustained_per_token_p95 <= 0:
+        raise ValueError("E5 normalized latency evidence is invalid")
     sustained_ratio_ppm = (
-        sustained_p95 * 1_000_000 // warm_p95
+        sustained_per_token_p95 * 1_000_000 // warm_per_token_p95
     )
     sustained_guard_passed = (
         sustained_ratio_ppm
@@ -426,6 +438,8 @@ def compile_r2e5_hardening(
         "device": device,
         "warm_step_p95_ns": warm_p95,
         "sustained_p95_ns": sustained_p95,
+        "warm_step_per_token_p95_ns": warm_per_token_p95,
+        "sustained_per_token_p95_ns": sustained_per_token_p95,
         "sustained_p95_over_warm_ppm": sustained_ratio_ppm,
         "max_sustained_p95_over_warm_ppm": (
             R2E5_MAX_SUSTAINED_P95_OVER_WARM_PPM
