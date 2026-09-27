@@ -394,6 +394,7 @@ def _export_graph(
         do_constant_folding=True,
         input_names=list(R2_ONNX_INPUTS),
         output_names=list(R2_ONNX_OUTPUTS),
+        dynamo=False,
         dynamic_axes={
             "input_ids": {0: "batch"},
             "conv_state": {1: "batch"},
@@ -602,6 +603,62 @@ def verify_r2_onnx_bundle(
     active_layers = int(manifest.get("active_layers", -1))
     if not 1 <= active_layers <= parsed.n_layers:
         raise ValueError("R2 ONNX active layer count is invalid")
+    profile = manifest.get("profile")
+    if profile == "deep":
+        expected_layers = parsed.n_layers
+    elif profile == "fast":
+        expected_layers = parsed.fast_layers
+    elif (
+        isinstance(profile, str)
+        and profile.startswith("layers-")
+        and profile[7:].isdigit()
+    ):
+        expected_layers = int(profile[7:])
+    else:
+        raise ValueError("R2 ONNX profile is invalid")
+    if active_layers != expected_layers:
+        raise ValueError("R2 ONNX profile/active-layer mismatch")
+    expected_state = {
+        "active_layers": active_layers,
+        "conv_state": {
+            "dtype": "float32",
+            "shape": [
+                active_layers,
+                "batch",
+                parsed.d_inner,
+                max(parsed.d_conv - 1, 0),
+            ],
+        },
+        "ssm_state": {
+            "dtype": "float32",
+            "shape": [
+                active_layers,
+                "batch",
+                parsed.d_inner,
+                parsed.d_state,
+            ],
+        },
+        "state_is_explicit": True,
+        "state_carry_semantics": "exact_between_graph_invocations",
+    }
+    if manifest.get("state_contract") != expected_state:
+        raise ValueError("R2 ONNX state contract mismatch")
+    checkpoint_sha = manifest.get("checkpoint_sha256")
+    checkpoint_stage = manifest.get("checkpoint_stage")
+    if checkpoint_sha is None:
+        if checkpoint_stage is not None:
+            raise ValueError(
+                "R2 ONNX checkpoint stage requires checkpoint identity"
+            )
+    else:
+        _require_sha256(
+            checkpoint_sha,
+            label="R2 ONNX checkpoint SHA-256",
+        )
+        if not isinstance(checkpoint_stage, str) or not checkpoint_stage:
+            raise ValueError(
+                "R2 ONNX checkpoint stage must be non-empty"
+            )
     if int(manifest.get("opset", -1)) != R2_ONNX_OPSET:
         raise ValueError("R2 ONNX opset mismatch")
     if manifest.get("same_weights_semantics") is not True:
@@ -722,6 +779,12 @@ def validate_ort_parity(
     if batch_size <= 0:
         raise ValueError("batch_size must be positive")
     manifest = verify_r2_onnx_bundle(bundle_dir)
+    if model.config.fingerprint() != manifest.get(
+        "architecture_fingerprint"
+    ):
+        raise ValueError(
+            "parity model architecture does not match ONNX bundle"
+        )
     active_layers = model.resolve_active_layers(profile)
     if active_layers != int(manifest["active_layers"]):
         raise ValueError("parity profile does not match ONNX bundle")
