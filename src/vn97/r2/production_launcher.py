@@ -22,6 +22,7 @@ from .production_contract import (
     R2ProductionShard,
     R2ProductionTrainingRecipe,
 )
+from .pilot_contract import build_pilot_corpus_evidence
 from .production_training import (
     R2MeasuredMemoryEvidence,
     R2ProductionTrainerConfig,
@@ -257,6 +258,12 @@ def main(argv: list[str] | None = None) -> int:
         max_input_bytes=args.max_input_bytes,
         max_examples=args.max_examples,
     )
+    corpus_evidence = build_pilot_corpus_evidence(
+        train_records,
+        validation_records,
+        reject_overlap=True,
+        reject_duplicates=True,
+    )
 
     parent_sha = None
     parent_path = None
@@ -404,6 +411,7 @@ def main(argv: list[str] | None = None) -> int:
         "manifest_identity": manifest.identity(),
         "recipe_fingerprint": recipe.fingerprint(),
         "preflight_bundle_sha256": _sha256_file(bundle_path),
+        "corpus_isolation": corpus_evidence.as_dict(),
         "training": asdict(result),
         "quantization_used": False,
     }
