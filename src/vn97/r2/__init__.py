@@ -87,6 +87,12 @@ from .pilot_evaluation import (
     evaluate_pilot_probes,
     lexical_token_f1,
 )
+from .onnx_autotune import (
+    R2E4_PROFILE_SCHEMA,
+    build_r2e4_profile_from_files,
+    compile_r2e4_profile,
+    verify_r2e4_profile,
+)
 from .onnx_profiling import (
     R2E3_ALLOWED_KINDS,
     R2E3_ALLOWED_PROVIDERS,
@@ -428,7 +434,8 @@ __all__ = [
     "build_r2d13_campaign",
     "seal_r2d13_ready",
     "verify_r2d13_campaign",
-    "verify_r2d13_ready",    "R2_ONNX_BUNDLE_SCHEMA",
+    "verify_r2d13_ready",
+    "R2_ONNX_BUNDLE_SCHEMA",
     "R2_ONNX_INPUTS",
     "R2_ONNX_OPSET",
     "R2_ONNX_OUTPUTS",
@@ -445,5 +452,9 @@ __all__ = [
     "verify_r2_onnx_bundle",
     "R2OnnxInvocation",
     "compile_onnx_invocation_plan",
+    "R2E4_PROFILE_SCHEMA",
+    "build_r2e4_profile_from_files",
+    "compile_r2e4_profile",
+    "verify_r2e4_profile",
 
 ]

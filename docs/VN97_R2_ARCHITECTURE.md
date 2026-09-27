@@ -348,6 +348,11 @@ Production execution is split into fail-closed gates:
   NNAPI/XNNPACK/CPU trials (plus optional Qualcomm QNN), reusable prepared
   invocation buffers, warmup/steady timing, provider fallback/failure evidence,
   thermal/RAM snapshots, and portable profiling receipts for E4 autotuning.
+- **R2-E4** compiles one verified E3 device receipt into a persisted,
+  device/OS-bound tuning profile with graph-specific measured provider chains,
+  measured chunk ordering, thermal/memory/latency hysteresis, XNNPACK thread
+  limits, and temporary provider failure quarantine. Android rejects profiles
+  from another E2 bundle or device identity and falls back to E1 policy.
 
 A passing R2-D5 receipt proves execution-memory feasibility only. It does not
 assert that the current preflight corpus volume is enough to train the 1B
@@ -392,8 +397,10 @@ Execution-path engineering is now split from precision lowering.
   warmup/steady latency, throughput, RAM and thermal behavior on real Android
   hardware instead of assuming accelerator speed. Canonical receipt identity
   uses integer timing evidence for Kotlin/Python portability.
-- **R2-E4 — Dynamic Scheduler Autotuning** will replace conservative E1
-  thresholds only with sealed measured evidence.
+- **R2-E4 — Dynamic Scheduler Autotuning** compiles sealed E3 evidence into
+  graph-specific provider/chunk policy, thermal/memory/latency hysteresis and
+  recoverable provider quarantine. CPU remains a measured fallback and may be
+  the primary provider when it wins on-device.
 - **R2-E5 — Galaxy S21 FE Benchmark/Profile** will seal an on-device production
   profile for the target phone class.
 
