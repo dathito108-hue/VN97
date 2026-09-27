@@ -7,9 +7,12 @@ import torch
 from vn97.r2 import (
     CapabilityManifest,
     CognitionMode,
+    EvaluationDomain,
     CognitionRequest,
+    R2EvaluationMetrics,
     R2PromotionPolicy,
     R2TrainingStage,
+    R2ValidationGate,
     StageEvidence,
     VN97R2ExecutionPolicy,
     VN97R2Model,
@@ -165,3 +168,42 @@ def test_r2_qat_is_blocked_until_fresh_validation_passes() -> None:
         R2TrainingStage.FRESH_VALIDATION,
         passed,
     ) is R2TrainingStage.QAT
+
+
+def test_r2_natural_language_gate_does_not_require_exact_match() -> None:
+    metrics = R2EvaluationMetrics(
+        tasks=100,
+        generation_success_rate=0.99,
+        semantic_score=0.90,
+        instruction_following_rate=0.95,
+        structured_valid_rate=0.0,
+        tool_call_correct_rate=0.0,
+        authority_correct_rate=1.0,
+        exact_match_rate=0.0,
+        regression_score=0.99,
+    )
+    decision = R2ValidationGate().evaluate(
+        metrics,
+        domain=EvaluationDomain.NATURAL_LANGUAGE,
+    )
+    assert decision.passed is True
+
+
+def test_r2_structured_protocol_keeps_exact_gate() -> None:
+    metrics = R2EvaluationMetrics(
+        tasks=100,
+        generation_success_rate=0.99,
+        semantic_score=0.90,
+        instruction_following_rate=0.95,
+        structured_valid_rate=0.99,
+        tool_call_correct_rate=0.99,
+        authority_correct_rate=1.0,
+        exact_match_rate=0.50,
+        regression_score=0.99,
+    )
+    decision = R2ValidationGate().evaluate(
+        metrics,
+        domain=EvaluationDomain.STRUCTURED_PROTOCOL,
+    )
+    assert decision.passed is False
+    assert "protocol_exact_match_below_threshold" in decision.reasons
