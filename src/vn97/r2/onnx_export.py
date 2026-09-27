@@ -9,7 +9,10 @@ from typing import Iterable, Mapping, Sequence
 import torch
 import torch.nn as nn
 
-from .checkpoint import load_r2_checkpoint, sha256_file
+from .checkpoint import (
+    load_r2_checkpoint,
+    sha256_file as _sha256_file,
+)
 from .model import VN97R2Model, VN97R2State
 from .ssm import R2LayerState
 
