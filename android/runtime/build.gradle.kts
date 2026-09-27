@@ -9,6 +9,7 @@ android {
 
     defaultConfig {
         minSdk = 26
+        consumerProguardFiles("consumer-rules.pro")
         externalNativeBuild {
             cmake {
                 arguments += "-DVN97_BUILD_TESTS=OFF"
