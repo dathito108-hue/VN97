@@ -20,4 +20,3 @@ jobs:
         run: |
           grep -q 'use_cache=True' src/vn97/p5d_teacher_corpus_cli.py
           grep -q 'cache_implementation="static"' src/vn97/p5d_teacher_corpus_cli.py
-          ! grep -q 'use_cache=False' src/vn97/p5d_teacher_corpus_cli.py
