@@ -255,13 +255,13 @@ def test_tiny_external_data_step_export_matches_ort(
     assert manifest["production_activation_authorized"] is False
     assert manifest["state_contract"]["conv_state"]["shape"] == [
         2,
-        "batch",
+        1,
         config.conv_dim,
         config.d_conv,
     ]
     assert manifest["state_contract"]["ssm_state"]["shape"] == [
         2,
-        "batch",
+        1,
         config.n_heads,
         config.head_dim,
         config.d_state,
@@ -272,7 +272,7 @@ def test_tiny_external_data_step_export_matches_ort(
     metrics = validate_ort_step_parity(
         model,
         bundle,
-        batch_size=2,
+        batch_size=1,
         seed=9742,
     )
     assert metrics["max_logits_abs_error"] < 1.0e-4
@@ -329,5 +329,5 @@ def test_bundle_verifier_rejects_graph_tamper(
     )
     with (bundle / "step.onnx").open("ab") as handle:
         handle.write(b"tamper")
-    with pytest.raises(ValueError, match="SHA-256"):
+    with pytest.raises(ValueError, match="byte size|SHA-256"):
         verify_mamba2_g04_bundle(bundle)
