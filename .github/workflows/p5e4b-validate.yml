@@ -1,0 +1,27 @@
+name: VN97 P5E4B Validate
+
+on:
+  push:
+    branches:
+      - p5e4b-fresh-one-shot-validation
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Python syntax
+        run: python -m compileall -q src/vn97/p5e4b_fresh_validation_cli.py
+      - name: Shell syntax
+        run: bash -n tools/kaggle_p5e4b_validate.sh
+      - name: Fresh validation contract
+        run: |
+          grep -q 'fresh_one_shot_validation' tools/kaggle_p5e4b_validate.sh
+          grep -q 'reused_p4_suite=false' tools/kaggle_p5e4b_validate.sh
+          grep -q 'FRESH_VALIDATED_GAIN' src/vn97/p5e4b_fresh_validation_cli.py
+          grep -q 'candidate_ready_for_qat' src/vn97/p5e4b_fresh_validation_cli.py
+          grep -q 'p5e4b-validate' pyproject.toml
