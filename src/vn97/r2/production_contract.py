@@ -178,13 +178,15 @@ def estimate_production_training_resources(
     recipe: R2ProductionTrainingRecipe,
 ) -> R2ProductionResourceEstimate:
     parameters = assert_r2_production_scale(config)
-    value_bytes = 4 if recipe.precision == "fp32" else 2
-
-    weight_bytes = parameters * value_bytes
-    # Keep gradients in model precision for the conservative lower bound.
-    gradient_bytes = parameters * value_bytes
-    # AdamW moments plus FP32 master weights are 12 B/parameter.
-    optimizer_bytes = parameters * 12
+    # R2-D3 keeps canonical parameters and gradients FP32 on the execution
+    # device. FP16/BF16 is an autocast compute policy, not weight storage.
+    # This preserves an FP32 canonical checkpoint without a second master copy.
+    weight_bytes = parameters * 4
+    gradient_bytes = parameters * 4
+    # CPU-offloaded AdamW persists only first/second FP32 moments (8 B/param).
+    # The current FP32 parameter tensor is streamed to CPU one tensor at a
+    # time during the update, so there is no persistent 4 B/param master copy.
+    optimizer_bytes = parameters * 8
 
     if recipe.optimizer_state_offload:
         device_optimizer_bytes = 0
@@ -195,7 +197,7 @@ def estimate_production_training_resources(
 
     recurrent_state = config.recurrent_state_bytes(
         recipe.micro_batch_size,
-        bytes_per_value=value_bytes,
+        bytes_per_value=4,
     )
     minimum_device = (
         weight_bytes
