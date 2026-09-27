@@ -41,8 +41,8 @@ data class OrtProfileMeasurement(
     val actualProvider: OrtProviderKind,
     val warmupIterations: Int,
     val steadyIterations: Int,
-    val sessionCreateMs: Double,
-    val steadyLatenciesMs: List<Double>,
+    val sessionCreateNanos: Long,
+    val steadyLatenciesNanos: List<Long>,
     val memoryBeforeBytes: Long,
     val memoryAfterBytes: Long,
     val thermalBefore: Int,
@@ -54,20 +54,28 @@ data class OrtProfileMeasurement(
         require(sequenceLength > 0)
         require(warmupIterations >= 1)
         require(steadyIterations >= 3)
-        require(steadyLatenciesMs.size == steadyIterations)
-        require(sessionCreateMs.isFinite() && sessionCreateMs > 0.0)
-        require(steadyLatenciesMs.all { it.isFinite() && it > 0.0 })
+        require(steadyLatenciesNanos.size == steadyIterations)
+        require(sessionCreateNanos > 0L)
+        require(steadyLatenciesNanos.all { it > 0L })
         require(memoryBeforeBytes > 0L && memoryAfterBytes > 0L)
         require(thermalBefore in 0..6 && thermalAfter in 0..6)
         require(requestedProvider == actualProvider || fallbackUsed)
     }
 
-    val latencyP50Ms: Double
-        get() = percentile(steadyLatenciesMs, 0.50)
-    val latencyP95Ms: Double
-        get() = percentile(steadyLatenciesMs, 0.95)
-    val tokensPerSecondP50: Double
-        get() = 1000.0 * sequenceLength / latencyP50Ms
+    val latencyP50Nanos: Long
+        get() = percentileNearestRank(
+            steadyLatenciesNanos,
+            0.50,
+        )
+    val latencyP95Nanos: Long
+        get() = percentileNearestRank(
+            steadyLatenciesNanos,
+            0.95,
+        )
+    val tokensPerSecondMilliP50: Long
+        get() = (
+            sequenceLength.toLong() * 1_000_000_000_000L
+        ) / latencyP50Nanos
 }
 
 data class OrtProviderProfileReport(
@@ -103,8 +111,8 @@ data class OrtProviderProfileReport(
             val ranked = group.sortedWith(
                 compareBy<OrtProfileMeasurement>(
                     { it.fallbackUsed },
-                    { it.latencyP50Ms },
-                    { it.latencyP95Ms },
+                    { it.latencyP50Nanos },
+                    { it.latencyP95Nanos },
                     { it.requestedProvider.name },
                 )
             )
@@ -232,18 +240,18 @@ class VN97OrtProviderProfiler(
                         decision,
                         device,
                     ).use { handle ->
-                        val createMs = elapsedMs(createStart)
+                        val createNanos = elapsedNanos(createStart)
                         prepare(graph, handle).use { invocation ->
                             repeat(warmupIterations) {
                                 invocation.run(handle.session)
                             }
-                            val samples = ArrayList<Double>(
+                            val samples = ArrayList<Long>(
                                 steadyIterations
                             )
                             repeat(steadyIterations) {
                                 val start = System.nanoTime()
                                 invocation.run(handle.session)
-                                samples += elapsedMs(start)
+                                samples += elapsedNanos(start)
                             }
                             val after = deviceSnapshot()
                             measurements += OrtProfileMeasurement(
@@ -254,7 +262,7 @@ class VN97OrtProviderProfiler(
                                 handle.primaryProvider,
                                 warmupIterations,
                                 steadyIterations,
-                                createMs,
+                                createNanos,
                                 samples,
                                 before.availableMemoryBytes,
                                 after.availableMemoryBytes,
@@ -331,12 +339,15 @@ private fun OrtProfileMeasurement.toJson(): JSONObject =
         .put("fallback_used", fallbackUsed)
         .put("warmup_iterations", warmupIterations)
         .put("steady_iterations", steadyIterations)
-        .put("session_create_ms", sessionCreateMs)
-        .put("latency_p50_ms", latencyP50Ms)
-        .put("latency_p95_ms", latencyP95Ms)
-        .put("latency_min_ms", steadyLatenciesMs.min())
-        .put("latency_max_ms", steadyLatenciesMs.max())
-        .put("tokens_per_second_p50", tokensPerSecondP50)
+        .put("session_create_ns", sessionCreateNanos)
+        .put("latency_p50_ns", latencyP50Nanos)
+        .put("latency_p95_ns", latencyP95Nanos)
+        .put("latency_min_ns", steadyLatenciesNanos.min())
+        .put("latency_max_ns", steadyLatenciesNanos.max())
+        .put(
+            "tokens_per_second_milli_p50",
+            tokensPerSecondMilliP50,
+        )
         .put("memory_before_bytes", memoryBeforeBytes)
         .put("memory_after_bytes", memoryAfterBytes)
         .put(
@@ -356,25 +367,21 @@ private fun OrtDeviceCapabilities.toEvidenceJson(): JSONObject =
         .put("soc_manufacturer", socManufacturer)
         .put("soc_model", socModel)
 
-private fun percentile(values: List<Double>, q: Double): Double {
+private fun percentileNearestRank(
+    values: List<Long>,
+    q: Double,
+): Long {
     require(values.isNotEmpty())
-    require(q in 0.0..1.0)
+    require(q > 0.0 && q <= 1.0)
     val ordered = values.sorted()
-    val position = q * (ordered.size - 1)
-    val lower = floor(position).toInt()
-    val upper = ceil(position).toInt()
-    if (lower == upper) {
-        return ordered[lower]
-    }
-    val fraction = position - lower
-    return (
-        ordered[lower] * (1.0 - fraction) +
-            ordered[upper] * fraction
-        )
+    val rank = kotlin.math.ceil(q * ordered.size)
+        .toInt()
+        .coerceAtLeast(1)
+    return ordered[rank - 1]
 }
 
-private fun elapsedMs(startNanos: Long): Double =
-    (System.nanoTime() - startNanos) / 1_000_000.0
+private fun elapsedNanos(startNanos: Long): Long =
+    (System.nanoTime() - startNanos).coerceAtLeast(1L)
 
 private fun requireSha256(value: String, label: String) {
     require(
