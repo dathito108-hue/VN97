@@ -8,7 +8,7 @@ import pytest
 from vn97.r2.onnx_profiling import (
     R2E3Measurement,
     build_r2e3_receipt,
-    percentile,
+    percentile_nearest_rank,
     rank_measurements,
     verify_r2e3_receipt,
 )
@@ -35,13 +35,16 @@ def _measurement(
         actual_provider=actual or provider,
         warmup_iterations=3,
         steady_iterations=5,
-        session_create_ms=25.0,
-        steady_latencies_ms=(
-            p50_base - 1.0,
-            p50_base - 0.5,
-            p50_base,
-            p50_base + 0.5,
-            p50_base + 1.0,
+        session_create_ns=25_000_000,
+        steady_latencies_ns=tuple(
+            int(value * 1_000_000)
+            for value in (
+                p50_base - 1.0,
+                p50_base - 0.5,
+                p50_base,
+                p50_base + 0.5,
+                p50_base + 1.0,
+            )
         ),
         memory_before_bytes=2_000_000_000,
         memory_after_bytes=1_900_000_000,
@@ -63,12 +66,11 @@ def _device() -> dict[str, object]:
     }
 
 
-def test_percentile_is_interpolated_deterministically() -> None:
-    values = (1.0, 2.0, 3.0, 4.0, 5.0)
-    assert percentile(values, 0.0) == 1.0
-    assert percentile(values, 0.5) == 3.0
-    assert percentile(values, 0.95) == pytest.approx(4.8)
-    assert percentile(values, 1.0) == 5.0
+def test_percentile_nearest_rank_is_deterministic() -> None:
+    values = (1, 2, 3, 4, 5)
+    assert percentile_nearest_rank(values, 0.5) == 3
+    assert percentile_nearest_rank(values, 0.95) == 5
+    assert percentile_nearest_rank(values, 1.0) == 5
 
 
 def test_rank_prefers_real_provider_over_faster_fallback() -> None:
@@ -209,5 +211,5 @@ def test_measurement_throughput_uses_sequence_length() -> None:
         sequence_length=32,
     )
     summary = measurement.summary()
-    assert summary["latency_p50_ms"] == 8.0
-    assert summary["tokens_per_second_p50"] == 4000.0
+    assert summary["latency_p50_ns"] == 8_000_000
+    assert summary["tokens_per_second_milli_p50"] == 4_000_000
