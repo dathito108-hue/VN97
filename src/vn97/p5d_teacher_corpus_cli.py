@@ -290,34 +290,36 @@ def _p3_prompts(
     eligible.sort(
         key=_hash_messages
     )
-    if len(eligible) < count:
-        raise VN97P5D1Error(
-            "not enough eligible P3 teacher prompts"
-        )
 
     output: list[
         P5D1Prompt
     ] = []
-    for messages in eligible[
-        :count
-    ]:
+    seen_record_ids: set[str] = set()
+
+    for messages in eligible:
         reference = (
             messages[-1].content
         )
         prefix = _with_system(
             messages[:-1]
         )
+        record_id = stable_record_id(
+            category=
+                "general_language",
+            source=
+                "p3_training",
+            messages=
+                prefix,
+        )
+        if record_id in seen_record_ids:
+            continue
+        seen_record_ids.add(
+            record_id
+        )
         output.append(
             P5D1Prompt(
                 record_id=
-                    stable_record_id(
-                        category=
-                            "general_language",
-                        source=
-                            "p3_training",
-                        messages=
-                            prefix,
-                    ),
+                    record_id,
                 category=
                     "general_language",
                 source=
@@ -331,6 +333,13 @@ def _p3_prompts(
                         "general_language"
                     ),
             )
+        )
+        if len(output) == count:
+            break
+
+    if len(output) < count:
+        raise VN97P5D1Error(
+            "not enough unique eligible P3 teacher prompts"
         )
 
     return (
