@@ -385,6 +385,32 @@ def verify_r2e4_profile(
     if payload.get("quantization_used") is not False:
         raise ValueError("E4 must not introduce quantization")
 
+    device = payload.get("device")
+    if not isinstance(device, dict):
+        raise ValueError("E4 device identity is missing")
+    required_device = {
+        "sdk_int",
+        "logical_cores",
+        "hardware",
+        "soc_manufacturer",
+        "soc_model",
+        "profiled_available_memory_bytes",
+    }
+    if set(device) != required_device:
+        raise ValueError("E4 device identity fields mismatch")
+    stable_device = {
+        key: device[key]
+        for key in (
+            "sdk_int",
+            "logical_cores",
+            "hardware",
+            "soc_manufacturer",
+            "soc_model",
+        )
+    }
+    if payload.get("device_key") != _device_key(stable_device):
+        raise ValueError("E4 device key mismatch")
+
     policies = payload.get("graph_policies")
     if not isinstance(policies, list) or not policies:
         raise ValueError("E4 graph policies are missing")
