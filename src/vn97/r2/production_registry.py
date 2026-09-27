@@ -871,6 +871,43 @@ def verify_r2d11_registry(
     }
 
 
+def verify_r2d11_generation(
+    registry_dir: Path,
+    generation: int,
+) -> dict[str, object]:
+    if generation < 0:
+        raise ValueError("R2-D11 generation must be non-negative")
+    verified = verify_r2d11_registry(registry_dir)
+    root = registry_dir.resolve(strict=True)
+    config = verified["config"]
+    assert isinstance(config, dict)
+    paths = _ledger_files(root)
+    if generation >= len(paths):
+        raise ValueError("R2-D11 generation is out of range")
+
+    snapshots = [
+        _read_snapshot(path)
+        for path in paths[: generation + 1]
+    ]
+    state = _load_state_from_events(config, snapshots)
+    snapshot = snapshots[-1]
+    if snapshot.get("state") != state:
+        raise ValueError(
+            "R2-D11 frozen generation state does not replay exactly"
+        )
+    return {
+        "config": config,
+        "generation": generation,
+        "ledger_path": paths[generation],
+        "ledger_sha256": _sha256_file(paths[generation]),
+        "snapshot": snapshot,
+        "state": state,
+        "events": [
+            item["event"] for item in snapshots
+        ],
+    }
+
+
 def _normalized_target_tokens(
     records: Sequence[object],
     *,
