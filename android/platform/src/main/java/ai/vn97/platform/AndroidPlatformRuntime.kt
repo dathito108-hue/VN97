@@ -407,10 +407,13 @@ class AndroidPlatformRuntime(
             VN97PaperTradingAgentLimits(),
     ): VN97PaperTradingAgent =
         VN97PaperTradingAgent.production(
-            model = model,
+            inference = VN97R2CognitionInference.open(
+                context = appContext,
+                model = model,
+                config = cognitionRuntimeConfig,
+            ),
             account = account,
             memory = memory,
-            cognitionRuntimeConfig = cognitionRuntimeConfig,
             limits = limits,
         )
 
