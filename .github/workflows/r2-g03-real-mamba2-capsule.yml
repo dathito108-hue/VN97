@@ -1,0 +1,111 @@
+name: VN97 R2-G0.3 Real Mamba2 Capsule
+
+on:
+  workflow_dispatch:
+    inputs:
+      execution_acknowledgement:
+        description: >-
+          Type RUN_REAL_MAMBA2_G03_TRANSFER to download and materialize the
+          pinned 5.4GB Mamba-2 2.7B source.
+        required: true
+        type: string
+      license_acknowledgement:
+        description: >-
+          Type I_ACKNOWLEDGE_APACHE2_MAMBA2_GPTNEOX after reviewing the
+          Apache-2.0 source licenses.
+        required: true
+        type: string
+      upload_artifact:
+        description: Upload the ~5.4GB self-contained VN97 G0.3 capsule.
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vn97-r2-g03-real-mamba2
+  cancel-in-progress: false
+
+jobs:
+  materialize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Require explicit execution and license acknowledgements
+        shell: bash
+        env:
+          EXEC_ACK: ${{ inputs.execution_acknowledgement }}
+          LICENSE_ACK: ${{ inputs.license_acknowledgement }}
+        run: |
+          set -euo pipefail
+          test "$EXEC_ACK" = "RUN_REAL_MAMBA2_G03_TRANSFER"
+          test "$LICENSE_ACK" = "I_ACKNOWLEDGE_APACHE2_MAMBA2_GPTNEOX"
+
+      - name: Checkout exact VN97 revision
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install CPU VN97 runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --upgrade pip
+          python -m pip install --disable-pip-version-check             --index-url https://download.pytorch.org/whl/cpu             "torch>=2.2,<3"
+          python -m pip install --disable-pip-version-check --no-deps -e .
+
+      - name: Preflight runner storage
+        shell: bash
+        run: |
+          set -euo pipefail
+          df -h
+          available_kb="$(df -Pk "$RUNNER_TEMP" | awk 'NR==2 {print $4}')"
+          required_kb="$((12 * 1024 * 1024))"
+          test "$available_kb" -ge "$required_kb"
+
+      - name: Materialize real VN97 G0.3 capsule
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash tools/r2_g03_real_capsule_campaign.sh             "$RUNNER_TEMP/vn97-g03-real"
+
+      - name: Assemble small evidence bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="$RUNNER_TEMP/vn97-g03-real"
+          mkdir -p g03-evidence
+          cp "$ROOT/g03-campaign-report.json" g03-evidence/
+          cp "$ROOT/materialize.json" g03-evidence/
+          cp "$ROOT/post-source-removal-inspect.json" g03-evidence/
+          cp "$ROOT/source-verified.json" g03-evidence/
+          cp "$ROOT/CAPSULE_SHA256SUMS" g03-evidence/
+          cp "$ROOT/vn97-g03-capsule/capsule.vn97m2g03.json" g03-evidence/
+          cp "$ROOT/vn97-g03-capsule/source.vn97m2source1.json" g03-evidence/
+          cp "$ROOT/vn97-g03-capsule/transfer.vn97m2g0transfer1.json" g03-evidence/
+
+      - name: Upload G0.3 evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: VN97-R2-G03-Evidence-${{ github.sha }}-${{ github.run_id }}
+          path: g03-evidence
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 6
+
+      - name: Upload self-contained G0.3 capsule
+        if: ${{ inputs.upload_artifact }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: VN97-R2-G03-Mamba2-2.7B-${{ github.sha }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/vn97-g03-real/vn97-g03-capsule
+          if-no-files-found: error
+          retention-days: 3
+          compression-level: 0
