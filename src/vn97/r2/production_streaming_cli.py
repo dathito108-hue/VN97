@@ -25,17 +25,51 @@ from .production_training import (
     R2ProductionTrainerConfig,
     load_production_stage_model,
 )
+from .production_virtual_corpus import (
+    projection_for_stage,
+    verify_r2d12_view,
+)
+
+
+def _plan_preview(path: Path) -> dict[str, object]:
+    if path.is_symlink():
+        raise ValueError("R2-D7 curriculum plan must not be a symlink")
+    try:
+        value = json.loads(
+            path.resolve(strict=True).read_text(
+                encoding="utf-8",
+                errors="strict",
+            ),
+            parse_constant=lambda raw: (
+                _ for _ in ()
+            ).throw(ValueError(raw)),
+        )
+    except (
+        UnicodeDecodeError,
+        json.JSONDecodeError,
+        ValueError,
+    ) as exc:
+        raise ValueError(
+            "R2-D7 curriculum plan must be strict UTF-8 JSON"
+        ) from exc
+    if not isinstance(value, dict):
+        raise ValueError("R2-D7 curriculum plan must be an object")
+    return value
 
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
             "VN97-R2D7 deterministic streaming-shard dense trainer. "
-            "Consumes a verified R2-D6 package without materializing the "
-            "complete corpus/window set in RAM."
+            "Consumes either one verified R2-D6 package or an R2-D12 "
+            "virtual multi-batch corpus without materializing the complete "
+            "corpus/window set in RAM."
         )
     )
-    parser.add_argument("--corpus-package", required=True)
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument("--corpus-package")
+    source.add_argument("--virtual-view")
+    parser.add_argument("--workspace-root")
     parser.add_argument("--work-dir", required=True)
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--preflight-receipt", default=None)
@@ -66,11 +100,46 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
 
-    package = Path(args.corpus_package).resolve(strict=True)
-    index = verify_r2d6_corpus_index(package)
+    curriculum_path = Path(args.curriculum_plan)
+    virtual_view_id = None
+    shard_roots = None
+
+    if args.virtual_view:
+        if args.workspace_root is None:
+            raise RuntimeError(
+                "R2-D7 --virtual-view requires --workspace-root"
+            )
+        verified_view = verify_r2d12_view(
+            Path(args.virtual_view),
+            workspace_root=Path(args.workspace_root),
+        )
+        preview = _plan_preview(curriculum_path)
+        weights = preview.get("family_weights")
+        if not isinstance(weights, dict) or not weights:
+            raise RuntimeError(
+                "R2-D7 curriculum plan family_weights are missing"
+            )
+        index = projection_for_stage(
+            verified_view["index"],
+            stage=str(preview.get("stage")),
+            family_weights=weights,
+        )
+        package = Path(args.virtual_view).resolve(strict=True)
+        tokenizer_path = verified_view["tokenizer_path"]
+        shard_roots = verified_view["shard_roots"]
+        virtual_view_id = verified_view["view"]["view_id"]
+    else:
+        if args.workspace_root is not None:
+            raise RuntimeError(
+                "--workspace-root is only valid with --virtual-view"
+            )
+        package = Path(args.corpus_package).resolve(strict=True)
+        index = verify_r2d6_corpus_index(package)
+        tokenizer_path = package / "tokenizer.vn97tk1"
+
     scale = index.get("scale")
     if not isinstance(scale, dict):
-        raise RuntimeError("R2-D7 D6 scale evidence is missing")
+        raise RuntimeError("R2-D7 corpus scale evidence is missing")
     if (
         float(scale.get("minimum_tokens_per_parameter", float("nan")))
         != R2D6_DEFAULT_MIN_TOKENS_PER_PARAMETER
@@ -78,23 +147,23 @@ def main(argv: list[str] | None = None) -> int:
         != R2D6_DEFAULT_TARGET_TOKENS_PER_PARAMETER
     ):
         raise RuntimeError(
-            "R2-D7 production CLI requires the canonical D6 8/20 "
+            "R2-D7 production CLI requires the canonical 8/20 "
             "token-per-parameter scale policy"
         )
     if scale.get("scale_floor_passed") is not True:
         raise RuntimeError(
             "R2-D7 refuses to allocate the production model because the "
-            "R2-D6 corpus is below the configured data-scale floor"
+            "selected corpus projection is below the data-scale floor"
         )
     if index.get("release_held_out") is not True:
         raise RuntimeError("R2-D7 release holdout is not locked")
     if int(index.get("sequence_length", -1)) != args.sequence_length:
         raise RuntimeError(
-            "R2-D7 --sequence-length must equal the D6 index"
+            "R2-D7 --sequence-length must equal the corpus index"
         )
 
     curriculum = load_r2d8_plan(
-        Path(args.curriculum_plan),
+        curriculum_path,
         index,
     )
     if curriculum.get("stage") != "dense_pretrain":
@@ -136,12 +205,12 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     tokenizer = load_vn97tk1(
-        package / "tokenizer.vn97tk1"
+        Path(tokenizer_path).resolve(strict=True)
     )
     config = r2_mobile_1b_config(tokenizer.vocab_size)
     if index.get("architecture_fingerprint") != config.fingerprint():
         raise RuntimeError(
-            "R2-D7 D6 architecture/tokenizer identity mismatch"
+            "R2-D7 corpus architecture/tokenizer identity mismatch"
         )
 
     if not str(args.device).startswith("cuda"):
@@ -186,11 +255,16 @@ def main(argv: list[str] | None = None) -> int:
         measured_preflight=preflight,
         max_run_seconds=args.max_run_seconds,
         curriculum_plan=curriculum,
+        corpus_index=index,
+        shard_roots=shard_roots,
+        tokenizer_path=tokenizer_path,
     )
 
     report = {
         "schema": "VN97R2D7TRAIN1",
-        "d6_index_id": index["index_id"],
+        "corpus_index_id": index["index_id"],
+        "corpus_index_schema": index.get("schema"),
+        "virtual_view_id": virtual_view_id,
         "architecture_fingerprint": config.fingerprint(),
         "production_manifest_identity": manifest.identity(),
         "curriculum_plan_id": curriculum["plan_id"],
