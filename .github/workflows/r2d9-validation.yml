@@ -1,0 +1,37 @@
+name: R2-D9 targeted validation
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/vn97/r2/production_acquisition.py"
+      - "src/vn97/r2/production_acquisition_cli.py"
+      - "src/vn97/r2/production_campaign.py"
+      - "src/vn97/r2/production_corpus_scale.py"
+      - "src/vn97/r2/production_curriculum.py"
+      - "src/vn97/r2/__init__.py"
+      - "tests/test_r2_production_acquisition.py"
+      - "tests/test_r2_production_campaign.py"
+      - "tests/test_r2_production_corpus_scale.py"
+      - "tests/test_r2_production_curriculum.py"
+      - "pyproject.toml"
+      - ".github/workflows/r2d9-validation.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install package
+        run: python -m pip install -e ".[dev]"
+      - name: Compile R2-D9 modules
+        run: python -m py_compile src/vn97/r2/production_acquisition.py src/vn97/r2/production_acquisition_cli.py src/vn97/r2/production_campaign.py src/vn97/r2/production_corpus_scale.py src/vn97/r2/production_curriculum.py src/vn97/r2/__init__.py
+      - name: Run R2-D9 targeted tests
+        run: pytest -q tests/test_r2_production_acquisition.py tests/test_r2_production_campaign.py tests/test_r2_production_corpus_scale.py tests/test_r2_production_curriculum.py
