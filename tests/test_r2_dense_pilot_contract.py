@@ -3,13 +3,18 @@ from __future__ import annotations
 import json
 
 import pytest
+import torch
 
 from vn97.r2 import (
     EvaluationDomain,
+    R2FastPathConfig,
     R2PilotGateThresholds,
     R2PilotProbe,
     R2PilotProbeMetrics,
+    VN97R2Model,
+    align_fast_path,
     assert_r2_pilot_scale,
+    build_completion_windows,
     build_pilot_corpus_evidence,
     estimate_pilot_training_resources,
     evaluate_pilot_gate,
@@ -19,7 +24,7 @@ from vn97.r2 import (
 )
 from vn97.r2.dense_pilot_cli import main as dense_pilot_main
 from vn97.tokenizer import VN97Tokenizer, VN97TokenizerPackage
-from vn97.training import VN97ChatMessage
+from vn97.training import VN97ChatMessage, VN97TrainingConfig
 
 
 def _chat(user: str, assistant: str):
@@ -54,6 +59,84 @@ def test_r2c_corpus_evidence_rejects_train_validation_leakage() -> None:
             train,
             (train[0],),
         )
+
+
+
+
+def test_r2c_corpus_evidence_rejects_exact_duplicates_inside_splits() -> None:
+    row = _chat("repeat?", "no")
+    with pytest.raises(ValueError, match="duplicate"):
+        build_pilot_corpus_evidence(
+            (row, row),
+            (_chat("fresh?", "yes"),),
+        )
+
+
+def test_r2c_metric_contract_rejects_inconsistent_counts_and_rates() -> None:
+    with pytest.raises(ValueError, match="must equal"):
+        R2PilotProbeMetrics(
+            tasks=2,
+            natural_language_tasks=1,
+            structured_tasks=0,
+            tool_action_tasks=0,
+            external_write_tasks=0,
+            generation_success_rate=1.0,
+            lexical_target_f1=1.0,
+            instruction_following_rate=1.0,
+            structured_valid_rate=1.0,
+            tool_call_correct_rate=0.0,
+            authority_route_correct_rate=0.0,
+            protocol_exact_match_rate=1.0,
+        )
+
+    with pytest.raises(ValueError, match="\[0, 1\]"):
+        R2PilotGateThresholds(
+            generation_success_rate=1.1,
+        )
+
+
+def test_r2c_fast_alignment_respects_and_restores_existing_freeze() -> None:
+    torch.manual_seed(41)
+    tokenizer = VN97Tokenizer()
+    model = VN97R2Model(
+        r2_smoke_config(tokenizer.vocab_size)
+    ).eval()
+
+    frozen = model.layers[0].out_proj.weight
+    frozen.requires_grad_(False)
+    frozen_before = frozen.detach().clone()
+    mutable = model.layers[0].in_proj.weight
+    mutable_before = mutable.detach().clone()
+
+    windows = build_completion_windows(
+        tokenizer,
+        (_chat("2+2?", "4"),),
+        VN97TrainingConfig(
+            sequence_length=32,
+            stride=16,
+            batch_size=1,
+            epochs=1,
+            max_windows=10,
+        ),
+    )
+    result = align_fast_path(
+        model,
+        windows,
+        R2FastPathConfig(
+            epochs=1,
+            batch_size=1,
+            learning_rate=1e-3,
+            seed=41,
+        ),
+        device="cpu",
+    )
+
+    assert result.steps == 1
+    assert model.training is False
+    assert frozen.requires_grad is False
+    assert torch.equal(frozen_before, frozen.detach())
+    assert mutable.requires_grad is True
+    assert not torch.equal(mutable_before, mutable.detach())
 
 
 def test_r2c_resource_preflight_is_conservative_and_observable() -> None:
