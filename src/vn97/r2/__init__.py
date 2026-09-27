@@ -87,6 +87,16 @@ from .pilot_evaluation import (
     evaluate_pilot_probes,
     lexical_token_f1,
 )
+from .onnx_hardening import (
+    R2E5_HARDENING_SCHEMA,
+    R2E5_RUN_SCHEMA,
+    R2E5_TARGET_FAMILY,
+    compile_r2e5_hardening,
+    is_s21_fe_device,
+    seal_r2e5_hardening,
+    verify_r2e5_hardening,
+    verify_r2e5_run,
+)
 from .onnx_autotune import (
     R2E4_PROFILE_SCHEMA,
     build_r2e4_profile_from_files,
@@ -456,5 +466,13 @@ __all__ = [
     "build_r2e4_profile_from_files",
     "compile_r2e4_profile",
     "verify_r2e4_profile",
+    "R2E5_HARDENING_SCHEMA",
+    "R2E5_RUN_SCHEMA",
+    "R2E5_TARGET_FAMILY",
+    "compile_r2e5_hardening",
+    "is_s21_fe_device",
+    "seal_r2e5_hardening",
+    "verify_r2e5_hardening",
+    "verify_r2e5_run",
 
 ]
