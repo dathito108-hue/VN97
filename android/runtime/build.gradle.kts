@@ -9,6 +9,7 @@ android {
 
     defaultConfig {
         minSdk = 26
+        consumerProguardFiles("consumer-rules.pro")
         externalNativeBuild {
             cmake {
                 arguments += "-DVN97_BUILD_TESTS=OFF"
@@ -31,4 +32,9 @@ android {
     lint {
         warningsAsErrors = true
     }
+}
+
+
+dependencies {
+    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.30.0")
 }

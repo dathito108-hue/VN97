@@ -17,6 +17,18 @@ from .fast_path_training import (
     align_fast_path,
 )
 from .bridge import VN97R2InferenceView, assert_tokenizer_compatible
+from .adaptive_execution import (
+    AdaptiveExecutionDecision,
+    AdaptiveExecutionMode,
+    AdaptiveExecutionRequest,
+    AdaptiveRuntimeTelemetry,
+    AndroidDeviceProfile,
+    OrtExecutionProvider,
+    VN97AdaptiveExecutionScheduler,
+    execute_reference_schedule,
+    provider_names,
+    variable_chunk_plan,
+)
 from .evaluation import (
     EvaluationDomain,
     R2EvaluationDecision,
@@ -247,6 +259,16 @@ __all__ = [
     "sha256_file",
     "validate_delta",
     "VN97R2InferenceView",
+    "AdaptiveExecutionDecision",
+    "AdaptiveExecutionMode",
+    "AdaptiveExecutionRequest",
+    "AdaptiveRuntimeTelemetry",
+    "AndroidDeviceProfile",
+    "OrtExecutionProvider",
+    "VN97AdaptiveExecutionScheduler",
+    "execute_reference_schedule",
+    "provider_names",
+    "variable_chunk_plan",
     "assert_tokenizer_compatible",
     "assert_r2_data_compatible",
     "build_causal_windows",
