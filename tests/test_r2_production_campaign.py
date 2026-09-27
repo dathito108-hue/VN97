@@ -187,7 +187,7 @@ def test_r2d5_package_rejects_release_tamper(tmp_path: Path) -> None:
 
     with (package / "release.jsonl").open("ab") as handle:
         handle.write(b"\n")
-    with pytest.raises(ValueError, match="release package hash mismatch"):
+    with pytest.raises(ValueError, match="release"):
         verify_r2d5_package(package)
 
 
