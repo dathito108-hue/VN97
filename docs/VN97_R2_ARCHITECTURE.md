@@ -361,16 +361,36 @@ curriculum plan are proven, the remaining R2-D work is:
 - fast-path alignment;
 - fresh multi-axis validation.
 
-### R2-E — Mobile lowering
+### R2-E — ONNX mobile execution + post-validation lowering
 
-Only after dense validation:
+Execution-path engineering is now split from precision lowering.
 
-- QAT;
-- hybrid ternary/INT4;
-- fused scan/recurrent kernels;
-- ARM64 NEON;
-- NPU delegate where device support is proven;
-- thermal/latency/RAM profiling.
+- **R2-E1 — ONNX Adaptive Sequential-Parallel Execution Fabric** locks one
+  execution contract for the existing VN97-R2 equations: recurrent sequential
+  step, variable hybrid chunks, and full associative parallel scan. Android
+  uses ONNX Runtime as the production inference engine with a deterministic
+  provider policy. The mandatory S21 FE-class route is NNAPI -> XNNPACK -> ORT
+  CPU; QNN is optional only on explicitly supported Qualcomm devices. E1 does
+  not quantize weights and does not add a second AI model/backend.
+- **R2-E2 — ONNX State/Chunk Export** will expose explicit recurrent state
+  tensors and chunk graphs and prove ONNX/ORT parity against the E1 PyTorch
+  numerical oracle.
+- **R2-E3 — NNAPI/XNNPACK Profiling** will measure actual graph coverage,
+  latency, RAM and thermal behavior instead of assuming accelerator speed.
+- **R2-E4 — Dynamic Scheduler Autotuning** will replace conservative E1
+  thresholds only with sealed measured evidence.
+- **R2-E5 — Galaxy S21 FE Benchmark/Profile** will seal an on-device production
+  profile for the target phone class.
+
+Only after dense training and fresh validation:
+
+- QAT / precision-sensitivity evaluation;
+- hybrid INT8/INT4/ternary where regression gates permit it;
+- custom/minimal ONNX Runtime operator build;
+- final production mobile lowering.
+
+ARM64/NNAPI/XNNPACK/QNN implementations remain execution lowerings of the same
+single VN97 model semantics.
 
 ### R2-F — Android production integration
 
