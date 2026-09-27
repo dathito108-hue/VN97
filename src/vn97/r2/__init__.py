@@ -110,6 +110,16 @@ from .production_contract import (
     corpus_task_families,
     estimate_production_training_resources,
 )
+from .production_streaming import (
+    R2D7_STREAMING_RESUME_SCHEMA,
+    R2StreamingCursor,
+    R2StreamingTrainingResult,
+    evaluate_streaming_validation,
+    iter_epoch_training_windows,
+    load_r2d5_memory_receipt,
+    production_manifest_from_r2d6,
+    train_streaming_production_stage,
+)
 from .production_training import (
     CPUOffloadedAdamW,
     PRODUCTION_RESUME_SCHEMA,
@@ -232,4 +242,12 @@ __all__ = [
     "build_r2d6_corpus_index",
     "load_r2d6_definition",
     "verify_r2d6_corpus_index",
+    "R2D7_STREAMING_RESUME_SCHEMA",
+    "R2StreamingCursor",
+    "R2StreamingTrainingResult",
+    "evaluate_streaming_validation",
+    "iter_epoch_training_windows",
+    "load_r2d5_memory_receipt",
+    "production_manifest_from_r2d6",
+    "train_streaming_production_stage",
 ]
