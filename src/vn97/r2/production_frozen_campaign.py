@@ -240,13 +240,25 @@ exec "$PACKAGE_DIR/preflight/run_t4_preflight.sh"
 """.replace("DOLLAR_LBRACE", "$"+"{")
 
 
-def _render_seal_wrapper() -> str:
-    return """#!/usr/bin/env bash
+def _render_seal_wrapper(
+    *,
+    repository_commit: str,
+) -> str:
+    return f"""#!/usr/bin/env bash
 set -euo pipefail
 
 PACKAGE_DIR="$(cd "$(dirname "$0")" && pwd)"
+VN97_REPO="DOLLAR_LBRACEVN97_REPO:-/kaggle/working/VN97}"
 VN97_WORKSPACE_ROOT="DOLLAR_LBRACEVN97_WORKSPACE_ROOT:-/kaggle/working}"
 R2D5_OUTPUT_DIR="DOLLAR_LBRACER2D5_OUTPUT_DIR:-/kaggle/working/r2d5-output}"
+
+cd "$VN97_REPO"
+ACTUAL_COMMIT="$(git rev-parse HEAD)"
+if [ "$ACTUAL_COMMIT" != "{repository_commit}" ]; then
+  echo "R2-D13 repository commit mismatch: expected {repository_commit}, got $ACTUAL_COMMIT" >&2
+  exit 2
+fi
+python -m pip install -e .
 
 vn97-r2-preflight-package seal-preflight \
   --package-dir "$PACKAGE_DIR/preflight" \
@@ -443,7 +455,9 @@ def build_r2d13_campaign(
     preflight_script = _render_preflight_wrapper(
         repository_commit=repository_commit,
     ).encode("utf-8")
-    seal_script = _render_seal_wrapper().encode("utf-8")
+    seal_script = _render_seal_wrapper(
+        repository_commit=repository_commit,
+    ).encode("utf-8")
     train_script = _render_train_wrapper(
         repository_commit=repository_commit,
         recipe=recipe,
@@ -811,7 +825,7 @@ def verify_r2d13_ready(
         raise ValueError("R2-D13 ready receipt does not allow training")
 
     preflight_raw = _load_receipt(preflight_receipt_path)
-    load_r2d5_memory_receipt(
+    evidence = load_r2d5_memory_receipt(
         preflight_receipt_path,
         architecture_fingerprint=str(
             campaign["architecture_fingerprint"]
@@ -827,6 +841,8 @@ def verify_r2d13_ready(
         "projected_index_id": campaign["projected_index_id"],
         "curriculum_plan_id": campaign["curriculum_plan_id"],
         "recipe_fingerprint": campaign["recipe_fingerprint"],
+        "device_name": evidence.device_name,
+        "peak_reserved_bytes": evidence.peak_reserved_bytes,
     }
     for key, value in expected.items():
         if ready.get(key) != value:
