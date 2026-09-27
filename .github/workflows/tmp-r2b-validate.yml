@@ -1,0 +1,74 @@
+name: R2-B temporary validation
+
+on:
+  push:
+    branches:
+      - r2b-compatibility-dense-pipeline
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install CPU dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install pytest
+          python -m pip install -e . --no-deps
+      - name: Syntax
+        run: |
+          python -m py_compile             src/vn97/r2/data_bridge.py             src/vn97/r2/dense_training.py             src/vn97/r2/fast_path_training.py             src/vn97/r2/dense_pilot_cli.py
+          bash -n tools/vn97_r2_dense_pilot.sh
+      - name: R2 tests
+        run: |
+          pytest -q             tests/test_r2_foundation.py             tests/test_r2_compatibility_dense.py
+      - name: Build tiny canonical corpus
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from vn97.tokenizer import VN97TokenizerPackage
+
+          root = Path("/tmp/r2b")
+          root.mkdir(parents=True, exist_ok=True)
+          (root / "tokenizer.vn97tk1").write_bytes(
+              VN97TokenizerPackage().to_bytes()
+          )
+          train = [
+              {"messages":[
+                  {"role":"user","content":"2+2?"},
+                  {"role":"assistant","content":"4"}
+              ]},
+              {"messages":[
+                  {"role":"user","content":"Say yes."},
+                  {"role":"assistant","content":"yes"}
+              ]},
+          ]
+          valid = [
+              {"messages":[
+                  {"role":"user","content":"1+1?"},
+                  {"role":"assistant","content":"2"}
+              ]}
+          ]
+          for name, rows in (("train", train), ("valid", valid)):
+              with (root / f"{name}.jsonl").open("w", encoding="utf-8") as h:
+                  for row in rows:
+                      h.write(json.dumps(row) + "\n")
+          PY
+      - name: End-to-end dense smoke pilot
+        run: |
+          python -m vn97.r2.dense_pilot_cli             --tokenizer /tmp/r2b/tokenizer.vn97tk1             --train-jsonl /tmp/r2b/train.jsonl             --validation-jsonl /tmp/r2b/valid.jsonl             --work-dir /tmp/r2b/work             --output-dir /tmp/r2b/output             --profile smoke             --sequence-length 32             --stride 16             --batch-size 1             --epochs 1             --checkpoint-every 1             --device cpu
+          test -f /tmp/r2b/output/model.r2.pt
+          test -f /tmp/r2b/output/r2-dense-pilot-report.json
+      - name: R2-B contracts
+        run: |
+          python - <<'PY'
+          from vn97.r2.training_plan import R2_CANONICAL_TRAINING_SEQUENCE
+          order = list(R2_CANONICAL_TRAINING_SEQUENCE)
+          assert "fast_path_alignment" in order
+          assert order.index("fast_path_alignment") < order.index("fresh_validation")
+          PY
