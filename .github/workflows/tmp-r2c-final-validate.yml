@@ -1,0 +1,60 @@
+name: R2-C final validation
+
+on:
+  push:
+    branches:
+      - r2c-dense-pilot
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install CPU dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install pytest
+          python -m pip install -e . --no-deps
+      - name: Syntax
+        run: |
+          python -m py_compile \
+            src/vn97/r2/config.py \
+            src/vn97/r2/pilot_contract.py \
+            src/vn97/r2/pilot_evaluation.py \
+            src/vn97/r2/dense_training.py \
+            src/vn97/r2/fast_path_training.py \
+            src/vn97/r2/dense_pilot_cli.py
+          bash -n tools/vn97_r2_dense_pilot.sh
+      - name: R2 focused tests
+        run: |
+          pytest -q \
+            tests/test_r2_foundation.py \
+            tests/test_r2_compatibility_dense.py \
+            tests/test_r2_dense_pilot_contract.py
+      - name: R2-C architecture contracts
+        run: |
+          python - <<'PY'
+          from vn97.r2 import (
+              assert_r2_pilot_scale,
+              estimate_pilot_training_resources,
+              r2_cpu_pilot_config,
+          )
+          cfg = r2_cpu_pilot_config(4096)
+          count = assert_r2_pilot_scale(cfg)
+          assert 50_000_000 <= count <= 150_000_000
+          t4 = estimate_pilot_training_resources(
+              cfg,
+              sequence_length=128,
+              batch_size=1,
+              available_ram=15 * 1024**3,
+          )
+          assert t4.fits_available_ram is False
+          PY
