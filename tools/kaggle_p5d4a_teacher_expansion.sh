@@ -249,7 +249,7 @@ from huggingface_hub.errors import LocalEntryNotFoundError
 
 repo_id = "tiiuae/Falcon3-Mamba-7B-Instruct"
 revision = os.environ["TEACHER_REVISION"]
-cache_dir = os.environ["HF_HOME"]
+cache_dir = str(Path(os.environ["HF_HOME"]) / "hub")
 
 def download_config() -> Path:
     path = Path(
