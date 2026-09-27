@@ -274,25 +274,57 @@ def load_r2d9_definition(path: Path) -> R2D9CampaignDefinition:
             raise ValueError(
                 "R2-D9 every source requires license_approved=true"
             )
+        for key in (
+            "source_id",
+            "origin",
+            "revision",
+            "license",
+            "family",
+            "path",
+            "expected_sha256",
+        ):
+            if not isinstance(raw.get(key), str):
+                raise ValueError(
+                    f"R2-D9 source {key} must be a string"
+                )
+        if (
+            not isinstance(raw.get("expected_records"), int)
+            or isinstance(raw.get("expected_records"), bool)
+            or not isinstance(raw.get("max_bytes"), int)
+            or isinstance(raw.get("max_bytes"), bool)
+        ):
+            raise ValueError(
+                "R2-D9 source expected_records/max_bytes must be integers"
+            )
         sources.append(
             R2D9SourceSpec(
-                source_id=str(raw["source_id"]),
-                origin=str(raw["origin"]),
-                revision=str(raw["revision"]),
-                license=str(raw["license"]),
-                family=str(raw["family"]),
-                path=str(raw["path"]),
-                expected_sha256=str(raw["expected_sha256"]),
-                expected_records=int(raw["expected_records"]),
-                max_bytes=int(raw["max_bytes"]),
+                source_id=raw["source_id"],
+                origin=raw["origin"],
+                revision=raw["revision"],
+                license=raw["license"],
+                family=raw["family"],
+                path=raw["path"],
+                expected_sha256=raw["expected_sha256"],
+                expected_records=raw["expected_records"],
+                max_bytes=raw["max_bytes"],
             )
         )
+    shard_target = payload["shard_target_training_records"]
+    validation_fraction = payload["validation_fraction"]
+    release_fraction = payload["release_fraction"]
+    if (
+        not isinstance(shard_target, int)
+        or isinstance(shard_target, bool)
+        or not isinstance(validation_fraction, (int, float))
+        or isinstance(validation_fraction, bool)
+        or not isinstance(release_fraction, (int, float))
+        or isinstance(release_fraction, bool)
+    ):
+        raise ValueError("R2-D9 campaign numeric fields are invalid")
     return R2D9CampaignDefinition(
-        shard_target_training_records=int(
-            payload["shard_target_training_records"]
-        ),
-        validation_fraction=float(payload["validation_fraction"]),
-        release_fraction=float(payload["release_fraction"]),
+        shard_target_training_records=shard_target,
+        validation_fraction=float(validation_fraction),
+        release_fraction=float(release_fraction),
         sources=tuple(
             sorted(sources, key=lambda item: item.source_id)
         ),
@@ -305,14 +337,19 @@ def _resolve_source(definition_path: Path, spec: R2D9SourceSpec) -> Path:
         spec.path,
         label="source path",
     )
-    path = (root / relative).resolve(strict=True)
+    candidate = root / relative
+    if candidate.is_symlink():
+        raise ValueError(
+            "R2-D9 source must be a regular non-symlink file"
+        )
+    path = candidate.resolve(strict=True)
     try:
         path.relative_to(root)
     except ValueError as exc:
         raise ValueError(
             "R2-D9 source path escapes definition directory"
         ) from exc
-    if path.is_symlink() or not path.is_file():
+    if not path.is_file():
         raise ValueError("R2-D9 source must be a regular non-symlink file")
     return path
 
@@ -808,18 +845,16 @@ def verify_r2d9_campaign(output_dir: Path) -> dict[str, object]:
             key=lambda item: item["path"],
         ),
     }
-    d6_actual = json.loads(
-        (root / "r2d6-definition.json").read_text(
-            encoding="utf-8"
-        )
+    d6_actual = _strict_json_object(
+        (root / "r2d6-definition.json").read_bytes(),
+        label="R2-D9 D6 definition",
     )
     if d6_actual != d6_expected:
         raise ValueError("R2-D9 D6 definition content mismatch")
 
-    assignments_actual = json.loads(
-        (root / "r2d8-primary-family.json").read_text(
-            encoding="utf-8"
-        )
+    assignments_actual = _strict_json_object(
+        (root / "r2d8-primary-family.json").read_bytes(),
+        label="R2-D9 D8 primary-family map",
     )
     if assignments_actual != dict(sorted(assignments.items())):
         raise ValueError("R2-D9 D8 family map content mismatch")
