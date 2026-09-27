@@ -460,7 +460,8 @@ class VN97AppAssistant(
         check(!activeResources.session.hasActiveTurn) {
             "cannot benchmark while an assistant turn is active"
         }
-        check(config.samples > 0)
+        @Suppress("UNUSED_VARIABLE")
+        val legacyEvidenceConfig = config
         throw IllegalStateException(
             "legacy mobile evidence path is disabled for R2 production; use the R2-E5 physical-device hardening campaign"
         )
