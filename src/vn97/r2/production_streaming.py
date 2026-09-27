@@ -332,12 +332,8 @@ def iter_epoch_training_windows(
         seed=seed,
         epoch=cursor.epoch,
     )
-    if cursor.shard_position > len(order):
+    if cursor.shard_position >= len(order):
         raise RuntimeError("R2-D7 cursor shard position is out of range")
-    if cursor.shard_position == len(order):
-        if cursor.record_index or cursor.window_index:
-            raise RuntimeError("R2-D7 terminal shard cursor is invalid")
-        return
 
     root = package_dir.resolve(strict=True)
     for shard_position in range(cursor.shard_position, len(order)):
@@ -355,7 +351,7 @@ def iter_epoch_training_windows(
             if shard_position == cursor.shard_position
             else 0
         )
-        if start_record > records_in_shard:
+        if start_record >= records_in_shard:
             raise RuntimeError("R2-D7 cursor record is out of range")
 
         shard_path = root / str(shard["filename"])
@@ -1070,7 +1066,7 @@ def train_streaming_production_stage(
                 )
                 or not finite_gradients
             )
-            if checkpoint_due:
+            if checkpoint_due and cursor.epoch == epoch:
                 _save_stream_resume(
                     resume_path,
                     identity=identity,
@@ -1146,6 +1142,12 @@ def train_streaming_production_stage(
                         "parent_checkpoint_sha256": None,
                     },
                 )
+
+        if paused and cursor.epoch >= trainer.epochs:
+            # The final epoch has already been validated. Do not force a
+            # no-op resume turn merely because the wall-clock budget expired
+            # on the final optimizer boundary.
+            paused = False
 
         if paused:
             _save_stream_resume(
