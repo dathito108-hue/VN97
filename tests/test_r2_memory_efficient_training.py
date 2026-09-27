@@ -162,5 +162,4 @@ def test_activation_checkpointed_training_gradients_match() -> None:
             ref_params[name].grad,
             rtol=3e-4,
             atol=3e-5,
-            msg=lambda message, n=name: f"{n}: {message}",
         )
