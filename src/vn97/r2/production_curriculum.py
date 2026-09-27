@@ -14,6 +14,7 @@ from .production_corpus_scale import verify_r2d6_corpus_index
 
 R2D8_DEFINITION_SCHEMA = "VN97R2D8DEF1"
 R2D8_PLAN_SCHEMA = "VN97R2D8PLAN1"
+R2D8_MAX_ABSOLUTE_WEIGHT_ERROR = 0.10
 R2D8_ALLOWED_FAMILIES = {
     "dense_pretrain": ("language", "reasoning"),
     "instruction_reasoning": (
@@ -367,10 +368,23 @@ def _compile_epoch(
         family: family_tokens[family] / total_tokens
         for family in weights
     }
+    absolute_errors = {
+        family: abs(realized[family] - weights[family])
+        for family in weights
+    }
+    if any(
+        error > R2D8_MAX_ABSOLUTE_WEIGHT_ERROR
+        for error in absolute_errors.values()
+    ):
+        raise RuntimeError(
+            "R2-D8 shard granularity cannot satisfy curriculum weights "
+            "within the canonical 0.10 absolute error bound"
+        )
     body = {
         "epoch": epoch,
         "family_target_tokens": family_tokens,
         "family_visits": visits,
+        "absolute_weight_errors": absolute_errors,
         "realized_weights": realized,
         "shard_ids": schedule,
         "target_tokens": total_tokens,
@@ -422,6 +436,7 @@ def compile_r2d8_plan(
         "epochs": definition.epochs,
         "seed": definition.seed,
         "family_weights": definition.weights,
+        "max_absolute_weight_error": R2D8_MAX_ABSOLUTE_WEIGHT_ERROR,
         "primary_family_by_manifest": definition.assignments,
         "epoch_token_budget": token_budget,
         "release_held_out": True,
