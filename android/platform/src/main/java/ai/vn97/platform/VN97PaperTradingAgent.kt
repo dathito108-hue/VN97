@@ -2,6 +2,7 @@ package ai.vn97.platform
 
 import ai.vn97.runtime.NativeActivatedModel
 import ai.vn97.runtime.NativeCognitionBoundary
+import ai.vn97.runtime.NativeCognitionInference
 import ai.vn97.runtime.NativeCognitionInferenceEngine
 import ai.vn97.runtime.NativeCognitionLimits
 import ai.vn97.runtime.NativeCognitionLoop
@@ -190,13 +191,14 @@ class VN97PaperTradingAgent private constructor(
             model: NativeActivatedModel,
             account: VN97PaperTradingAccount,
             memory: NativeMemoryRetriever? = null,
+            inference: NativeCognitionInference? = null,
             cognitionRuntimeConfig: NativeCognitionRuntimeConfig =
                 NativeCognitionRuntimeConfig(),
             limits: VN97PaperTradingAgentLimits =
                 VN97PaperTradingAgentLimits(),
         ): VN97PaperTradingAgent {
             val cognition = NativeTypedCognitionAdapter(
-                NativeCognitionInferenceEngine(
+                inference ?: NativeCognitionInferenceEngine(
                     model = model,
                     config = cognitionRuntimeConfig,
                 )

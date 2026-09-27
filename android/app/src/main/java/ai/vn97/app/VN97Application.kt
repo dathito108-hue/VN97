@@ -19,6 +19,12 @@ class VN97Application :
         AndroidPlatformRuntime(applicationContext)
     }
 
+    val r2Runtime: VN97R2RuntimeManager by lazy(
+        LazyThreadSafetyMode.SYNCHRONIZED
+    ) {
+        VN97R2RuntimeManager(this)
+    }
+
     val assistant: VN97AppAssistant by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         VN97AppAssistant(this)
     }

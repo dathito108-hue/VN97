@@ -3,6 +3,7 @@ package ai.vn97.platform
 import ai.vn97.runtime.AtomicCheckpointStore
 import ai.vn97.runtime.AtomicCompositeContinuityStore
 import ai.vn97.runtime.NativeActivatedModel
+import ai.vn97.runtime.NativeCognitionInference
 import ai.vn97.runtime.NativePlan
 import ai.vn97.runtime.NativeRuntimeConfig
 import ai.vn97.runtime.NativeRuntimeOwner
@@ -16,6 +17,7 @@ class VN97ForegroundAssistantContinuationSession internal constructor(
     private val model: NativeActivatedModel,
     private val owner: NativeRuntimeOwner,
     private val resources: VN97ProductionAssistantResources,
+    private val cognitionInference: NativeCognitionInference?,
     private val compositeStore: AtomicCompositeContinuityStore,
     private val bindingStore: VN97AssistantContinuationBindingStore,
     private var update: VN97AssistantTurnUpdate,
@@ -104,6 +106,13 @@ class VN97ForegroundAssistantContinuationSession internal constructor(
             failure = exc
         }
         try {
+            (cognitionInference as? AutoCloseable)?.close()
+        } catch (exc: Throwable) {
+            val first = failure
+            if (first == null) failure = exc
+            else first.addSuppressed(exc)
+        }
+        try {
             owner.close()
         } catch (exc: Throwable) {
             val first = failure
@@ -129,6 +138,7 @@ fun openVN97ForegroundAssistantContinuation(
     model: NativeActivatedModel,
     grants: List<M6PolicyGrant>,
     runtimeConfig: NativeRuntimeConfig,
+    cognitionInference: NativeCognitionInference? = null,
     cognitionRuntimeConfig: ai.vn97.runtime.NativeCognitionRuntimeConfig =
         ai.vn97.runtime.NativeCognitionRuntimeConfig(),
     cognitionLimits: ai.vn97.runtime.NativeCognitionLimits =
@@ -178,6 +188,7 @@ fun openVN97ForegroundAssistantContinuation(
             platformRuntime.createProductionMemoryBackedAssistant(
                 model = model,
                 grants = grants,
+                inference = cognitionInference,
                 cognitionRuntimeConfig = cognitionRuntimeConfig,
                 cognitionLimits = cognitionLimits,
                 sessionLimits = sessionLimits,
@@ -195,6 +206,7 @@ fun openVN97ForegroundAssistantContinuation(
                 model = model,
                 owner = owner,
                 resources = resources,
+                cognitionInference = cognitionInference,
                 compositeStore = compositeStore,
                 bindingStore = bindingStore,
                 update = update,

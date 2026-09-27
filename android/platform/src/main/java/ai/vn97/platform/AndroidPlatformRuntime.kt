@@ -3,6 +3,7 @@ package ai.vn97.platform
 import ai.vn97.runtime.NativeActivatedModel
 import ai.vn97.runtime.VN97AcquisitionProvenanceLedger
 import ai.vn97.runtime.VN97AcquisitionProvenanceRecord
+import ai.vn97.runtime.NativeCognitionInference
 import ai.vn97.runtime.NativeCognitionInferenceEngine
 import ai.vn97.runtime.NativeCognitionLimits
 import ai.vn97.runtime.NativeCognitionRuntimeConfig
@@ -194,6 +195,7 @@ class AndroidPlatformRuntime(
         cognitionLimits = cognitionLimits,
         sessionLimits = sessionLimits,
         auditFileName = auditFileName,
+        inference = null,
         memory = null,
         turnMemoryWriter = null,
         turnMemoryRecovery = null,
@@ -206,6 +208,7 @@ class AndroidPlatformRuntime(
     fun createProductionMemoryBackedAssistant(
         model: NativeActivatedModel,
         grants: List<M6PolicyGrant>,
+        inference: NativeCognitionInference? = null,
         cognitionRuntimeConfig: NativeCognitionRuntimeConfig = NativeCognitionRuntimeConfig(),
         cognitionLimits: NativeCognitionLimits = NativeCognitionLimits(),
         sessionLimits: VN97AssistantSessionLimits = VN97AssistantSessionLimits(),
@@ -227,6 +230,7 @@ class AndroidPlatformRuntime(
             createProductionTurnMemoryWriter(
                 model = model,
                 memory = memory,
+                inference = inference,
                 cognitionRuntimeConfig = cognitionRuntimeConfig,
                 journalFileName = turnMemoryJournalFileName,
                 recoverTornTail = recoverTurnMemoryJournalTornTail,
@@ -270,6 +274,7 @@ class AndroidPlatformRuntime(
                     cognitionLimits = cognitionLimits,
                     sessionLimits = sessionLimits,
                     auditFileName = auditFileName,
+                    inference = inference,
                     memory = memory,
                     turnMemoryWriter = turnMemoryWriter,
                     turnMemoryRecovery = turnMemoryRecovery,
@@ -298,6 +303,7 @@ class AndroidPlatformRuntime(
         context: VN97AssistantContinuationContext,
         model: NativeActivatedModel,
         grants: List<M6PolicyGrant>,
+        inference: NativeCognitionInference? = null,
         cognitionRuntimeConfig: NativeCognitionRuntimeConfig =
             NativeCognitionRuntimeConfig(),
         cognitionLimits: NativeCognitionLimits = NativeCognitionLimits(),
@@ -312,6 +318,7 @@ class AndroidPlatformRuntime(
         return createProductionMemoryBackedAssistant(
             model = model,
             grants = grants,
+            inference = inference,
             cognitionRuntimeConfig = cognitionRuntimeConfig,
             cognitionLimits = cognitionLimits,
             sessionLimits = sessionLimits,
@@ -332,12 +339,13 @@ class AndroidPlatformRuntime(
         cognitionLimits: NativeCognitionLimits,
         sessionLimits: VN97AssistantSessionLimits,
         auditFileName: String,
+        inference: NativeCognitionInference?,
         memory: NativeMemoryRetriever?,
         turnMemoryWriter: VN97TurnMemoryWriter?,
         turnMemoryRecovery: VN97TurnMemoryRecovery?,
     ): VN97AssistantSession {
         val cognition = NativeTypedCognitionAdapter(
-            NativeCognitionInferenceEngine(
+            inference ?: NativeCognitionInferenceEngine(
                 model = model,
                 config = cognitionRuntimeConfig,
             )
@@ -363,6 +371,7 @@ class AndroidPlatformRuntime(
     fun createProductionTurnMemoryWriter(
         model: NativeActivatedModel,
         memory: NativeMemoryStore,
+        inference: NativeCognitionInference? = null,
         cognitionRuntimeConfig: NativeCognitionRuntimeConfig = NativeCognitionRuntimeConfig(),
         journalFileName: String = "turn-memory.vn97twj1",
         recoverTornTail: Boolean = true,
@@ -372,7 +381,7 @@ class AndroidPlatformRuntime(
         require(memory.vectorDim == model.info.dModel) {
             "VN97MEM1 vector dimension does not match activated model dModel"
         }
-        val engine = NativeCognitionInferenceEngine(
+        val engine = inference ?: NativeCognitionInferenceEngine(
             model = model,
             config = cognitionRuntimeConfig,
         )
@@ -545,19 +554,20 @@ class AndroidPlatformRuntime(
     fun createProductionKnowledgeAcquisitionProposalEngine(
         model: NativeActivatedModel,
         memory: NativeMemoryStore,
+        inference: NativeCognitionInference? = null,
         cognitionRuntimeConfig: NativeCognitionRuntimeConfig =
             NativeCognitionRuntimeConfig(),
     ): VN97KnowledgeAcquisitionProposalEngine {
         require(memory.vectorDim == model.info.dModel) {
             "knowledge proposal VN97MEM1 dimension does not match activated model"
         }
-        val inference = NativeCognitionInferenceEngine(
+        val resolvedInference = inference ?: NativeCognitionInferenceEngine(
             model = model,
             config = cognitionRuntimeConfig,
         )
         return VN97KnowledgeAcquisitionProposalEngine(
             recall = { goal ->
-                val vector = inference.embedText(
+                val vector = resolvedInference.embedText(
                     "VN97 knowledge gap evidence for: $goal",
                     memory.vectorDim,
                 )
@@ -589,10 +599,22 @@ class AndroidPlatformRuntime(
                 }
             },
             generator = { prompt ->
-                inference.generateText(
-                    prompt = prompt,
-                    maxNewTokens = 384,
-                ).trim()
+                when (resolvedInference) {
+                    is ai.vn97.runtime.VN97R2CognitionInference ->
+                        resolvedInference.generateText(
+                            prompt = prompt,
+                            maxNewTokens = 384,
+                        ).trim()
+                    is NativeCognitionInferenceEngine ->
+                        resolvedInference.generateText(
+                            prompt = prompt,
+                            maxNewTokens = 384,
+                        ).trim()
+                    else ->
+                        throw IllegalStateException(
+                            "production knowledge generation requires a text-capable VN97 inference implementation"
+                        )
+                }
             },
         )
     }
@@ -608,6 +630,7 @@ class AndroidPlatformRuntime(
     fun createProductionKnowledgeAcquisitionSession(
         model: NativeActivatedModel,
         memory: NativeMemoryStore,
+        inference: NativeCognitionInference? = null,
         cognitionRuntimeConfig: NativeCognitionRuntimeConfig =
             NativeCognitionRuntimeConfig(),
     ): VN97KnowledgeAcquisitionSession {
@@ -623,7 +646,7 @@ class AndroidPlatformRuntime(
             trustRoot = File(root, "trust"),
             ledgerRoot = File(root, "ledger"),
             memory = memory,
-            inference = NativeCognitionInferenceEngine(
+            inference = inference ?: NativeCognitionInferenceEngine(
                 model = model,
                 config = cognitionRuntimeConfig,
             ),

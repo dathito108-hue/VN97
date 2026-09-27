@@ -1,6 +1,7 @@
 package ai.vn97.platform
 
 import ai.vn97.runtime.NativeActivatedModel
+import ai.vn97.runtime.NativeCognitionInference
 import ai.vn97.runtime.NativeCognitionInferenceEngine
 import ai.vn97.runtime.NativeCognitionLimits
 import ai.vn97.runtime.NativeCognitionLoop
@@ -70,6 +71,7 @@ private fun autonomousSeed(
 fun createVN97AutonomousContinuationSeed(
     model: NativeActivatedModel,
     goal: String,
+    inference: NativeCognitionInference? = null,
     budget: NativeReasoningBudget = NativeReasoningBudget(
         maxTransitions = 128,
         maxRetriesPerStep = 3,
@@ -96,7 +98,7 @@ fun createVN97AutonomousContinuationSeed(
     }
 
     val cognition = NativeTypedCognitionAdapter(
-        NativeCognitionInferenceEngine(
+        inference ?: NativeCognitionInferenceEngine(
             model = model,
             config = cognitionRuntimeConfig,
         )
@@ -122,6 +124,7 @@ fun createVN97AutonomousReplanSeed(
     model: NativeActivatedModel,
     previousPlan: NativePlan,
     feedback: String,
+    inference: NativeCognitionInference? = null,
     cognitionRuntimeConfig: NativeCognitionRuntimeConfig =
         NativeCognitionRuntimeConfig(),
     cognitionLimits: NativeCognitionLimits = NativeCognitionLimits(
@@ -145,7 +148,7 @@ fun createVN97AutonomousReplanSeed(
     }
 
     val cognition = NativeTypedCognitionAdapter(
-        NativeCognitionInferenceEngine(
+        inference ?: NativeCognitionInferenceEngine(
             model = model,
             config = cognitionRuntimeConfig,
         )
