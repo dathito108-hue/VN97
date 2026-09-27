@@ -562,7 +562,7 @@ def test_r2d12_detects_frozen_ledger_tamper(
         output_dir=view_dir,
     )
 
-    ledger = view_dir / "r2d11-ledger-snapshot.json"
+    ledger = view_dir / "r2d11-ledger" / "000004.json"
     payload = json.loads(ledger.read_text(encoding="utf-8"))
     payload["generation"] += 1
     ledger.write_text(
