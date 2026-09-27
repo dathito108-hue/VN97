@@ -192,6 +192,12 @@ class VN97OrtHardeningHarness(
             var invocationFailures = 0
             for (invocation in decision.invocations) {
                 val result = executor.execute(invocation)
+                require(result.graphFilename == invocation.graphFilename) {
+                    "E5 executor returned evidence for another graph"
+                }
+                require(result.provider in invocation.providers) {
+                    "E5 executor returned a provider outside the decision chain"
+                }
                 graphs[result.graphFilename] =
                     (graphs[result.graphFilename] ?: 0) + 1
                 providers[result.provider.name] =

@@ -325,3 +325,38 @@ def test_recovery_thermal_guard_is_explicit() -> None:
     )
     assert sealed["recovery_thermal_passed"] is False
     assert sealed["hardening_passed"] is False
+
+
+def test_device_run_rejects_duplicate_phase_kind(tmp_path: Path) -> None:
+    run = _run()
+    duplicate = dict(run["phases"][2])
+    duplicate["name"] = "prefill_duplicate"
+    run["phases"].append(duplicate)
+    body = dict(run)
+    body.pop("run_id", None)
+    run["run_id"] = hashlib.sha256(
+        b"VN97R2E5RUN1\0" + _canonical(body)
+    ).hexdigest()
+    path = tmp_path / "run.json"
+    path.write_bytes(_canonical(run) + b"\n")
+    with pytest.raises(ValueError, match="exactly one canonical phase"):
+        verify_r2e5_run(path)
+
+
+def test_hardening_verifier_rejects_semantic_rehash(tmp_path: Path) -> None:
+    sealed = compile_r2e5_hardening(
+        _manifest(),
+        _e3(),
+        _e4(),
+        _run(),
+    )
+    sealed["hardening_passed"] = False
+    body = dict(sealed)
+    body.pop("hardening_id", None)
+    sealed["hardening_id"] = hashlib.sha256(
+        b"VN97R2E5HARDEN1\0" + _canonical(body)
+    ).hexdigest()
+    path = tmp_path / "hardening.json"
+    path.write_bytes(_canonical(sealed) + b"\n")
+    with pytest.raises(ValueError, match="aggregate hardening decision"):
+        verify_r2e5_hardening(path)

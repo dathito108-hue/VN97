@@ -251,7 +251,7 @@ def verify_r2e5_run(
     if not isinstance(phases, list) or not phases:
         raise ValueError("E5 phases are missing")
     names: set[str] = set()
-    kinds: set[str] = set()
+    kind_counts: dict[str, int] = {}
     for phase in phases:
         if not isinstance(phase, dict):
             raise ValueError("E5 phase must be an object")
@@ -260,7 +260,8 @@ def verify_r2e5_run(
         if name in names:
             raise ValueError("E5 phase names must be unique")
         names.add(name)
-        kinds.add(str(phase["kind"]))
+        kind = str(phase["kind"])
+        kind_counts[kind] = kind_counts.get(kind, 0) + 1
     required_kinds = {
         "cold",
         "warm_step",
@@ -268,8 +269,13 @@ def verify_r2e5_run(
         "sustained",
         "recovery",
     }
-    if not required_kinds.issubset(kinds):
-        raise ValueError("E5 run is missing required hardening phases")
+    if (
+        set(kind_counts) != required_kinds
+        or any(count != 1 for count in kind_counts.values())
+    ):
+        raise ValueError(
+            "E5 run requires exactly one canonical phase per kind"
+        )
 
     controls = payload.get("control_tests")
     if not isinstance(controls, dict):
@@ -369,9 +375,20 @@ def compile_r2e5_hardening(
         raise ValueError("E5 run is not from a Galaxy S21 FE device")
 
     controls = run.get("control_tests")
-    if not isinstance(controls, dict):
-        raise ValueError("E5 run control evidence is missing")
-    control_passed = all(bool(value) for value in controls.values())
+    required_controls = {
+        "thermal_hysteresis_passed",
+        "memory_pressure_passed",
+        "provider_quarantine_passed",
+        "provider_recovery_passed",
+        "cpu_fallback_passed",
+    }
+    if (
+        not isinstance(controls, dict)
+        or set(controls) != required_controls
+        or any(not isinstance(value, bool) for value in controls.values())
+    ):
+        raise ValueError("E5 run control evidence is invalid")
+    control_passed = all(controls.values())
 
     warm = _phase_by_kind(run, "warm_step")
     sustained = _phase_by_kind(run, "sustained")
@@ -549,6 +566,83 @@ def verify_r2e5_hardening(
         raise ValueError("E5 must not introduce quantization")
     if payload.get("same_weights_semantics") is not True:
         raise ValueError("E5 same-weights semantics are not locked")
+
+    for field in (
+        "architecture_fingerprint",
+        "e3_receipt_id",
+        "e4_tuning_id",
+        "run_id",
+    ):
+        _require_sha256(
+            payload.get(field),
+            label=f"E5 {field}",
+        )
+
+    device = payload.get("device")
+    if not isinstance(device, dict):
+        raise ValueError("E5 hardening device evidence is missing")
+    _validate_device(device)
+    target_match = is_s21_fe_device(device)
+    if (
+        not isinstance(payload.get("target_device_match"), bool)
+        or payload.get("target_device_match") is not target_match
+    ):
+        raise ValueError("E5 target-device decision mismatch")
+
+    max_ratio = payload.get("max_sustained_p95_over_warm_ppm")
+    ratio = payload.get("sustained_p95_over_warm_ppm")
+    if (
+        not isinstance(max_ratio, int)
+        or max_ratio != R2E5_MAX_SUSTAINED_P95_OVER_WARM_PPM
+        or not isinstance(ratio, int)
+        or ratio <= 0
+    ):
+        raise ValueError("E5 sustained latency guard evidence is invalid")
+    sustained_guard = ratio <= max_ratio
+    if (
+        not isinstance(payload.get("sustained_guard_passed"), bool)
+        or payload.get("sustained_guard_passed") is not sustained_guard
+    ):
+        raise ValueError("E5 sustained guard decision mismatch")
+
+    failure_count = payload.get("failure_count")
+    if not isinstance(failure_count, int) or failure_count < 0:
+        raise ValueError("E5 failure count is invalid")
+    failure_guard = failure_count == 0
+    if (
+        not isinstance(payload.get("failure_guard_passed"), bool)
+        or payload.get("failure_guard_passed") is not failure_guard
+    ):
+        raise ValueError("E5 failure guard decision mismatch")
+
+    for field in (
+        "control_tests_passed",
+        "recovery_thermal_passed",
+        "hardening_passed",
+    ):
+        if not isinstance(payload.get(field), bool):
+            raise ValueError(f"E5 {field} must be boolean")
+
+    expected_pass = (
+        target_match
+        and bool(payload["control_tests_passed"])
+        and sustained_guard
+        and failure_guard
+        and bool(payload["recovery_thermal_passed"])
+    )
+    if payload.get("hardening_passed") is not expected_pass:
+        raise ValueError("E5 aggregate hardening decision mismatch")
+
+    for field in (
+        "warm_step_p95_ns",
+        "sustained_p95_ns",
+        "warm_step_per_token_p95_ns",
+        "sustained_per_token_p95_ns",
+    ):
+        value = payload.get(field)
+        if not isinstance(value, int) or value <= 0:
+            raise ValueError(f"E5 {field} is invalid")
+
     graphs = payload.get("minimal_apk_graphs")
     if (
         not isinstance(graphs, list)
