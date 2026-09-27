@@ -447,11 +447,20 @@ def build_r2d5_preflight_package(
         )
         _copy_verified(source, output / filename, expected_sha)
 
+    script = _render_preflight_script(
+        repository_commit=repository_commit,
+        task_families=families,
+        recipe=recipe,
+        safety_fraction=safety_fraction,
+    )
+    script_bytes = script.encode("utf-8")
+
     body: dict[str, object] = {
         "architecture_fingerprint": config.fingerprint(),
         "corpus": corpus.as_dict(),
         "d4_manifest_identity": d4_manifest.identity(),
         "model_parameter_count": parameter_count,
+        "preflight_script_sha256": _sha256_bytes(script_bytes),
         "purpose": "measured_cuda_preflight",
         "recipe": asdict(recipe),
         "recipe_fingerprint": recipe.fingerprint(),
@@ -470,14 +479,8 @@ def build_r2d5_preflight_package(
         _canonical_json(payload) + b"\n"
     )
 
-    script = _render_preflight_script(
-        repository_commit=repository_commit,
-        task_families=families,
-        recipe=recipe,
-        safety_fraction=safety_fraction,
-    )
     script_path = output / "run_t4_preflight.sh"
-    script_path.write_text(script, encoding="utf-8")
+    script_path.write_bytes(script_bytes)
     script_path.chmod(0o755)
 
     return payload
@@ -533,6 +536,13 @@ def verify_r2d5_package(package_dir: Path) -> dict[str, object]:
         )
         if _sha256_file(root / f"{split}.jsonl") != expected:
             raise ValueError(f"R2-D5 {split} package hash mismatch")
+
+    script_sha = _require_sha256(
+        payload.get("preflight_script_sha256"),
+        label="R2-D5 preflight script SHA-256",
+    )
+    if _sha256_file(root / "run_t4_preflight.sh") != script_sha:
+        raise ValueError("R2-D5 preflight script hash mismatch")
 
     tokenizer_sha = _require_sha256(
         payload.get("tokenizer_sha256"),
