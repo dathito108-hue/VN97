@@ -676,7 +676,6 @@ def _cursor_order_digest(
             epoch=cursor.epoch,
             index=index,
             curriculum_plan=curriculum_plan,
-            shard_roots=shard_roots,
         )
     )
 
