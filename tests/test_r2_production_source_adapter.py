@@ -65,6 +65,9 @@ def _lock(
             {
                 "schema": R2D10_LOCK_SCHEMA,
                 "profile_id": "vn97-production-intelligence-v1",
+                "shard_target_training_records": 10000,
+                "validation_fraction": 0.01,
+                "release_fraction": 0.01,
                 "sources": sources,
             },
             ensure_ascii=False,
