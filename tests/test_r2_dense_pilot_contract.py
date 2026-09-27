@@ -21,8 +21,10 @@ from vn97.r2 import (
     lexical_token_f1,
     r2_cpu_pilot_config,
     r2_smoke_config,
+    sha256_file,
 )
 from vn97.r2.dense_pilot_cli import main as dense_pilot_main
+from vn97.r2.dense_training import _validate_resume_best_checkpoint
 from vn97.tokenizer import VN97Tokenizer, VN97TokenizerPackage
 from vn97.training import VN97ChatMessage, VN97TrainingConfig
 
@@ -219,6 +221,47 @@ def test_r2c_gate_is_fail_closed_when_required_probe_axes_are_missing() -> None:
         complete,
         thresholds=R2PilotGateThresholds(),
     ).passed is True
+
+
+
+
+def test_r2c_resume_guard_rejects_missing_or_tampered_best_checkpoint(
+    tmp_path,
+) -> None:
+    best = tmp_path / "best.r2.pt"
+
+    with pytest.raises(RuntimeError, match="missing best checkpoint"):
+        _validate_resume_best_checkpoint(
+            best,
+            best_epoch=0,
+            best_checkpoint_sha256="a" * 64,
+        )
+
+    best.write_bytes(b"checkpoint-a")
+    original_sha = sha256_file(best)
+    assert (
+        _validate_resume_best_checkpoint(
+            best,
+            best_epoch=0,
+            best_checkpoint_sha256=original_sha,
+        )
+        == original_sha
+    )
+
+    best.write_bytes(b"checkpoint-b")
+    with pytest.raises(RuntimeError, match="SHA-256 mismatch"):
+        _validate_resume_best_checkpoint(
+            best,
+            best_epoch=0,
+            best_checkpoint_sha256=original_sha,
+        )
+
+    with pytest.raises(RuntimeError, match="without best epoch"):
+        _validate_resume_best_checkpoint(
+            best,
+            best_epoch=-1,
+            best_checkpoint_sha256=original_sha,
+        )
 
 
 def test_r2c_smoke_dense_cli_writes_v2_evidence_without_quantization(
