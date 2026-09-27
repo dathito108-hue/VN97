@@ -207,3 +207,110 @@ def test_r2_structured_protocol_keeps_exact_gate() -> None:
     )
     assert decision.passed is False
     assert "protocol_exact_match_below_threshold" in decision.reasons
+
+
+
+def test_r2_parallel_scan_matches_reference_and_chunked_continuation() -> None:
+    torch.manual_seed(17)
+    config = r2_smoke_config(vocab_size=112)
+    model = VN97R2Model(config).eval()
+    tokens = torch.randint(0, config.vocab_size, (2, 11))
+
+    with torch.inference_mode():
+        scan_hidden, scan_state = model.forward_hidden(
+            tokens,
+            profile="deep",
+        )
+        ref_hidden, ref_state = model.forward_hidden_reference(
+            tokens,
+            profile="deep",
+        )
+
+        first_hidden, first_state = model.forward_hidden(
+            tokens[:, :6],
+            profile="deep",
+        )
+        second_hidden, second_state = model.forward_hidden(
+            tokens[:, 6:],
+            first_state,
+            profile="deep",
+        )
+        chunked_hidden = torch.cat(
+            (first_hidden, second_hidden),
+            dim=1,
+        )
+
+    torch.testing.assert_close(
+        scan_hidden,
+        ref_hidden,
+        rtol=2e-5,
+        atol=2e-6,
+    )
+    torch.testing.assert_close(
+        scan_hidden,
+        chunked_hidden,
+        rtol=2e-5,
+        atol=2e-6,
+    )
+
+    assert scan_state.active_layers == ref_state.active_layers
+    assert scan_state.active_layers == second_state.active_layers
+    for scan_layer, ref_layer, chunk_layer in zip(
+        scan_state.layers,
+        ref_state.layers,
+        second_state.layers,
+    ):
+        # Full-sequence Linear/conv kernels and token-by-token kernels may
+        # accumulate FP32 products in a different order. The recurrent state
+        # must be numerically equivalent, not bit-identical.
+        torch.testing.assert_close(
+            scan_layer.conv,
+            ref_layer.conv,
+            rtol=2e-5,
+            atol=2e-6,
+        )
+        torch.testing.assert_close(
+            scan_layer.ssm,
+            ref_layer.ssm,
+            rtol=2e-5,
+            atol=2e-6,
+        )
+        torch.testing.assert_close(
+            scan_layer.conv,
+            chunk_layer.conv,
+            rtol=2e-5,
+            atol=2e-6,
+        )
+        torch.testing.assert_close(
+            scan_layer.ssm,
+            chunk_layer.ssm,
+            rtol=2e-5,
+            atol=2e-6,
+        )
+
+
+def test_r2_fast_parallel_scan_matches_recurrent_reference() -> None:
+    torch.manual_seed(18)
+    config = r2_smoke_config(vocab_size=104)
+    model = VN97R2Model(config).eval()
+    tokens = torch.randint(0, config.vocab_size, (1, 9))
+
+    with torch.inference_mode():
+        scan_logits, _ = model(tokens, profile="fast")
+        state = None
+        pieces = []
+        for position in range(tokens.shape[1]):
+            logits, state = model.step(
+                tokens[:, position],
+                state,
+                profile="fast",
+            )
+            pieces.append(logits.unsqueeze(1))
+        recurrent_logits = torch.cat(pieces, dim=1)
+
+    torch.testing.assert_close(
+        scan_logits,
+        recurrent_logits,
+        rtol=2e-5,
+        atol=2e-6,
+    )

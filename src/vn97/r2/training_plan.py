@@ -10,6 +10,7 @@ class R2TrainingStage(str, Enum):
     INSTRUCTION_REASONING = "instruction_reasoning"
     TOOL_ACTION = "tool_action"
     CAPABILITY = "capability"
+    FAST_PATH_ALIGNMENT = "fast_path_alignment"
     FRESH_VALIDATION = "fresh_validation"
     QAT = "qat"
     MOBILE_LOWERING = "mobile_lowering"
@@ -50,6 +51,7 @@ class R2PromotionPolicy:
         R2TrainingStage.INSTRUCTION_REASONING,
         R2TrainingStage.TOOL_ACTION,
         R2TrainingStage.CAPABILITY,
+        R2TrainingStage.FAST_PATH_ALIGNMENT,
         R2TrainingStage.FRESH_VALIDATION,
         R2TrainingStage.QAT,
         R2TrainingStage.MOBILE_LOWERING,
