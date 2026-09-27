@@ -58,6 +58,25 @@ def test_source_identity_is_pinned_to_official_release() -> None:
         require_pinned_revision("main")
 
 
+def test_source_contract_rejects_wrong_ssm_layer_or_hidden_override() -> None:
+    wrong_layer = official_config()
+    wrong_layer["ssm_cfg"] = {"layer": "Mamba1"}
+    with pytest.raises(ValueError, match="locked Mamba-2 2.7B"):
+        Mamba2SourceSpec.from_config(
+            wrong_layer
+        ).require_official_27b_contract()
+
+    hidden_override = official_config()
+    hidden_override["ssm_cfg"] = {
+        "layer": "Mamba2",
+        "dt_limit": [0.0, 1.0],
+    }
+    with pytest.raises(ValueError, match="locked Mamba-2 2.7B"):
+        Mamba2SourceSpec.from_config(
+            hidden_override
+        ).require_official_27b_contract()
+
+
 def test_transfer_manifest_pins_gpt_neox_tokenizer_lineage() -> None:
     spec = Mamba2SourceSpec.from_config(official_config())
     manifest = build_transfer_manifest(
