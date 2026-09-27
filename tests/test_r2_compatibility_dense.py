@@ -7,9 +7,11 @@ import torch
 from vn97.cognition_adapter import TorchVN97InferenceEngine
 from vn97.r2 import (
     R2DenseTrainingConfig,
+    R2FastPathConfig,
     R2TrainingStage,
     VN97R2InferenceView,
     VN97R2Model,
+    align_fast_path,
     assert_r2_data_compatible,
     build_completion_windows,
     load_r2_checkpoint,
@@ -131,3 +133,47 @@ def test_r2_training_order_contains_fast_alignment_before_validation() -> None:
     assert order.index(
         R2TrainingStage.FAST_PATH_ALIGNMENT.value
     ) < order.index(R2TrainingStage.FRESH_VALIDATION.value)
+
+
+def test_r2_fast_alignment_updates_only_leading_layers() -> None:
+    torch.manual_seed(13)
+    tokenizer = VN97Tokenizer()
+    model = VN97R2Model(
+        r2_smoke_config(tokenizer.vocab_size)
+    )
+    window_config = VN97TrainingConfig(
+        sequence_length=32,
+        stride=16,
+        batch_size=1,
+        epochs=1,
+        max_windows=100,
+    )
+    windows = build_completion_windows(
+        tokenizer,
+        _conversations(),
+        window_config,
+    )
+    first_before = model.layers[0].out_proj.weight.detach().clone()
+    last_before = model.layers[-1].out_proj.weight.detach().clone()
+
+    result = align_fast_path(
+        model,
+        windows[:1],
+        R2FastPathConfig(
+            epochs=1,
+            batch_size=1,
+            learning_rate=1e-3,
+            seed=13,
+        ),
+        device="cpu",
+    )
+
+    assert result.steps == 1
+    assert not torch.equal(
+        first_before,
+        model.layers[0].out_proj.weight.detach(),
+    )
+    assert torch.equal(
+        last_before,
+        model.layers[-1].out_proj.weight.detach(),
+    )
