@@ -77,6 +77,8 @@ class Mamba2SourceSpec:
     fused_add_norm: bool
     tie_embeddings: bool
     attention_layers: tuple[int, ...]
+    ssm_layer: str
+    ssm_override_keys: tuple[str, ...]
 
     @property
     def padded_vocab_size(self) -> int:
@@ -137,6 +139,8 @@ class Mamba2SourceSpec:
             fused_add_norm=bool(config.get("fused_add_norm", False)),
             tie_embeddings=bool(config.get("tie_embeddings", False)),
             attention_layers=tuple(int(value) for value in attention),
+            ssm_layer=str(ssm_cfg.get("layer", "")),
+            ssm_override_keys=tuple(\n                sorted(str(key) for key in ssm_cfg if key != "layer")\n            ),
         )
 
     def require_official_27b_contract(self) -> None:
@@ -156,6 +160,8 @@ class Mamba2SourceSpec:
             "fused_add_norm": True,
             "tie_embeddings": True,
             "attention_layers": (),
+            "ssm_layer": "Mamba2",
+            "ssm_override_keys": (),
         }
         actual = {
             "d_model": self.d_model,
@@ -173,6 +179,8 @@ class Mamba2SourceSpec:
             "fused_add_norm": self.fused_add_norm,
             "tie_embeddings": self.tie_embeddings,
             "attention_layers": self.attention_layers,
+            "ssm_layer": self.ssm_layer,
+            "ssm_override_keys": self.ssm_override_keys,
         }
         mismatches = [
             f"{key}={actual[key]!r} expected {value!r}"
@@ -194,6 +202,7 @@ class Mamba2SourceSpec:
     def canonical_object(self) -> dict[str, object]:
         body = asdict(self)
         body["attention_layers"] = list(self.attention_layers)
+        body["ssm_override_keys"] = list(self.ssm_override_keys)
         body.update(
             {
                 "padded_vocab_size": self.padded_vocab_size,
