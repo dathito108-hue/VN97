@@ -144,6 +144,7 @@ from .production_registry import (
     init_r2d11_registry,
     load_r2d11_definition,
     verify_r2d11_registry,
+    verify_r2d11_generation,
 )
 from .production_source_adapter import (
     R2D10_ADAPTERS,
@@ -166,6 +167,18 @@ from .production_streaming import (
     load_r2d5_memory_receipt,
     production_manifest_from_r2d6,
     train_streaming_production_stage,
+)
+from .production_virtual_corpus import (
+    R2D12_INDEX_SCHEMA,
+    R2D12_MOUNT_DEFINITION_SCHEMA,
+    R2D12_MOUNTS_SCHEMA,
+    R2D12_VIEW_SCHEMA,
+    build_r2d12_view,
+    load_r2d12_mount_definition,
+    project_r2d12_index,
+    projection_for_stage,
+    resolve_r2d12_shard,
+    verify_r2d12_view,
 )
 from .production_training import (
     CPUOffloadedAdamW,
@@ -336,4 +349,15 @@ __all__ = [
     "init_r2d11_registry",
     "load_r2d11_definition",
     "verify_r2d11_registry",
+    "verify_r2d11_generation",
+    "R2D12_INDEX_SCHEMA",
+    "R2D12_MOUNT_DEFINITION_SCHEMA",
+    "R2D12_MOUNTS_SCHEMA",
+    "R2D12_VIEW_SCHEMA",
+    "build_r2d12_view",
+    "load_r2d12_mount_definition",
+    "project_r2d12_index",
+    "projection_for_stage",
+    "resolve_r2d12_shard",
+    "verify_r2d12_view",
 ]

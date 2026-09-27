@@ -39,6 +39,7 @@ from .production_curriculum import (
     curriculum_epoch_shards,
     verify_r2d8_plan,
 )
+from .production_virtual_corpus import resolve_r2d12_shard
 from .production_training import (
     CPUOffloadedAdamW,
     R2MeasuredMemoryEvidence,
@@ -303,6 +304,24 @@ def _iter_chat_records(
         raise ValueError("R2-D7 shard is not strict UTF-8") from exc
 
 
+def _resolve_stream_shard_path(
+    package_dir: Path,
+    shard: Mapping[str, object],
+    *,
+    shard_roots: Mapping[str, Path] | None,
+) -> Path:
+    if shard_roots is not None:
+        return resolve_r2d12_shard(shard, shard_roots)
+    root = package_dir.resolve(strict=True)
+    relative = Path(str(shard["filename"]))
+    if relative.is_absolute() or ".." in relative.parts:
+        raise ValueError("R2-D7 shard filename must remain relative")
+    path = root / relative
+    if path.is_symlink() or not path.is_file():
+        raise ValueError("R2-D7 shard path must be a regular file")
+    return path
+
+
 def _next_window_cursor(
     *,
     epoch: int,
@@ -346,6 +365,7 @@ def iter_epoch_training_windows(
     seed: int,
     sequence_length: int,
     curriculum_plan: Mapping[str, object] | None = None,
+    shard_roots: Mapping[str, Path] | None = None,
 ) -> Iterator[tuple[VN97TrainingWindow, R2StreamingCursor]]:
     training_shards = _split_shards(index, "training")
     order = _epoch_shard_order(
@@ -358,7 +378,6 @@ def iter_epoch_training_windows(
     if cursor.shard_position >= len(order):
         raise RuntimeError("R2-D7 cursor shard position is out of range")
 
-    root = package_dir.resolve(strict=True)
     for shard_position in range(cursor.shard_position, len(order)):
         shard = order[shard_position]
         records_in_shard = int(shard["records"])
@@ -377,7 +396,11 @@ def iter_epoch_training_windows(
         if start_record >= records_in_shard:
             raise RuntimeError("R2-D7 cursor record is out of range")
 
-        shard_path = root / str(shard["filename"])
+        shard_path = _resolve_stream_shard_path(
+            package_dir,
+            shard,
+            shard_roots=shard_roots,
+        )
         seen_records = 0
         for record_index, messages in _iter_chat_records(
             shard_path,
@@ -429,10 +452,14 @@ def _iter_validation_windows(
     tokenizer,
     *,
     sequence_length: int,
+    shard_roots: Mapping[str, Path] | None = None,
 ) -> Iterator[VN97TrainingWindow]:
-    root = package_dir.resolve(strict=True)
     for shard in _split_shards(index, "validation"):
-        path = root / str(shard["filename"])
+        path = _resolve_stream_shard_path(
+            package_dir,
+            shard,
+            shard_roots=shard_roots,
+        )
         expected_records = int(shard["records"])
         observed = 0
         for _, messages in _iter_chat_records(path):
@@ -483,6 +510,7 @@ def evaluate_streaming_validation(
     recipe: R2ProductionTrainingRecipe,
     *,
     device: str | torch.device,
+    shard_roots: Mapping[str, Path] | None = None,
 ) -> dict[str, float | int]:
     resolved = _resolve_device(device)
     model.to(resolved)
@@ -527,6 +555,7 @@ def evaluate_streaming_validation(
         index,
         tokenizer,
         sequence_length=recipe.sequence_length,
+        shard_roots=shard_roots,
     ):
         batch.append(window)
         if len(batch) == recipe.micro_batch_size:
@@ -790,7 +819,7 @@ def load_r2d5_memory_receipt(
 
 def _validate_stream_package(
     model: VN97R2Model,
-    package_dir: Path,
+    tokenizer_path: Path,
     index: Mapping[str, object],
     recipe: R2ProductionTrainingRecipe,
 ) -> None:
@@ -837,7 +866,7 @@ def _validate_stream_package(
         label="R2-D7 tokenizer SHA-256",
     )
     if sha256_file(
-        package_dir.resolve(strict=True) / "tokenizer.vn97tk1"
+        tokenizer_path.resolve(strict=True)
     ) != tokenizer_sha:
         raise ValueError("R2-D7 tokenizer identity mismatch")
 
@@ -854,13 +883,29 @@ def train_streaming_production_stage(
     measured_preflight: R2MeasuredMemoryEvidence | None = None,
     max_run_seconds: float | None = None,
     curriculum_plan: Mapping[str, object] | None = None,
+    corpus_index: Mapping[str, object] | None = None,
+    shard_roots: Mapping[str, Path] | None = None,
+    tokenizer_path: str | Path | None = None,
 ) -> R2StreamingTrainingResult:
     if max_run_seconds is not None and max_run_seconds <= 0.0:
         raise ValueError("max_run_seconds must be positive when provided")
 
     package = Path(package_dir)
-    index = verify_r2d6_corpus_index(package)
-    _validate_stream_package(model, package, index, recipe)
+    if corpus_index is None:
+        index = verify_r2d6_corpus_index(package)
+    else:
+        index = dict(corpus_index)
+    resolved_tokenizer_path = (
+        package / "tokenizer.vn97tk1"
+        if tokenizer_path is None
+        else Path(tokenizer_path)
+    )
+    _validate_stream_package(
+        model,
+        resolved_tokenizer_path,
+        index,
+        recipe,
+    )
 
     if curriculum_plan is not None:
         verified_plan = verify_r2d8_plan(curriculum_plan, index)
@@ -928,7 +973,7 @@ def train_streaming_production_stage(
             )
 
     tokenizer = load_vn97tk1(
-        package.resolve(strict=True) / "tokenizer.vn97tk1"
+        resolved_tokenizer_path.resolve(strict=True)
     )
     if tokenizer.vocab_size != model.config.vocab_size:
         raise ValueError("R2-D7 tokenizer/model vocabulary mismatch")
@@ -1037,6 +1082,7 @@ def train_streaming_production_stage(
             seed=trainer.seed,
             sequence_length=recipe.sequence_length,
             curriculum_plan=curriculum_plan,
+            shard_roots=shard_roots,
         )
         model.train()
 
@@ -1213,6 +1259,7 @@ def train_streaming_production_stage(
                 tokenizer,
                 recipe,
                 device=resolved,
+                shard_roots=shard_roots,
             )
             validation_loss = float(
                 validation["mean_loss"]
@@ -1226,6 +1273,7 @@ def train_streaming_production_stage(
                     stage="dense_pretrain",
                     metadata={
                         "r2d6_index_id": d6_index_id,
+                        "corpus_index_schema": index.get("schema"),
                         "streaming_run_identity": identity,
                         "production_manifest_identity": (
                             manifest.identity()
