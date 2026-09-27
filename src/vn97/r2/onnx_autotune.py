@@ -174,11 +174,13 @@ def _provider_policy(
             str(item["provider"]),
         )
     )
-    provider_order = [str(item["provider"]) for item in usable]
-    if provider_order[-1] != "CPU":
+    ranked_order = [str(item["provider"]) for item in usable]
+    if ranked_order[0] == "CPU":
+        provider_order = ["CPU"]
+    else:
         provider_order = [
             provider
-            for provider in provider_order
+            for provider in ranked_order
             if provider != "CPU"
         ] + ["CPU"]
 
