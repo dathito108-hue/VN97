@@ -82,6 +82,7 @@ vn97-r2-onnx-runtime = "vn97.r2.onnx_runtime_package_cli:main"
 vn97-r2-mamba2-transfer = "vn97.r2.mamba2_transfer_cli:main"
 vn97-r2-mamba2-parity = "vn97.r2.mamba2_parity_cli:main"
 vn97-r2-mamba2-g03 = "vn97.r2.mamba2_g03_capsule_cli:main"
+vn97-r2-mamba2-g04 = "vn97.r2.mamba2_onnx_cli:main"
 vn97-p2-source-fetch = "vn97.p2_source_fetch_cli:main"
 vn97-p2-corpus-bundle = "vn97.p2_corpus_bundle_cli:main"
 vn97-p2-pilot-handoff = "vn97.p2_pilot_handoff_cli:main"
@@ -103,7 +104,7 @@ vn97-turnkey-accept = "vn97.turnkey_acceptance_cli:main"
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
-onnx = ["onnx>=1.16,<2", "onnxruntime>=1.18,<2"]
+onnx = ["onnx>=1.16,<2", "onnxruntime>=1.18,<2", "onnxscript>=0.1,<1"]
 signing = ["cryptography>=42"]
 
 [tool.setuptools.packages.find]
