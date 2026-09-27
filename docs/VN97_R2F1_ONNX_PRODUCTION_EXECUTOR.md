@@ -237,7 +237,16 @@ All paths carry the same explicit state and the same VN97 weights semantics.
 
 F1 does not ask one ORT session to hide the provider fallback result.
 
-It attempts the E4 provider chain explicitly.
+For QNN/NNAPI/XNNPACK sessions it sets:
+
+```
+session.disable_cpu_ep_fallback = 1
+```
+
+If the requested accelerator cannot cover the complete graph, ORT session
+creation fails instead of silently assigning unsupported nodes to the CPU EP.
+
+F1 then attempts the E4 provider chain explicitly.
 
 For every graph invocation:
 
