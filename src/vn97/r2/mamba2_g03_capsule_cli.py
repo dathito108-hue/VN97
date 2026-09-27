@@ -8,7 +8,9 @@ from .mamba2_g03_capsule import (
     VN97_MAMBA2_G03_CAPSULE_MANIFEST,
     load_g03_capsule,
     materialize_g03_capsule,
+    verify_g03_capsule_structure,
 )
+from .mamba2_transfer import identity_tensor_mapping
 
 
 def main() -> None:
@@ -67,38 +69,47 @@ def main() -> None:
         )
         return
 
-    loaded = load_g03_capsule(
-        args.capsule_root,
-        verify_large_weight_sha256=(
-            False
-            if args.command == "inspect"
-            else not args.skip_large_weight_sha256
-        ),
-    )
+    if args.command == "inspect":
+        verified = verify_g03_capsule_structure(
+            args.capsule_root,
+            verify_large_weight_sha256=False,
+        )
+        root = verified.root
+        manifest = verified.manifest
+        manifest_sha256 = verified.manifest_sha256
+        spec = verified.spec
+        logical_tensor_count = len(identity_tensor_mapping(spec))
+        large_hash_verified = False
+    else:
+        loaded = load_g03_capsule(
+            args.capsule_root,
+            verify_large_weight_sha256=not args.skip_large_weight_sha256,
+        )
+        root = loaded.root
+        manifest = loaded.manifest
+        manifest_sha256 = loaded.manifest_sha256
+        spec = loaded.spec
+        logical_tensor_count = len(loaded.tensors)
+        large_hash_verified = not args.skip_large_weight_sha256
+
     result = {
         "status": (
             "VN97_G03_CAPSULE_VERIFIED"
             if args.command == "verify"
             else "VN97_G03_CAPSULE_INSPECTED"
         ),
-        "capsule_root": str(loaded.root),
-        "capsule_id": loaded.manifest.capsule_id(),
-        "manifest_sha256": loaded.manifest_sha256,
-        "source_weight_sha256":
-            loaded.manifest.source_weight_sha256,
-        "source_weight_size_bytes":
-            loaded.manifest.source_weight_size_bytes,
-        "logical_tensor_count": len(loaded.tensors),
-        "d_model": loaded.spec.d_model,
-        "n_layers": loaded.spec.n_layers,
-        "n_heads": loaded.spec.n_heads,
-        "d_state": loaded.spec.d_state,
-        "source_runtime_required":
-            loaded.manifest.source_runtime_required,
-        "large_weight_sha256_verified": (
-            args.command == "verify"
-            and not args.skip_large_weight_sha256
-        ),
+        "capsule_root": str(root),
+        "capsule_id": manifest.capsule_id(),
+        "manifest_sha256": manifest_sha256,
+        "source_weight_sha256": manifest.source_weight_sha256,
+        "source_weight_size_bytes": manifest.source_weight_size_bytes,
+        "logical_tensor_count": logical_tensor_count,
+        "d_model": spec.d_model,
+        "n_layers": spec.n_layers,
+        "n_heads": spec.n_heads,
+        "d_state": spec.d_state,
+        "source_runtime_required": manifest.source_runtime_required,
+        "large_weight_sha256_verified": large_hash_verified,
         "production_parity_required": True,
         "production_activation_authorized": False,
     }
