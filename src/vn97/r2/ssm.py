@@ -8,7 +8,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from ..scan import affine_prefix_scan
+from ..scan import affine_prefix_scan_memory_efficient
 from .config import VN97R2Config
 
 
@@ -367,10 +367,11 @@ class SelectiveSSMBlock(nn.Module):
             * u.unsqueeze(-1)
         )
 
-        states, next_ssm = affine_prefix_scan(
+        states, next_ssm = affine_prefix_scan_memory_efficient(
             d_a,
             drive,
             state.ssm,
+            chunk_size=32,
         )
         y = (
             states * c.unsqueeze(2)
