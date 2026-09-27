@@ -3,20 +3,23 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import shutil
 import stat
 from typing import Sequence
 
-from ..training_cli import _load_records
+from ..training_cli import _atomic_write, _load_records
 from .config import r2_mobile_1b_config
 from .data_bridge import load_vn97tk1
 from .pilot_contract import chat_record_digest
 from .production_contract import (
     R2ProductionTrainingRecipe,
+    assert_production_training_contract,
     assert_r2_production_scale,
 )
+from .production_training import R2MeasuredMemoryEvidence
 from .production_launcher import build_production_manifest
 
 
@@ -386,8 +389,10 @@ def build_r2d5_preflight_package(
     families = tuple(sorted(set(task_families)))
     if not families or any(not item for item in families):
         raise ValueError("R2-D5 requires non-empty task families")
-    if recipe.quantization_used:
-        raise ValueError("R2-D5 preflight forbids quantization")
+    if not recipe.optimizer_state_offload:
+        raise ValueError(
+            "R2-D5 recipe must keep optimizer_state_offload=true"
+        )
 
     corpus = verify_r2d5_corpus(
         corpus_dir,
@@ -398,6 +403,7 @@ def build_r2d5_preflight_package(
     tokenizer = load_vn97tk1(tokenizer_resolved)
     config = r2_mobile_1b_config(tokenizer.vocab_size)
     parameter_count = assert_r2_production_scale(config)
+    assert_production_training_contract(config, recipe)
 
     root = corpus_dir.resolve(strict=True)
     d4_manifest = build_production_manifest(
@@ -475,8 +481,9 @@ def build_r2d5_preflight_package(
     campaign_id = _campaign_identity(body)
     payload = dict(body)
     payload["campaign_id"] = campaign_id
-    (output / "r2d5-campaign.json").write_bytes(
-        _canonical_json(payload) + b"\n"
+    _atomic_write(
+        output / "r2d5-campaign.json",
+        _canonical_json(payload) + b"\n",
     )
 
     script_path = output / "run_t4_preflight.sh"
@@ -584,6 +591,27 @@ def verify_r2d5_package(package_dir: Path) -> dict[str, object]:
     recipe = R2ProductionTrainingRecipe(**recipe_raw)
     if payload.get("recipe_fingerprint") != recipe.fingerprint():
         raise ValueError("R2-D5 recipe fingerprint mismatch")
+    if not recipe.optimizer_state_offload:
+        raise ValueError("R2-D5 recipe optimizer offload mismatch")
+    assert_r2_production_scale(config)
+    assert_production_training_contract(config, recipe)
+
+    d4_manifest = build_production_manifest(
+        stage="dense_pretrain",
+        tokenizer_path=tokenizer_path,
+        train_path=root / "training.jsonl",
+        validation_path=root / "validation.jsonl",
+        train_records=int(
+            corpus_verified.split_identity["training"]["records"]
+        ),
+        validation_records=int(
+            corpus_verified.split_identity["validation"]["records"]
+        ),
+        task_families=tuple(task_families),
+        parent_checkpoint_sha256=None,
+    )
+    if payload.get("d4_manifest_identity") != d4_manifest.identity():
+        raise ValueError("R2-D5 D4 manifest identity mismatch")
 
     return payload
 
@@ -616,31 +644,52 @@ def seal_r2d5_preflight(
     memory = bundle.get("memory_evidence")
     if not isinstance(memory, dict):
         raise ValueError("R2-D5 measured memory evidence is missing")
-    if memory.get("passed") is not True:
+    try:
+        evidence = R2MeasuredMemoryEvidence(**memory)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            "R2-D5 measured memory evidence schema is invalid"
+        ) from exc
+    if evidence.passed is not True:
         raise ValueError("R2-D5 measured memory preflight did not pass")
     if (
-        memory.get("architecture_fingerprint")
+        evidence.architecture_fingerprint
         != campaign.get("architecture_fingerprint")
     ):
         raise ValueError("R2-D5 preflight architecture mismatch")
     if (
-        memory.get("recipe_fingerprint")
+        evidence.recipe_fingerprint
         != campaign.get("recipe_fingerprint")
     ):
         raise ValueError("R2-D5 measured recipe mismatch")
 
+    recipe_raw = campaign.get("recipe")
+    if not isinstance(recipe_raw, dict):
+        raise ValueError("R2-D5 campaign recipe is missing")
+    recipe = R2ProductionTrainingRecipe(**recipe_raw)
+    if evidence.sequence_length != recipe.sequence_length:
+        raise ValueError("R2-D5 measured sequence length mismatch")
+    if evidence.micro_batch_size != recipe.micro_batch_size:
+        raise ValueError("R2-D5 measured micro-batch mismatch")
+    campaign_safety = float(campaign["safety_fraction"])
+    if not math.isclose(
+        evidence.safety_fraction,
+        campaign_safety,
+        rel_tol=0.0,
+        abs_tol=1e-12,
+    ):
+        raise ValueError("R2-D5 measured safety fraction mismatch")
+
     body = {
         "architecture_fingerprint": campaign["architecture_fingerprint"],
         "campaign_id": campaign["campaign_id"],
-        "device_name": memory.get("device_name"),
-        "free_device_bytes_before": memory.get(
-            "free_device_bytes_before"
-        ),
-        "peak_allocated_bytes": memory.get("peak_allocated_bytes"),
-        "peak_reserved_bytes": memory.get("peak_reserved_bytes"),
+        "device_name": evidence.device_name,
+        "free_device_bytes_before": evidence.free_device_bytes_before,
+        "peak_allocated_bytes": evidence.peak_allocated_bytes,
+        "peak_reserved_bytes": evidence.peak_reserved_bytes,
         "preflight_bundle_sha256": _sha256_bytes(data),
         "recipe_fingerprint": campaign["recipe_fingerprint"],
-        "safety_fraction": memory.get("safety_fraction"),
+        "safety_fraction": evidence.safety_fraction,
         "schema": R2D5_PREFLIGHT_RECEIPT_SCHEMA,
         "training_allowed": False,
     }
@@ -653,5 +702,8 @@ def seal_r2d5_preflight(
     if output_path.exists() or output_path.is_symlink():
         raise ValueError("R2-D5 receipt output must not already exist")
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_bytes(_canonical_json(receipt) + b"\n")
+    _atomic_write(
+        output_path,
+        _canonical_json(receipt) + b"\n",
+    )
     return receipt
