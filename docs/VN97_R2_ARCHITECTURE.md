@@ -293,11 +293,34 @@ still requires the later fresh multi-axis validation gate before QAT.
 
 ### R2-D — Production-scale dense training
 
-- 1B-1.3B initial target;
-- pretraining/distillation;
+Production execution is split into fail-closed gates:
+
+- **R2-D1** locks the 0.9B-1.3B full-parameter dense contract, corpus/checkpoint
+  identities, curriculum order and static resource lower bounds.
+- **R2-D2** adds exact memory-efficient selective scan and per-block activation
+  checkpointing with forward/gradient parity.
+- **R2-D3** adds the full-parameter trainer: CUDA autocast, gradient
+  accumulation, CPU-offloaded AdamW moments, resumable stage identity and
+  measured CUDA memory evidence.
+- **R2-D4** binds corpus + recipe to measured preflight and exposes the
+  production launcher.
+- **R2-D5** packages a complete immutable VN97CORPUS1 + VN97TK1 T4 preflight
+  campaign, keeps the release split held out, binds the generated Kaggle
+  script, and seals passing measured evidence into a no-promotion receipt.
+
+A passing R2-D5 receipt proves execution-memory feasibility only. It does not
+assert that the current preflight corpus volume is enough to train the 1B
+model to production intelligence and it does not authorize training.
+
+After measured feasibility is proven, the remaining R2-D work is:
+
+- production-corpus scale/curriculum;
+- dense pretraining/distillation;
 - instruction/reasoning;
 - tool/action training;
-- capability curriculum.
+- capability curriculum;
+- fast-path alignment;
+- fresh multi-axis validation.
 
 ### R2-E — Mobile lowering
 
