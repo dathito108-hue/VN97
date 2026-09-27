@@ -269,9 +269,15 @@ experiment. Its harness is fail-closed before expensive compute:
 - exact train/validation record overlap is rejected;
 - training corpus, validation corpus and tokenizer are fingerprinted;
 - CPU runs preflight available host RAM;
-- CUDA runs preflight free device VRAM, including Kaggle T4;
-- checkpoint/resume binds the run identity and verifies the persisted best
-  checkpoint SHA-256 before continuing;
+- CUDA runs preflight free device VRAM, including Kaggle T4, and budgets the
+  logarithmic affine-scan autograd graph rather than only recurrent-state size;
+- `--preflight-only` verifies data, windows, probe coverage and memory without
+  executing a model forward/backward pass;
+- checkpoint/resume binds the run identity, tokenizer, original held-out
+  baseline and persisted best-checkpoint SHA-256 before continuing;
+- `--max-run-seconds` pauses at a batch boundary, writes a cryptographically
+  identified resume state, and skips expensive final probes until training is
+  complete;
 - initial held-out loss is recorded before training and compared with the best
   dense checkpoint after training;
 - optional held-out probes cover natural-language generation, structured
