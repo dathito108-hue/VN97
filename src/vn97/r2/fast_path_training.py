@@ -73,14 +73,21 @@ def _batch(
 
 def _configure_fast_alignment_trainable(
     model: VN97R2Model,
+    original_trainable: set[int],
 ) -> list[torch.nn.Parameter]:
     for parameter in model.parameters():
         parameter.requires_grad_(False)
     trainable: list[torch.nn.Parameter] = []
     for index in range(model.config.fast_layers):
         for parameter in model.layers[index].parameters():
+            if id(parameter) not in original_trainable:
+                continue
             parameter.requires_grad_(True)
             trainable.append(parameter)
+    if not trainable:
+        raise ValueError(
+            "R2 fast-path alignment has no eligible trainable parameters"
+        )
     return trainable
 
 
@@ -124,7 +131,14 @@ def align_fast_path(
 
     try:
         model.train()
-        trainable = _configure_fast_alignment_trainable(model)
+        trainable = _configure_fast_alignment_trainable(
+            model,
+            {
+                id(parameter)
+                for parameter, requires_grad in original_requires_grad
+                if requires_grad
+            },
+        )
         optimizer = torch.optim.AdamW(
             trainable,
             lr=config.learning_rate,
