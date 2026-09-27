@@ -419,11 +419,20 @@ def _read_capsule_manifest(path: Path) -> VN97Mamba2G03CapsuleManifest:
     return manifest
 
 
-def load_g03_capsule(
+@dataclass(frozen=True)
+class VN97Mamba2VerifiedCapsuleFiles:
+    root: Path
+    manifest: VN97Mamba2G03CapsuleManifest
+    manifest_sha256: str
+    spec: Mamba2SourceSpec
+    weight_path: Path
+
+
+def verify_g03_capsule_structure(
     root: str | Path,
     *,
     verify_large_weight_sha256: bool = True,
-) -> VN97Mamba2LoadedCapsule:
+) -> VN97Mamba2VerifiedCapsuleFiles:
     resolved = Path(root).resolve(strict=True)
     manifest_path = _require_regular_file(
         resolved / VN97_MAMBA2_G03_CAPSULE_MANIFEST,
@@ -480,19 +489,37 @@ def load_g03_capsule(
     spec = Mamba2SourceSpec.from_config(config_payload)
     spec.require_official_27b_contract()
 
+    return VN97Mamba2VerifiedCapsuleFiles(
+        root=resolved,
+        manifest=manifest,
+        manifest_sha256=_sha256_file(manifest_path),
+        spec=spec,
+        weight_path=weight,
+    )
+
+
+def load_g03_capsule(
+    root: str | Path,
+    *,
+    verify_large_weight_sha256: bool = True,
+) -> VN97Mamba2LoadedCapsule:
+    verified = verify_g03_capsule_structure(
+        root,
+        verify_large_weight_sha256=verify_large_weight_sha256,
+    )
     state = torch.load(
-        weight,
+        verified.weight_path,
         map_location="cpu",
         weights_only=True,
         mmap=True,
     )
     if not isinstance(state, Mapping):
         raise VN97Mamba2G03Error("G0.3 weight payload is not a state dict")
-    tensors = VN97Mamba2TensorView(state, spec)
+    tensors = VN97Mamba2TensorView(state, verified.spec)
     return VN97Mamba2LoadedCapsule(
-        root=resolved,
-        manifest=manifest,
-        manifest_sha256=_sha256_file(manifest_path),
-        spec=spec,
+        root=verified.root,
+        manifest=verified.manifest,
+        manifest_sha256=verified.manifest_sha256,
+        spec=verified.spec,
         tensors=tensors,
     )
