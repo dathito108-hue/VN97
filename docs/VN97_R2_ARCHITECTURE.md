@@ -326,6 +326,10 @@ Production execution is split into fail-closed gates:
 - **R2-D10** adds the production source-lock/adapter layer: pinned raw source
   identity, explicit adapter-family compatibility, fail-closed raw-to-chat
   normalization, normalized-data receipts, and direct D9 handoff generation.
+- **R2-D11** adds an append-only multi-batch source registry: exact cross-batch
+  record dedup, immutable per-pack digest shards, chained ledger generations,
+  D10->D9->D6 evidence binding, and exact per-family/global token-deficit
+  tracking against the canonical 8/20 data-scale policy.
 
 A passing R2-D5 receipt proves execution-memory feasibility only. It does not
 assert that the current preflight corpus volume is enough to train the 1B
@@ -335,9 +339,9 @@ After measured feasibility, corpus-scale evidence and a deterministic
 curriculum plan are proven, the remaining R2-D work is:
 
 - measured GPU preflight execution and evidence sealing;
-- review/pin source releases, normalize them through R2-D10 source locks and
-  adapters, then feed verified packs through R2-D9 until D6 reaches the
-  canonical scale floor;
+- review/pin source releases, normalize them through R2-D10, admit them
+  incrementally through R2-D11, and process only each newly admitted batch
+  through R2-D9/D6 until the registry reaches the canonical scale floor;
 - quota-bounded dense pretraining through R2-D7 using an R2-D8 plan;
 - instruction/reasoning stage training with its own R2-D8 policy;
 - tool/action stage training with its own R2-D8 policy;
