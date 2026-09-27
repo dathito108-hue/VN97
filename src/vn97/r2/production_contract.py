@@ -3,8 +3,6 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 import hashlib
 import json
-from typing import Iterable
-
 from .config import VN97R2Config
 
 
@@ -16,6 +14,12 @@ R2_PRODUCTION_STAGES = (
     "tool_action",
     "capability",
 )
+
+
+def _is_sha256(value: str) -> bool:
+    return len(value) == 64 and all(
+        char in "0123456789abcdef" for char in value
+    )
 
 
 def _canonical_json(value: object) -> bytes:
@@ -78,8 +82,10 @@ class R2ProductionCorpusManifest:
     def __post_init__(self) -> None:
         if self.stage not in R2_PRODUCTION_STAGES:
             raise ValueError("unsupported R2 production stage")
-        if len(self.tokenizer_sha256) != 64:
-            raise ValueError("tokenizer_sha256 must be a SHA-256 digest")
+        if not _is_sha256(self.tokenizer_sha256):
+            raise ValueError(
+                "tokenizer_sha256 must be a lowercase SHA-256 digest"
+            )
         if not self.shards:
             raise ValueError("production corpus must contain shards")
         train = [item for item in self.shards if item.split == "train"]
@@ -101,7 +107,7 @@ class R2ProductionCorpusManifest:
         else:
             if (
                 self.parent_checkpoint_sha256 is None
-                or len(self.parent_checkpoint_sha256) != 64
+                or not _is_sha256(self.parent_checkpoint_sha256)
             ):
                 raise ValueError(
                     "post-pretrain stages require parent checkpoint SHA-256"
