@@ -64,6 +64,13 @@ Session creation is measured separately.
 
 ## Provider isolation
 
+From R2-F1 onward, accelerator sessions also set
+`session.disable_cpu_ep_fallback=1`. A QNN/NNAPI/XNNPACK trial therefore
+fails session creation when that provider cannot cover the graph instead of
+silently assigning unsupported nodes to the ORT CPU EP. CPU is profiled in its
+own isolated trial.
+
+
 E3 profiles one requested provider at a time.
 
 For NNAPI, for example, the isolated session chain is:
