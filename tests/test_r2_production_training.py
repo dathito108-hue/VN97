@@ -192,8 +192,6 @@ def test_production_trainer_pauses_and_resumes_at_accumulation_boundary(
         lambda *_args, **_kwargs: None,
     )
 
-    torch.manual_seed(9712)
-    model = VN97R2Model(r2_smoke_config(vocab_size=96))
     training = tuple(_window(100 + index) for index in range(4))
     validation = (_window(200),)
     manifest = _manifest()
@@ -203,6 +201,11 @@ def test_production_trainer_pauses_and_resumes_at_accumulation_boundary(
         learning_rate=3e-4,
         checkpoint_every_optimizer_steps=1,
         require_measured_cuda_preflight=False,
+    )
+    model, _ = production_training.load_production_stage_model(
+        manifest,
+        config=r2_smoke_config(vocab_size=96),
+        initialization_seed=trainer.seed,
     )
     work = tmp_path / "work"
     best = tmp_path / "best.r2.pt"
@@ -223,10 +226,22 @@ def test_production_trainer_pauses_and_resumes_at_accumulation_boundary(
     assert paused.optimizer_steps == 1
     assert paused.micro_steps == 2
     assert paused.resume_checkpoint_sha256
-    assert (work / "production-resume.pt").is_file()
+    resume_path = work / "production-resume.pt"
+    assert resume_path.is_file()
     assert best.is_file()
+    resume_payload = torch.load(
+        resume_path,
+        map_location="cpu",
+        weights_only=False,
+    )
+    assert resume_payload["best_epoch"] == 0
+    assert resume_payload["best_checkpoint_sha256"]
 
-    resumed_model = VN97R2Model(r2_smoke_config(vocab_size=96))
+    resumed_model, _ = production_training.load_production_stage_model(
+        manifest,
+        config=r2_smoke_config(vocab_size=96),
+        initialization_seed=trainer.seed,
+    )
     completed = train_production_stage(
         resumed_model,
         training,
