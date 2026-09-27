@@ -162,6 +162,66 @@ val turnkeyBootstrapRules =
         ),
     )
 
+val turnkeyR2Dir =
+    externalReleaseAssetRoot
+        ?.resolve("vn97-r2")
+        ?: layout.projectDirectory
+            .dir("src/main/assets/vn97-r2")
+            .asFile
+
+val verifyTurnkeyR2Runtime by tasks.registering {
+    group = "verification"
+    description =
+        "Require the self-contained VN97 R2 ONNX runtime assets for release."
+
+    inputs.dir(turnkeyR2Dir)
+
+    doLast {
+        val root = turnkeyR2Dir
+        val rootPath = root.toPath()
+        check(
+            Files.isDirectory(rootPath, LinkOption.NOFOLLOW_LINKS) &&
+                !Files.isSymbolicLink(rootPath)
+        ) {
+            "VN97 R2 turnkey runtime root must be a real directory."
+        }
+        val entries = root.listFiles()?.toList().orEmpty()
+        val names = entries.map { it.name }.toSet()
+        val required = setOf(
+            "assets.vn97r2apk1.json",
+            "runtime.vn97ort1.json",
+            "assistant.vn97r2f2.json",
+            "autotune.vn97r2e4.json",
+            "step.onnx",
+        )
+        check(names.containsAll(required)) {
+            "VN97 R2 turnkey runtime is incomplete."
+        }
+        check(names.any { it.matches(Regex("^chunk-[1-9][0-9]*\\.onnx$")) }) {
+            "VN97 R2 turnkey runtime requires at least one chunk graph."
+        }
+        val unexpected = names.filter {
+            it !in required &&
+                !it.matches(Regex("^chunk-[1-9][0-9]*\\.onnx$"))
+        }
+        check(unexpected.isEmpty()) {
+            "VN97 R2 turnkey runtime contains unexpected files: " +
+                unexpected.joinToString(", ")
+        }
+        entries.forEach { file ->
+            val path = file.toPath()
+            check(
+                Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS) &&
+                    !Files.isSymbolicLink(path) &&
+                    Files.size(path) > 0L
+            ) {
+                "VN97 R2 turnkey asset must be a non-empty regular file: " +
+                    file.name
+            }
+        }
+    }
+}
+
 val verifyTurnkeyBootstrap by tasks.registering {
     group = "verification"
     description =
@@ -513,6 +573,7 @@ tasks.matching {
     dependsOn(
         verifyExternalReleaseAssetRoot,
         verifyTurnkeyBootstrap,
+        verifyTurnkeyR2Runtime,
         verifyReleaseSigning,
         verifyReleaseVersion,
     )

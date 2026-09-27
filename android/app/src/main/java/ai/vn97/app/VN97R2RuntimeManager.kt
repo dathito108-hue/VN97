@@ -9,14 +9,16 @@ import java.io.File
 class VN97R2RuntimeManager(
     private val application: VN97Application,
 ) {
+    private val bundled =
+        VN97R2BundledRuntime(application)
     fun openCognition(
         model: NativeActivatedModel,
         mode: VN97R2ReasoningMode = VN97R2ReasoningMode.DEEP,
     ): VN97R2CognitionInference {
-        val root = runtimeRoot()
-        require(root.isDirectory) {
-            "VN97 R2 runtime assets are not installed"
-        }
+        val root = bundled.ensureInstalled(
+            model = model,
+            required = BuildConfig.VN97_TURNKEY_REQUIRED,
+        )
         val tuning = File(root, TUNING_FILENAME)
         require(tuning.isFile) {
             "VN97 R2 device tuning profile is missing"

@@ -33,6 +33,9 @@ from .release_candidate import (
 from .production_readiness import (
     evaluate_production_readiness,
 )
+from .r2.turnkey_assets import (
+    materialize_r2_turnkey_assets,
+)
 
 
 _REQUIRED_ANDROID_SIGNING_ENV = (
@@ -683,6 +686,14 @@ def _parser() -> argparse.ArgumentParser:
         default=512 * 1024 * 1024,
     )
     parser.add_argument(
+        "--r2-runtime-dir",
+        help="validated R2 E2/F1 bundle directory",
+    )
+    parser.add_argument(
+        "--r2-tuning-profile",
+        help="validated R2 E4 tuning profile for the target device",
+    )
+    parser.add_argument(
         "--output-dir",
     )
     parser.add_argument(
@@ -870,6 +881,10 @@ def main(
         is not None
     )
     assert args.output_dir is not None
+    if args.r2_runtime_dir is None or args.r2_tuning_profile is None:
+        raise ValueError(
+            "production R2 APK requires --r2-runtime-dir and --r2-tuning-profile"
+        )
 
     candidate = load_release_candidate_directory(
         args.release_candidate_dir
@@ -921,6 +936,15 @@ def main(
             "vn97-bootstrap"
         )
         bootstrap_dir.mkdir()
+        materialize_r2_turnkey_assets(
+            source_bundle_dir=Path(args.r2_runtime_dir),
+            tuning_profile_path=Path(args.r2_tuning_profile),
+            output_dir=asset_root / "vn97-r2",
+            expected_checkpoint_sha256=
+                candidate.manifest.checkpoint_sha256,
+            tokenizer_model_sha256=
+                candidate.manifest.model_image_sha256,
+        )
 
         stdout = io.StringIO()
         with redirect_stdout(stdout):
