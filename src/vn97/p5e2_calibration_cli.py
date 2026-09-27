@@ -144,7 +144,7 @@ def _load_windows(
 ) -> tuple[tuple[object, ...], tuple[object, ...], str]:
     _validate_corpus(corpus_root)
     train_raw, train_sha = _load_records(
-        [corpus_root / "train.jsonl"],
+        [corpus_root / "training.jsonl"],
         mode="chat",
         max_input_bytes=256 * 1024 * 1024,
         max_examples=500_000,

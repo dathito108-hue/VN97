@@ -31,8 +31,8 @@ python -m pip install --disable-pip-version-check --no-deps -e .
   echo "Missing P5E1 student-float.pt" >&2
   exit 3
 }
-[[ -f "$P3_CORPUS/train.jsonl" ]] || {
-  echo "Missing P3 train.jsonl" >&2
+[[ -f "$P3_CORPUS/training.jsonl" ]] || {
+  echo "Missing P3 training.jsonl" >&2
   exit 3
 }
 [[ -f "$P3_CORPUS/validation.jsonl" ]] || {
