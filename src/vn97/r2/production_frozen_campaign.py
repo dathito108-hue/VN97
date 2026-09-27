@@ -216,7 +216,7 @@ def _render_preflight_wrapper(
     *,
     repository_commit: str,
 ) -> str:
-    return f"""#!/usr/bin/env bash
+    template = """#!/usr/bin/env bash
 set -euo pipefail
 
 PACKAGE_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -225,8 +225,8 @@ VN97_WORKSPACE_ROOT="DOLLAR_LBRACEVN97_WORKSPACE_ROOT:-/kaggle/working}"
 
 cd "$VN97_REPO"
 ACTUAL_COMMIT="$(git rev-parse HEAD)"
-if [ "$ACTUAL_COMMIT" != "{repository_commit}" ]; then
-  echo "R2-D13 repository commit mismatch: expected {repository_commit}, got $ACTUAL_COMMIT" >&2
+if [ "$ACTUAL_COMMIT" != "__REPOSITORY_COMMIT__" ]; then
+  echo "R2-D13 repository commit mismatch: expected __REPOSITORY_COMMIT__, got $ACTUAL_COMMIT" >&2
   exit 2
 fi
 
@@ -237,14 +237,20 @@ vn97-r2-production-campaign gate-preflight \
   --workspace-root "$VN97_WORKSPACE_ROOT"
 
 exec "$PACKAGE_DIR/preflight/run_t4_preflight.sh"
-""".replace("DOLLAR_LBRACE", "$"+"{")
+"""
+    return (
+        template.replace(
+            "__REPOSITORY_COMMIT__",
+            repository_commit,
+        ).replace("DOLLAR_LBRACE", "$" + "{")
+    )
 
 
 def _render_seal_wrapper(
     *,
     repository_commit: str,
 ) -> str:
-    return f"""#!/usr/bin/env bash
+    template = """#!/usr/bin/env bash
 set -euo pipefail
 
 PACKAGE_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -254,8 +260,8 @@ R2D5_OUTPUT_DIR="DOLLAR_LBRACER2D5_OUTPUT_DIR:-/kaggle/working/r2d5-output}"
 
 cd "$VN97_REPO"
 ACTUAL_COMMIT="$(git rev-parse HEAD)"
-if [ "$ACTUAL_COMMIT" != "{repository_commit}" ]; then
-  echo "R2-D13 repository commit mismatch: expected {repository_commit}, got $ACTUAL_COMMIT" >&2
+if [ "$ACTUAL_COMMIT" != "__REPOSITORY_COMMIT__" ]; then
+  echo "R2-D13 repository commit mismatch: expected __REPOSITORY_COMMIT__, got $ACTUAL_COMMIT" >&2
   exit 2
 fi
 python -m pip install -e .
@@ -270,7 +276,13 @@ vn97-r2-production-campaign seal-ready \
   --workspace-root "$VN97_WORKSPACE_ROOT" \
   --preflight-receipt "$PACKAGE_DIR/preflight-receipt.json" \
   --output "$PACKAGE_DIR/r2d13-ready.json"
-""".replace("DOLLAR_LBRACE", "$"+"{")
+"""
+    return (
+        template.replace(
+            "__REPOSITORY_COMMIT__",
+            repository_commit,
+        ).replace("DOLLAR_LBRACE", "$" + "{")
+    )
 
 
 def _render_train_wrapper(
@@ -280,7 +292,7 @@ def _render_train_wrapper(
     trainer: R2ProductionTrainerConfig,
     max_run_seconds: float,
 ) -> str:
-    return f"""#!/usr/bin/env bash
+    template = """#!/usr/bin/env bash
 set -euo pipefail
 
 PACKAGE_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -291,8 +303,8 @@ R2D13_OUTPUT_DIR="DOLLAR_LBRACER2D13_OUTPUT_DIR:-/kaggle/working/r2d13-output}"
 
 cd "$VN97_REPO"
 ACTUAL_COMMIT="$(git rev-parse HEAD)"
-if [ "$ACTUAL_COMMIT" != "{repository_commit}" ]; then
-  echo "R2-D13 repository commit mismatch: expected {repository_commit}, got $ACTUAL_COMMIT" >&2
+if [ "$ACTUAL_COMMIT" != "__REPOSITORY_COMMIT__" ]; then
+  echo "R2-D13 repository commit mismatch: expected __REPOSITORY_COMMIT__, got $ACTUAL_COMMIT" >&2
   exit 2
 fi
 python -m pip install -e .
@@ -310,19 +322,50 @@ vn97-r2-stream-train \
   --preflight-receipt "$PACKAGE_DIR/preflight-receipt.json" \
   --work-dir "$R2D13_WORK_DIR" \
   --output-dir "$R2D13_OUTPUT_DIR" \
-  --sequence-length {recipe.sequence_length} \
-  --micro-batch-size {recipe.micro_batch_size} \
-  --gradient-accumulation-steps {recipe.gradient_accumulation_steps} \
-  --precision {recipe.precision} \
-  --epochs {trainer.epochs} \
-  --learning-rate {trainer.learning_rate:.17g} \
-  --weight-decay {trainer.weight_decay:.17g} \
-  --max-grad-norm {trainer.max_grad_norm:.17g} \
-  --checkpoint-every {trainer.checkpoint_every_optimizer_steps} \
-  --max-run-seconds {max_run_seconds:.6f} \
-  --seed {trainer.seed} \
+  --sequence-length __SEQUENCE_LENGTH__ \
+  --micro-batch-size __MICRO_BATCH_SIZE__ \
+  --gradient-accumulation-steps __GRAD_ACCUM__ \
+  --precision __PRECISION__ \
+  --epochs __EPOCHS__ \
+  --learning-rate __LEARNING_RATE__ \
+  --weight-decay __WEIGHT_DECAY__ \
+  --max-grad-norm __MAX_GRAD_NORM__ \
+  --checkpoint-every __CHECKPOINT_EVERY__ \
+  --max-run-seconds __MAX_RUN_SECONDS__ \
+  --seed __SEED__ \
   --device cuda
-""".replace("DOLLAR_LBRACE", "$"+"{")
+"""
+    replacements = {
+        "__REPOSITORY_COMMIT__": repository_commit,
+        "__SEQUENCE_LENGTH__": str(recipe.sequence_length),
+        "__MICRO_BATCH_SIZE__": str(recipe.micro_batch_size),
+        "__GRAD_ACCUM__": str(
+            recipe.gradient_accumulation_steps
+        ),
+        "__PRECISION__": recipe.precision,
+        "__EPOCHS__": str(trainer.epochs),
+        "__LEARNING_RATE__": format(
+            trainer.learning_rate,
+            ".17g",
+        ),
+        "__WEIGHT_DECAY__": format(
+            trainer.weight_decay,
+            ".17g",
+        ),
+        "__MAX_GRAD_NORM__": format(
+            trainer.max_grad_norm,
+            ".17g",
+        ),
+        "__CHECKPOINT_EVERY__": str(
+            trainer.checkpoint_every_optimizer_steps
+        ),
+        "__MAX_RUN_SECONDS__": f"{max_run_seconds:.6f}",
+        "__SEED__": str(trainer.seed),
+    }
+    for key, value in replacements.items():
+        template = template.replace(key, value)
+    return template.replace("DOLLAR_LBRACE", "$" + "{")
+
 
 
 def build_r2d13_campaign(
