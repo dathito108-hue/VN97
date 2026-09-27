@@ -319,6 +319,10 @@ Production execution is split into fail-closed gates:
   shard schedules, requires an explicit primary family for each training source
   manifest, enforces realized token-share accuracy, and binds the curriculum
   plan ID into D7 run/resume/checkpoint evidence.
+- **R2-D9** accepts pinned, normalized, license-approved chat JSONL sources,
+  performs campaign-wide exact dedup and family-conflict rejection, partitions
+  deterministic train/validation/release holdouts, seals many small canonical
+  VN97CORPUS1 packages, and emits direct D6/D8 handoff evidence.
 
 A passing R2-D5 receipt proves execution-memory feasibility only. It does not
 assert that the current preflight corpus volume is enough to train the 1B
@@ -328,7 +332,8 @@ After measured feasibility, corpus-scale evidence and a deterministic
 curriculum plan are proven, the remaining R2-D work is:
 
 - measured GPU preflight execution and evidence sealing;
-- production corpus acquisition/sealing to the canonical scale floor;
+- run source-specific acquisition/conversion adapters and feed immutable
+  normalized outputs through R2-D9 until D6 reaches the canonical scale floor;
 - quota-bounded dense pretraining through R2-D7 using an R2-D8 plan;
 - instruction/reasoning stage training with its own R2-D8 policy;
 - tool/action stage training with its own R2-D8 policy;

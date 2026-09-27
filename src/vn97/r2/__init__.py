@@ -75,6 +75,17 @@ from .pilot_evaluation import (
     evaluate_pilot_probes,
     lexical_token_f1,
 )
+from .production_acquisition import (
+    R2D9_ALLOWED_FAMILIES,
+    R2D9_CAMPAIGN_SCHEMA,
+    R2D9_DEFINITION_SCHEMA,
+    R2D9_PROFILE_ID,
+    R2D9CampaignDefinition,
+    R2D9SourceSpec,
+    build_r2d9_campaign,
+    load_r2d9_definition,
+    verify_r2d9_campaign,
+)
 from .production_campaign import (
     R2D5_CAMPAIGN_SCHEMA,
     R2D5_PREFLIGHT_RECEIPT_SCHEMA,
@@ -272,4 +283,13 @@ __all__ = [
     "load_r2d8_definition",
     "load_r2d8_plan",
     "verify_r2d8_plan",
+    "R2D9_ALLOWED_FAMILIES",
+    "R2D9_CAMPAIGN_SCHEMA",
+    "R2D9_DEFINITION_SCHEMA",
+    "R2D9_PROFILE_ID",
+    "R2D9CampaignDefinition",
+    "R2D9SourceSpec",
+    "build_r2d9_campaign",
+    "load_r2d9_definition",
+    "verify_r2d9_campaign",
 ]
