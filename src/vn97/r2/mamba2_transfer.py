@@ -13,6 +13,10 @@ VN97_MAMBA2_G0_TRANSFER_SCHEMA = "VN97M2G0TRANSFER1"
 VN97_MAMBA2_G0_CHECKPOINT_SCHEMA = "VN97M2G0CP1"
 VN97_MAMBA2_SOURCE_MODEL_ID = "state-spaces/mamba2-2.7b"
 VN97_MAMBA2_SOURCE_LICENSE = "apache-2.0"
+VN97_MAMBA2_SOURCE_TOKENIZER_ID = "EleutherAI/gpt-neox-20b"
+VN97_MAMBA2_SOURCE_TOKENIZER_REVISION = (
+    "364ae95407723fadd1d47b023c1efb92a4d891c3"
+)
 
 MAMBA2_27B_D_MODEL = 2560
 MAMBA2_27B_N_LAYERS = 64
@@ -73,6 +77,8 @@ class Mamba2SourceSpec:
     fused_add_norm: bool
     tie_embeddings: bool
     attention_layers: tuple[int, ...]
+    ssm_layer: str
+    ssm_override_keys: tuple[str, ...]
 
     @property
     def padded_vocab_size(self) -> int:
@@ -133,6 +139,10 @@ class Mamba2SourceSpec:
             fused_add_norm=bool(config.get("fused_add_norm", False)),
             tie_embeddings=bool(config.get("tie_embeddings", False)),
             attention_layers=tuple(int(value) for value in attention),
+            ssm_layer=str(ssm_cfg.get("layer", "")),
+            ssm_override_keys=tuple(
+                sorted(str(key) for key in ssm_cfg if key != "layer")
+            ),
         )
 
     def require_official_27b_contract(self) -> None:
@@ -152,6 +162,8 @@ class Mamba2SourceSpec:
             "fused_add_norm": True,
             "tie_embeddings": True,
             "attention_layers": (),
+            "ssm_layer": "Mamba2",
+            "ssm_override_keys": (),
         }
         actual = {
             "d_model": self.d_model,
@@ -169,6 +181,8 @@ class Mamba2SourceSpec:
             "fused_add_norm": self.fused_add_norm,
             "tie_embeddings": self.tie_embeddings,
             "attention_layers": self.attention_layers,
+            "ssm_layer": self.ssm_layer,
+            "ssm_override_keys": self.ssm_override_keys,
         }
         mismatches = [
             f"{key}={actual[key]!r} expected {value!r}"
@@ -190,6 +204,7 @@ class Mamba2SourceSpec:
     def canonical_object(self) -> dict[str, object]:
         body = asdict(self)
         body["attention_layers"] = list(self.attention_layers)
+        body["ssm_override_keys"] = list(self.ssm_override_keys)
         body.update(
             {
                 "padded_vocab_size": self.padded_vocab_size,
@@ -360,6 +375,8 @@ def build_transfer_manifest(
         "unique_core_parameters": expected_unique_parameter_count(spec),
         "transfer_semantics": "tensor_value_identity_1to1",
         "tokenizer_semantics": "source_tokenizer_preserved",
+        "source_tokenizer_model_id": VN97_MAMBA2_SOURCE_TOKENIZER_ID,
+        "source_tokenizer_revision": VN97_MAMBA2_SOURCE_TOKENIZER_REVISION,
         "quantization_used": False,
         "lossy_mapping_used": False,
         "core_reinitialized": False,
