@@ -1,0 +1,22 @@
+name: VN97 P5D4A MultiGPU Validate
+
+on:
+  push:
+    branches:
+      - p5d4a-multigpu-mamba-generation-fix
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - name: Python syntax
+        run: python -m compileall -q src/vn97/p5d_teacher_corpus_cli.py
+      - name: Multi-GPU generation contract
+        run: |
+          grep -q 'use_cache=False' src/vn97/p5d_teacher_corpus_cli.py
+          grep -q 'Falcon3-Mamba' src/vn97/p5d_teacher_corpus_cli.py
