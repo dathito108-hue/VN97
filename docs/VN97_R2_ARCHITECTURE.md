@@ -13,6 +13,9 @@
 > R2-G0.3 adds the zero-copy self-contained real-capsule path and a manual,
 > explicitly gated 5.4 GB materialization campaign; see
 > `docs/VN97_R2G03_ZERO_COPY_CAPSULE.md`.
+> R2-G0.4 adds the correctness-first ONNX step lowering with explicit Mamba-2
+> conv/SSD state, external-data support and CPU ORT parity; see
+> `docs/VN97_R2G04_MAMBA2_ONNX.md`. Parallel SSD prefill remains G0.5.
 
 
 ## Status
