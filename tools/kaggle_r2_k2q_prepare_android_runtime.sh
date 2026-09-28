@@ -56,11 +56,21 @@ assert g06["max_chunk_size"] == 8
 assert g06["graph_filename"] == "recurrent-8.onnx"
 assert g06["production_activation_authorized"] is False
 
+def sha256_file(path):
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        while True:
+            block = handle.read(8 * 1024 * 1024)
+            if not block:
+                break
+            digest.update(block)
+    return digest.hexdigest()
+
 files = ["runtime.vn97m2g06.json"]
 for item in g06["graph_files"]:
     path = g05_root / item["filename"]
     assert path.is_file()
-    actual = hashlib.sha256(path.read_bytes()).hexdigest()
+    actual = sha256_file(path)
     assert actual == item["sha256"]
     assert path.stat().st_size == item["bytes"]
     files.append(item["filename"])
