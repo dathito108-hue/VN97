@@ -22,6 +22,9 @@
 > R2-G0.6 adds the Android four-input Mamba-2 ORT runtime descriptor and
 > executor over the same single recurrent graph; see
 > `docs/VN97_R2G06_ANDROID_MAMBA2_ORT.md`.
+> R2-G0.7 adds valid_length-aware Android provider profiling and device-bound
+> autotuning for the single Mamba-2 recurrent graph; see
+> `docs/VN97_R2G07_MAMBA2_AUTOTUNING.md`.
 
 
 ## Status
