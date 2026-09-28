@@ -75,7 +75,34 @@ fun main() {
         check(File(target, ".apk-assets.sha256").readText() == secondIdentity)
         check(File(target, "runtime/recurrent-8.onnx").readText() == "fixture:runtime/recurrent-8.onnx:v1")
         check(!File(privateRoot, ".vn97-g06.staging").exists())
-        println("G06 bundled installer: fresh install, repeat, update and failure preservation PASS")
+        // Simulate process death in the directory-swap gap, with no APK assets
+        // available on restart. Recovery must not depend on another 5GB copy.
+        val backup = File(privateRoot, ".vn97-g06.backup")
+        check(target.renameTo(backup))
+        check(File(assets, "vn97-g06").deleteRecursively())
+        val partial = File(privateRoot, ".vn97-g06.staging/partial")
+        partial.parentFile.mkdirs()
+        partial.writeText("incomplete")
+        installer = newInstaller()
+        check(!installer.installIfPresent(required = false))
+        check(File(target, ".apk-assets.sha256").readText() == secondIdentity)
+        check(!backup.exists())
+        check(!File(target, "partial").exists())
+
+        // A completed swap must not be rolled back to a leftover backup.
+        backup.mkdirs()
+        File(backup, "old").writeText("old")
+        check(!newInstaller().installIfPresent(required = false))
+        check(File(target, ".apk-assets.sha256").readText() == secondIdentity)
+        check(backup.deleteRecursively())
+
+        // Do not recover a semantically invalid backup or destroy its evidence.
+        check(target.renameTo(backup))
+        File(backup, "binding.vn97m2g09.json").writeText("reject")
+        check(runCatching { newInstaller().installIfPresent(required = false) }.isFailure)
+        check(!target.exists())
+        check(backup.isDirectory)
+        println("G06 bundled installer: install, update, failure preservation and interrupted swap recovery PASS")
     } finally {
         check(temp.deleteRecursively())
     }
