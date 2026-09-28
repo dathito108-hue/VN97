@@ -19,7 +19,6 @@ from .mamba2_onnx import (
     Mamba2OnnxConfig,
     VN97Mamba2OnnxLayer,
     VN97Mamba2StepOnnx,
-    _mamba2_d_b_x_activation,
     verify_mamba2_g04_bundle,
 )
 
@@ -114,7 +113,8 @@ class VN97Mamba2OnnxLayerTrace(nn.Module):
             cfg.n_heads,
             cfg.head_dim,
         )
-        d_b_x = _mamba2_d_b_x_activation(
+        d_b_x = torch.einsum(
+            "bh,bn,bhp->bhpn",
             dt_value,
             b_value,
             x_heads,
