@@ -118,3 +118,5 @@ java -jar "$WORK/m20e-exness-credential-payload-test.jar"
 
 
 bash "$HERE/run-digital-services.sh"
+
+bash "$HERE/run-service-revenue-ledger.sh"
