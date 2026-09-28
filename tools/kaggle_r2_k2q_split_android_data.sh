@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SOURCE="\${1:-/kaggle/working/recurrent-8.onnx.data}"
-OUT_DIR="\${2:-/kaggle/working/K2Q-PARTS}"
-CHUNK_MIB="\${VN97_K2Q_CHUNK_MIB:-512}"
+SOURCE="${1:-/kaggle/working/recurrent-8.onnx.data}"
+OUT_DIR="${2:-/kaggle/working/K2Q-PARTS}"
+CHUNK_MIB="${VN97_K2Q_CHUNK_MIB:-512}"
 EXPECTED_SHA="eb253a78b3145704616e61ae90e4f944acaef672b9958d17ed3578181452d890"
 EXPECTED_BYTES="5412077568"
 
