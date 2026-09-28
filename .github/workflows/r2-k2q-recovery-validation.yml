@@ -1,0 +1,28 @@
+name: VN97 R2-K2Q Recovery Script Validation
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "tools/kaggle_r2_k2q_recover_android_files.sh"
+      - "docs/VN97_R2_K2Q_RECOVER_LOST_RUNTIME.md"
+      - ".github/workflows/r2-k2q-recovery-validation.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate recovery script
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n tools/kaggle_r2_k2q_recover_android_files.sh
+          grep -F 'EXPECTED_G05_MANIFEST_ID="ae782f452368b77b0c17dd7f9a2fd284b98bc0b24bc58e4c8e7d82fba046d2ce"'             tools/kaggle_r2_k2q_recover_android_files.sh
+          grep -F 'EXPECTED_G06_RUNTIME_ID="a00feb6b05be1e9219fc9d6bdd6c6ecd9a14fc930202e9689d8c416c6d153762"'             tools/kaggle_r2_k2q_recover_android_files.sh
+          grep -F 'rm -rf "$CAPSULE_ROOT" "$WORK_ROOT"'             tools/kaggle_r2_k2q_recover_android_files.sh
