@@ -11,6 +11,11 @@ This equation contains no reduction. It is only an elementwise product with
 broadcasting. Allowing ONNX Runtime to execute it as a generic Einsum gives
 the backend freedom to choose a different contraction/multiplication order.
 
+The operation-order lock is tied to the real K1/K2 source-semantic environment:
+Torch 2.10.0 on the current Kaggle campaign. Newer PyTorch releases may choose
+different internal Einsum arithmetic ordering, so K2E fails closed rather than
+silently redefining the inherited numerical baseline.
+
 K2E replaces only this lowering with the explicit activation-dtype order:
 
     (dt_value[:, :, None, None] * x_heads[:, :, :, None])
