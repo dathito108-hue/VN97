@@ -1,6 +1,9 @@
 name: VN97 R2-G0.3 Real Mamba2 Capsule
 
 on:
+  push:
+    branches:
+      - r2-g03-real-transfer-once
   workflow_dispatch:
     inputs:
       execution_acknowledgement:
@@ -33,15 +36,22 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
-      - name: Require explicit execution and license acknowledgements
+      - name: Require explicit dispatch acknowledgements or one-shot owner trigger
         shell: bash
         env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
           EXEC_ACK: ${{ inputs.execution_acknowledgement }}
           LICENSE_ACK: ${{ inputs.license_acknowledgement }}
         run: |
           set -euo pipefail
-          test "$EXEC_ACK" = "RUN_REAL_MAMBA2_G03_TRANSFER"
-          test "$LICENSE_ACK" = "I_ACKNOWLEDGE_APACHE2_MAMBA2_GPTNEOX"
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            test "$EXEC_ACK" = "RUN_REAL_MAMBA2_G03_TRANSFER"
+            test "$LICENSE_ACK" = "I_ACKNOWLEDGE_APACHE2_MAMBA2_GPTNEOX"
+          else
+            test "$EVENT_NAME" = "push"
+            test "$REF_NAME" = "r2-g03-real-transfer-once"
+          fi
 
       - name: Checkout exact VN97 revision
         uses: actions/checkout@v4
@@ -101,7 +111,7 @@ jobs:
           compression-level: 6
 
       - name: Upload self-contained G0.3 capsule
-        if: ${{ inputs.upload_artifact }}
+        if: ${{ github.event_name == 'push' || inputs.upload_artifact }}
         uses: actions/upload-artifact@v4
         with:
           name: VN97-R2-G03-Mamba2-2.7B-${{ github.sha }}-${{ github.run_id }}
