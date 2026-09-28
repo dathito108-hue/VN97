@@ -25,6 +25,7 @@ internal enum class Mamba2OrtValueDtype {
 
 internal class Mamba2OrtTensorStorage private constructor(
     private val dtype: Mamba2OrtValueDtype,
+    private val byteBuffer: ByteBuffer,
     private val floatBuffer: FloatBuffer?,
     private val shortBuffer: ShortBuffer?,
     val tensor: OnnxTensor,
@@ -40,14 +41,16 @@ internal class Mamba2OrtTensorStorage private constructor(
             require(elementCount > 0)
             return when (dtype) {
                 Mamba2OrtValueDtype.FLOAT32 -> {
-                    val buffer = ByteBuffer.allocateDirect(
+                    val bytes = ByteBuffer.allocateDirect(
                         Math.multiplyExact(
                             elementCount,
                             Float.SIZE_BYTES,
                         )
-                    ).order(ByteOrder.nativeOrder()).asFloatBuffer()
+                    ).order(ByteOrder.nativeOrder())
+                    val buffer = bytes.asFloatBuffer()
                     Mamba2OrtTensorStorage(
                         dtype = dtype,
+                        byteBuffer = bytes,
                         floatBuffer = buffer,
                         shortBuffer = null,
                         tensor = OnnxTensor.createTensor(
@@ -59,14 +62,16 @@ internal class Mamba2OrtTensorStorage private constructor(
                     )
                 }
                 Mamba2OrtValueDtype.FLOAT16 -> {
-                    val buffer = ByteBuffer.allocateDirect(
+                    val bytes = ByteBuffer.allocateDirect(
                         Math.multiplyExact(
                             elementCount,
                             Short.SIZE_BYTES,
                         )
-                    ).order(ByteOrder.nativeOrder()).asShortBuffer()
+                    ).order(ByteOrder.nativeOrder())
+                    val buffer = bytes.asShortBuffer()
                     Mamba2OrtTensorStorage(
                         dtype = dtype,
+                        byteBuffer = bytes,
                         floatBuffer = null,
                         shortBuffer = buffer,
                         tensor = OnnxTensor.createTensor(
@@ -80,6 +85,25 @@ internal class Mamba2OrtTensorStorage private constructor(
                 }
             }
         }
+    }
+
+    val rawByteSize: Int
+        get() = byteBuffer.capacity()
+
+    fun copyRawBytes(maxBytes: Long): ByteArray {
+        require(maxBytes >= rawByteSize.toLong()) {
+            "G0.6 state snapshot exceeds byte budget"
+        }
+        return ByteArray(rawByteSize).also { output ->
+            byteBuffer.duplicate().apply { clear() }.get(output)
+        }
+    }
+
+    fun writeRawBytes(bytes: ByteArray) {
+        require(bytes.size == rawByteSize) {
+            "G0.6 state snapshot byte length mismatch"
+        }
+        byteBuffer.duplicate().apply { clear() }.put(bytes)
     }
 
     fun zero() {
