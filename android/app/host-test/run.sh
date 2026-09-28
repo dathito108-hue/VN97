@@ -116,3 +116,5 @@ bash "$HERE/run-r2-bundled.sh"
 
 java -jar "$WORK/m20e-exness-credential-payload-test.jar"
 
+
+bash "$HERE/run-digital-services.sh"

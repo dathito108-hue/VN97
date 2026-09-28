@@ -334,6 +334,16 @@ class VN97MainActivity : Activity() {
             ),
         )
 
+        root.addView(Button(this).apply {
+            text = "Dịch vụ số"
+            setOnClickListener {
+                startActivity(Intent(this@VN97MainActivity, VN97DigitalServicesActivity::class.java))
+            }
+        }, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+        ))
+
         paperTradingButton = Button(this).apply {
             text = "Paper trading"
             setOnClickListener {
