@@ -194,19 +194,24 @@ class VN97Mamba2OrtExecutor private constructor(
     fun prefill(
         inputIds: IntArray,
         deadlineMs: Double = 250.0,
+        schedulePriority: VN97NativeSchedulePriority =
+            VN97NativeSchedulePriority.THROUGHPUT,
     ): Mamba2OrtRunResult {
         requireOpen()
         requireTokens(inputIds)
         val start = sequencePosition
         val invocations = mutableListOf<Mamba2OrtInvocationResult>()
-        var offset = 0
         var finalLogits: FloatArray? = null
-        while (offset < inputIds.size) {
-            val end = minOf(
-                inputIds.size,
-                offset + runtimePackage.maxChunkSize,
+        val plan = VN97NativeExecutionPlanner.plan(
+            totalTokens = inputIds.size,
+            maxChunkSize = runtimePackage.maxChunkSize,
+            priority = schedulePriority,
+        )
+        plan.segments.forEach { segment ->
+            val tokens = inputIds.copyOfRange(
+                segment.offset,
+                segment.offset + segment.validLength,
             )
-            val tokens = inputIds.copyOfRange(offset, end)
             val outcome = executeChunk(
                 tokens = tokens,
                 realtime = false,
@@ -214,7 +219,6 @@ class VN97Mamba2OrtExecutor private constructor(
             )
             invocations += outcome.first
             finalLogits = outcome.second
-            offset = end
         }
         return Mamba2OrtRunResult(
             logits = requireNotNull(finalLogits),
