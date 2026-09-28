@@ -12,7 +12,7 @@ enum class VN97AppPhase {
 
 data class VN97AppState(
     val phase: VN97AppPhase = VN97AppPhase.MODEL_REQUIRED,
-    val status: String = "Activate a trusted VN97 model to begin.",
+    val status: String = "Chưa có mô hình hoạt động. Xem hướng dẫn tại Hệ thống → Mô hình VN97.",
     val inputEnabled: Boolean = false,
     val transcript: List<String> = emptyList(),
 ) {

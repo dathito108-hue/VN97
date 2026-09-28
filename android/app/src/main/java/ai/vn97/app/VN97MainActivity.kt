@@ -412,7 +412,7 @@ class VN97MainActivity : Activity() {
                     dashboard.card("Giao dịch mô phỏng", "Theo dõi thử nghiệm bằng tiền mô phỏng.", paperTradingButton),
                 ),
                 listOf(
-                    dashboard.card("Mô hình VN97", "Trạng thái mô hình và nhập gói đã ký.",
+                    dashboard.card("Mô hình VN97", "Cần đủ 3 tệp cùng bộ: gói VN97CAP1, chữ ký VN97SIG1 và khóa công khai Ed25519 (32 byte hoặc 64 ký tự hex). Không chọn GGUF, checkpoint huấn luyện hoặc khóa bí mật. Chọn đủ tệp → Kiểm tra gói → Tin cậy và kích hoạt.",
                         provisioningView, importModelButton, advancedProvisioningContainer),
                     dashboard.card("Phát triển năng lực", "Quản lý năng lực và các bản cải tiến có kiểm soát.",
                         capabilityAcquisitionButton, selfImprovementButton),
@@ -1171,7 +1171,7 @@ class VN97MainActivity : Activity() {
                     } else {
                         render(state)
                         provisioningView.text =
-                            "Developer build: no bundled VN97 model. Import a signed VN97 model to enable chat."
+                            "APK thử nghiệm này chưa kèm mô hình, nên chat chưa hoạt động. Chỉ nhập bộ mô hình VN97 đã được đóng gói và ký hợp lệ; không tự tạo tệp chữ ký hoặc khóa để điền vào đây."
                     }
                 }
             } catch (exc: Throwable) {

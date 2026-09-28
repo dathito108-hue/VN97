@@ -10,6 +10,9 @@ import javax.microedition.khronos.opengles.GL10
 import kotlin.math.sin
 import kotlin.math.cos
 import kotlin.math.PI
+import kotlin.math.abs
+import kotlin.math.sqrt
+import kotlin.math.sign
 
 internal class AvatarRenderer(
     private val stateBridge: AvatarStateBridge,
@@ -19,6 +22,9 @@ internal class AvatarRenderer(
     private var mvpLocation = -1
     private var colorLocation = -1
     private var modelLocation = -1
+    private var materialLocation = -1
+    private val parent = FloatArray(16)
+    private val worldModel = FloatArray(16)
     private val projection = FloatArray(16)
     private val view = FloatArray(16)
     private val model = FloatArray(16)
@@ -33,7 +39,8 @@ internal class AvatarRenderer(
         mvpLocation = GLES30.glGetUniformLocation(program, "uMvp")
         colorLocation = GLES30.glGetUniformLocation(program, "uColor")
         modelLocation = GLES30.glGetUniformLocation(program, "uModel")
-        check(mvpLocation >= 0 && colorLocation >= 0 && modelLocation >= 0) { "avatar shader uniforms unavailable" }
+        materialLocation = GLES30.glGetUniformLocation(program, "uMaterial")
+        check(mvpLocation >= 0 && colorLocation >= 0 && modelLocation >= 0 && materialLocation >= 0) { "avatar shader uniforms unavailable" }
 
         val buffers = IntArray(1)
         GLES30.glGenBuffers(1, buffers, 0)
@@ -92,47 +99,42 @@ internal class AvatarRenderer(
         val nod = if (target.gesture == AvatarGesture.NOD) sin(t * 7.0).toFloat() * 8f else 0f
         val shake = if (target.gesture == AvatarGesture.SHAKE) sin(t * 7.5).toFloat() * 10f else 0f
 
-        drawPart(0f, -0.45f + breathing, 0f, 1.05f, 1.25f, 0.52f, 0f, 0f, 0f, accent)
-        drawPart(
-            0f,
-            0.68f + breathing + listeningLift,
-            0f,
-            0.88f,
-            0.78f,
-            0.68f,
-            nod - animated.gazeY * 7f,
-            thinking + shake + animated.gazeX * 9f,
-            0f,
-            floatArrayOf(0.72f, 0.78f, 0.88f),
-        )
+        // Pearl ceramic shell, graphite joints and a luminous inset core.
+        Matrix.setIdentityM(parent, 0)
+        Matrix.translateM(parent, 0, 0f, breathing, 0f)
+        Matrix.rotateM(parent, 0, -8f, 0f, 1f, 0f)
+        drawPart(0f, -0.46f, 0f, 0.90f, 0.88f, 0.58f, 0f, 0f, 0f, PEARL)
+        drawPart(0f, -0.45f, 0.30f, 0.61f, 0.49f, 0.09f, 0f, 0f, 0f, GRAPHITE)
+        drawPart(0f, -0.43f, 0.36f, 0.19f, 0.19f, 0.035f, 0f, 0f, 45f, accent, 0.8f)
+        drawPart(0f, -0.70f, 0.345f, 0.30f, 0.025f, 0.02f, 0f, 0f, 0f, accent, 0.5f)
+        drawPart(0f, -0.98f, 0f, 0.55f, 0.11f, 0.41f, 0f, 0f, 0f, GRAPHITE)
+        drawPart(0f, -1.06f, 0f, 0.38f, 0.04f, 0.28f, 0f, 0f, 0f, accent, 0.75f)
+        drawPart(0f, 0.12f, 0f, 0.30f, 0.26f, 0.30f, 0f, 0f, 0f, GRAPHITE)
+        drawPart(-0.56f, -0.24f, 0f, 0.22f, 0.26f, 0.32f, 0f, 0f, 15f, GRAPHITE)
+        drawPart(0.56f, -0.24f, 0f, 0.22f, 0.26f, 0.32f, 0f, 0f, -15f, GRAPHITE)
+        drawPart(-0.68f, -0.48f, 0f, 0.23f, 0.52f, 0.31f, 0f, 0f, 14f + gestureWave, PEARL)
+        drawPart(0.68f, -0.48f, 0f, 0.23f, 0.52f, 0.31f, 0f, 0f, -14f, PEARL)
 
-        val eyeHeight = (0.055f * (1f - animated.blink * 0.92f)).coerceAtLeast(0.006f)
-        val eyeX = animated.gazeX * 0.035f
-        val eyeY = animated.gazeY * 0.025f
-        drawPart(-0.22f + eyeX, 0.76f + eyeY + breathing, 0.36f, 0.12f, eyeHeight, 0.04f, 0f, 0f, 0f, floatArrayOf(0.08f, 0.12f, 0.18f))
-        drawPart(0.22f + eyeX, 0.76f + eyeY + breathing, 0.36f, 0.12f, eyeHeight, 0.04f, 0f, 0f, 0f, floatArrayOf(0.08f, 0.12f, 0.18f))
-
+        // Head, faceplate and expressions share one transform: no detached eyes while nodding.
+        Matrix.setIdentityM(parent, 0)
+        Matrix.translateM(parent, 0, 0f, 0.70f + breathing + listeningLift, 0f)
+        Matrix.rotateM(parent, 0, -8f + thinking + shake + animated.gazeX * 9f, 0f, 1f, 0f)
+        Matrix.rotateM(parent, 0, nod - animated.gazeY * 7f, 1f, 0f, 0f)
+        drawPart(0f, 0f, 0f, 1.46f, 1.02f, 0.80f, 0f, 0f, 0f, PEARL)
+        drawPart(-0.76f, 0f, 0f, 0.12f, 0.35f, 0.35f, 0f, 0f, 0f, GRAPHITE)
+        drawPart(0.76f, 0f, 0f, 0.12f, 0.35f, 0.35f, 0f, 0f, 0f, GRAPHITE)
+        drawPart(-0.825f, 0f, 0f, 0.02f, 0.18f, 0.20f, 0f, 0f, 0f, accent, 0.55f)
+        drawPart(0.825f, 0f, 0f, 0.02f, 0.18f, 0.20f, 0f, 0f, 0f, accent, 0.55f)
+        drawPart(0f, 0f, 0.385f, 1.29f, 0.76f, 0.15f, 0f, 0f, 0f, METAL)
+        drawPart(0f, 0f, 0.435f, 1.19f, 0.65f, 0.10f, 0f, 0f, 0f, GLASS)
+        val eyeHeight = (0.22f * (1f - animated.blink * 0.92f)).coerceAtLeast(0.018f)
+        val eyeX = animated.gazeX * 0.045f
+        val eyeY = animated.gazeY * 0.03f
+        drawPart(-0.27f + eyeX, 0.055f + eyeY, 0.496f, 0.14f, eyeHeight, 0.018f, 0f, 0f, 0f, accent, 1f)
+        drawPart(0.27f + eyeX, 0.055f + eyeY, 0.496f, 0.14f, eyeHeight, 0.018f, 0f, 0f, 0f, accent, 1f)
         val jaw = maxOf(animated.speakingLevel * 0.55f, animated.jawOpen)
-        val mouthHeight = 0.025f + jaw * 0.12f
-        val mouthWidth = (
-            0.24f + animated.mouthWide * 0.18f - animated.lipRound * 0.10f
-        ).coerceIn(0.12f, 0.42f)
-        val mouthDepth = 0.035f + animated.lipRound * 0.025f
-        drawPart(
-            0f,
-            0.49f + breathing,
-            0.365f,
-            mouthWidth,
-            mouthHeight,
-            mouthDepth,
-            0f,
-            0f,
-            0f,
-            accent,
-        )
-
-        drawPart(-0.72f, -0.36f + breathing, 0f, 0.2f, 0.9f, 0.22f, 0f, 0f, 12f + gestureWave, accent)
-        drawPart(0.72f, -0.36f + breathing, 0f, 0.2f, 0.9f, 0.22f, 0f, 0f, -12f, accent)
+        val mouthWidth = (0.24f + animated.mouthWide * 0.13f - animated.lipRound * 0.08f).coerceIn(0.12f, 0.38f)
+        drawPart(0f, -0.19f, 0.495f, mouthWidth, 0.028f + jaw * 0.09f, 0.015f, 0f, 0f, 0f, accent, 0.8f)
 
         GLES30.glDisableVertexAttribArray(0)
         GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, 0)
@@ -149,6 +151,7 @@ internal class AvatarRenderer(
         ry: Float,
         rz: Float,
         color: FloatArray,
+        emission: Float = 0f,
     ) {
         Matrix.setIdentityM(model, 0)
         Matrix.translateM(model, 0, tx, ty, tz)
@@ -156,16 +159,18 @@ internal class AvatarRenderer(
         Matrix.rotateM(model, 0, ry, 0f, 1f, 0f)
         Matrix.rotateM(model, 0, rx, 1f, 0f, 0f)
         Matrix.scaleM(model, 0, sx, sy, sz)
-        Matrix.multiplyMM(viewModel, 0, view, 0, model, 0)
+        Matrix.multiplyMM(worldModel, 0, parent, 0, model, 0)
+        Matrix.multiplyMM(viewModel, 0, view, 0, worldModel, 0)
         Matrix.multiplyMM(mvp, 0, projection, 0, viewModel, 0)
         GLES30.glUniformMatrix4fv(mvpLocation, 1, false, mvp, 0)
-        GLES30.glUniformMatrix4fv(modelLocation, 1, false, model, 0)
+        GLES30.glUniformMatrix4fv(modelLocation, 1, false, worldModel, 0)
+        GLES30.glUniform2f(materialLocation, 0.32f, emission)
         GLES30.glUniform3f(colorLocation, color[0], color[1], color[2])
         GLES30.glDrawArrays(GLES30.GL_TRIANGLES, 0, ROUNDED_VERTICES.size / 3)
     }
 
     private fun accentColor(mode: AssistantMode): FloatArray = when (mode) {
-        AssistantMode.IDLE, AssistantMode.SLEEPING -> floatArrayOf(0.32f, 0.48f, 0.72f)
+        AssistantMode.IDLE, AssistantMode.SLEEPING -> floatArrayOf(0.18f, 0.90f, 0.83f)
         AssistantMode.LISTENING -> floatArrayOf(0.20f, 0.72f, 0.82f)
         AssistantMode.THINKING -> floatArrayOf(0.48f, 0.42f, 0.82f)
         AssistantMode.SPEAKING -> floatArrayOf(0.20f, 0.78f, 0.58f)
@@ -214,36 +219,48 @@ internal class AvatarRenderer(
             layout(location = 0) in vec3 aPosition;
             uniform mat4 uMvp;
             uniform mat4 uModel;
-            out vec3 vNormal;
+            out mediump vec3 vNormal;
             void main() {
                 gl_Position = uMvp * vec4(aPosition, 1.0);
-                vNormal = transpose(inverse(mat3(uModel))) * normalize(aPosition);
+                vNormal = transpose(inverse(mat3(uModel))) * normalize(aPosition * aPosition * aPosition);
             }
         """
 
         private const val FRAGMENT_SHADER = """#version 300 es
             precision mediump float;
             uniform vec3 uColor;
-            in vec3 vNormal;
+            uniform vec2 uMaterial;
+            in mediump vec3 vNormal;
             out vec4 outColor;
             void main() {
                 vec3 normal = normalize(vNormal);
-                float diffuse = max(dot(normal, normalize(vec3(-0.4, 0.8, 1.0))), 0.0);
+                vec3 light = normalize(vec3(-0.5, 0.8, 1.2));
+                float diffuse = max(dot(normal, light), 0.0);
                 float rim = pow(1.0 - abs(normal.z), 3.0);
-                outColor = vec4(uColor * (0.55 + 0.45 * diffuse) + vec3(0.07, 0.13, 0.16) * rim, 1.0);
+                float specular = pow(max(dot(normal, normalize(light + vec3(0.0, 0.0, 1.0))), 0.0), 48.0);
+                vec3 shaded = uColor * (0.48 + 0.52 * diffuse)
+                    + vec3(0.78, 0.88, 1.0) * specular * uMaterial.x
+                    + vec3(0.04, 0.09, 0.11) * rim;
+                outColor = vec4(mix(shaded, uColor, uMaterial.y), 1.0);
             }
         """
 
-        // Shared low-poly ellipsoid mesh: generated once, uploaded once, no frame allocations.
+        private val PEARL = floatArrayOf(0.86f, 0.91f, 0.96f)
+        private val GRAPHITE = floatArrayOf(0.055f, 0.085f, 0.12f)
+        private val METAL = floatArrayOf(0.22f, 0.32f, 0.40f)
+        private val GLASS = floatArrayOf(0.008f, 0.020f, 0.030f)
+
+        // Shared rounded-box superellipsoid mesh: generated once, uploaded once, no frame allocations.
         private val ROUNDED_VERTICES: FloatArray = buildList<Float> {
-            val rings = 12
-            val segments = 20
+            val rings = 16
+            val segments = 24
             fun vertex(ring: Int, segment: Int) {
                 val latitude = PI * ring / rings
                 val longitude = 2.0 * PI * segment / segments
-                add((0.5 * sin(latitude) * cos(longitude)).toFloat())
-                add((0.5 * cos(latitude)).toFloat())
-                add((0.5 * sin(latitude) * sin(longitude)).toFloat())
+                fun rounded(value: Double) = sign(value) * sqrt(abs(value))
+                add((0.5 * rounded(sin(latitude)) * rounded(cos(longitude))).toFloat())
+                add((0.5 * rounded(cos(latitude))).toFloat())
+                add((0.5 * rounded(sin(latitude)) * rounded(sin(longitude))).toFloat())
             }
             for (ring in 0 until rings) for (segment in 0 until segments) {
                 vertex(ring, segment)
