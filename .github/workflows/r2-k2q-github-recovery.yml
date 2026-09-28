@@ -16,7 +16,7 @@ permissions:
 
 concurrency:
   group: vn97-r2-k2q-github-recovery
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   recover:
