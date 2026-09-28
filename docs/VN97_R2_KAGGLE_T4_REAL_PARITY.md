@@ -144,3 +144,18 @@ Interpretation:
   first divergent operation before K2 or G1 training.
 
 This diagnostic is intentionally preferred over simply widening the error gate.
+
+## K1F FP32 structural parity and layerwise trace
+
+If fallback FP16 keeps exact generated tokens but final logits drift after many
+layers, run the same real transferred weights in float32 to separate structural
+alignment from accumulated half-precision rounding:
+
+    %env VN97_K1_OFFICIAL_KERNEL_MODE=fallback
+    %env VN97_K1_DTYPE=float32
+    !bash tools/kaggle_r2_k1_real_parity.sh
+
+K1F requires at least 12 GiB free T4 VRAM before loading the 2.7B model.
+The receipt now records the first-token error for all 64 layers and reports the
+first layer crossing the locked tolerance plus the worst layer. Thresholds are
+not widened.
