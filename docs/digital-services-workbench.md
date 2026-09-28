@@ -15,9 +15,10 @@ Current services:
 Enter a local job name and optional estimated price/cost in whole VND. The displayed margin
 is an estimate, never a receipt or verified income. Data stays on the device until the user
 chooses a destination in Android's document picker. The latest successfully generated job
-is stored in app-private no-backup storage; generating another job replaces it.
-A failed transformation preserves the previously saved job. Unsubmitted edits are not
-persisted across activity recreation. There is no job history yet.
+can be restored with its source in app-private no-backup storage. A separate bounded ledger
+keeps metadata for up to 500 orders and 2,000 payment records; it never exports the source or
+internal quote. A failed transformation preserves the previously saved job. Unsubmitted edits
+are not persisted across activity recreation.
 
 Export creates a ZIP with the deliverable and a transformation report containing input/output
 SHA-256 hashes. It excludes the original input, internal job name and price/cost fields.
@@ -32,12 +33,21 @@ Preview is capped at 8,000 characters. Transformations and I/O run off the UI th
 
 These utilities use no additional model/backend and do not change VN97's single-model
 architecture. They are deterministic tools, not evidence of AGI or successful model inference.
-Next integration work is multiple durable orders, model-assisted writing/translation only
-when the activated VN97 model is available, customer acquisition channels, and verified
-payment reconciliation. Exness remains an optional separate channel. No outbound marketing,
-marketplace posting, payment request or financial trade is performed here.
+Each successful ZIP write marks its order exported. Payment reconciliation is provider-neutral
+and deduplicates on `provider + account fingerprint + external event ID`: exact retries are
+no-ops and conflicting reuse is rejected. Verified net proceeds deduct fees, refunds and
+realized costs. The UI can record a receipt claim from any channel, but always marks it
+`MANUAL_UNVERIFIED` and excludes it from verified revenue. A `PROVIDER_API_VERIFIED` record
+requires an account fingerprint and authenticated-response evidence digest from a future
+provider adapter. No authenticated settlement was available for this change.
+
+Next integration work is model-assisted writing/translation only when the activated VN97
+model is available, customer acquisition channels, and authenticated provider adapters.
+Exness remains an optional separate channel. No outbound marketing, marketplace posting,
+payment request or financial trade is performed here.
 
 Validation: host regression covers Vietnamese text, quoted/multiline CSV, duplicates,
-formula protection, invalid structure, HTML injection, input/output bounds and cost arithmetic.
+formula protection, invalid structure, HTML injection, input/output bounds, cost arithmetic,
+order/export state, duplicate payment events and verified/unverified net separation.
 Android compilation runs in the existing revenue workflow. Physical-device UI tests,
 rotation/export recovery and performance measurements remain outstanding.
