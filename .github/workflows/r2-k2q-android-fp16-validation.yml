@@ -7,6 +7,9 @@ on:
       - "android/runtime/src/main/java/ai/vn97/runtime/Mamba2OrtRuntimePackage.kt"
       - "android/runtime/src/main/java/ai/vn97/runtime/Mamba2OrtTensorStorage.kt"
       - "android/runtime/src/main/java/ai/vn97/runtime/Mamba2OrtProviderProfiler.kt"
+      - "android/app/src/main/java/ai/vn97/app/VN97R2OrtEvidenceActivity.kt"
+      - "android/app/src/main/java/ai/vn97/app/VN97MainActivity.kt"
+      - "android/app/src/main/AndroidManifest.xml"
       - ".github/workflows/r2-k2q-android-fp16-validation.yml"
 
 permissions:
@@ -42,11 +45,11 @@ jobs:
           yes | "$SDKMANAGER" --sdk_root="$ANDROID_SDK_ROOT" --licenses >/dev/null || true
           "$SDKMANAGER"             --sdk_root="$ANDROID_SDK_ROOT"             --channel=3             "platforms;android-37.0"             "build-tools;36.0.0"             "ndk;28.2.13676358"             "cmake;3.22.1"
 
-      - name: Compile Android runtime
+      - name: Compile Android app
         shell: bash
         run: |
           set -euo pipefail
-          gradle -p android --no-daemon --stacktrace :runtime:assembleDebug
+          gradle -p android --no-daemon --stacktrace :app:assembleDebug
 
       - name: Verify FP16 contract
         shell: bash
