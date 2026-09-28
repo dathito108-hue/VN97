@@ -7,7 +7,6 @@ import android.content.Context
 import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
-import java.nio.FloatBuffer
 import java.nio.LongBuffer
 import java.util.LinkedHashMap
 
@@ -89,70 +88,6 @@ private class Mamba2SessionCache(
     }
 }
 
-private data class Mamba2StateSlot(
-    val convBuffer: FloatBuffer,
-    val ssmBuffer: FloatBuffer,
-    val convTensor: OnnxTensor,
-    val ssmTensor: OnnxTensor,
-) : AutoCloseable {
-    fun zero() {
-        for (index in 0 until convBuffer.capacity()) {
-            convBuffer.put(index, 0.0f)
-        }
-        for (index in 0 until ssmBuffer.capacity()) {
-            ssmBuffer.put(index, 0.0f)
-        }
-    }
-
-    override fun close() {
-        convTensor.close()
-        ssmTensor.close()
-    }
-}
-
-private data class Mamba2GraphBuffers(
-    val inputBuffer: LongBuffer,
-    val validLengthBuffer: LongBuffer,
-    val inputTensor: OnnxTensor,
-    val validLengthTensor: OnnxTensor,
-    val logitsBuffer: FloatBuffer,
-    val logitsTensor: OnnxTensor,
-    val maxChunkSize: Int,
-    val vocabSize: Int,
-) : AutoCloseable {
-    fun put(tokens: IntArray) {
-        require(tokens.isNotEmpty())
-        require(tokens.size <= maxChunkSize)
-        for (index in 0 until maxChunkSize) {
-            inputBuffer.put(
-                index,
-                if (index < tokens.size) tokens[index].toLong() else 0L,
-            )
-        }
-        validLengthBuffer.put(0, tokens.size.toLong())
-    }
-
-    fun finalLogits(validLength: Int): FloatArray {
-        require(validLength in 1..maxChunkSize)
-        val result = FloatArray(vocabSize)
-        val offset = (validLength - 1) * vocabSize
-        require(
-            offset.toLong() + vocabSize.toLong() <=
-                logitsBuffer.capacity().toLong()
-        )
-        for (index in 0 until vocabSize) {
-            result[index] = logitsBuffer.get(offset + index)
-        }
-        return result
-    }
-
-    override fun close() {
-        inputTensor.close()
-        validLengthTensor.close()
-        logitsTensor.close()
-    }
-}
-
 class VN97Mamba2OrtExecutor private constructor(
     private val context: Context,
     val runtimePackage: Mamba2OrtRuntimePackage,
@@ -180,6 +115,8 @@ class VN97Mamba2OrtExecutor private constructor(
         runtimePackage.headDim.toLong(),
         runtimePackage.dState.toLong(),
     )
+    private val valueDtype =
+        Mamba2OrtValueDtype.fromRuntime(runtimePackage.stateDtype)
     private val stateSlots = arrayOf(
         createStateSlot(),
         createStateSlot(),
@@ -354,13 +291,13 @@ class VN97Mamba2OrtExecutor private constructor(
         val inputs = linkedMapOf(
             "input_ids" to graphBuffers.inputTensor,
             "valid_length" to graphBuffers.validLengthTensor,
-            "conv_state" to current.convTensor,
-            "ssm_state" to current.ssmTensor,
+            "conv_state" to current.conv.tensor,
+            "ssm_state" to current.ssm.tensor,
         )
         val outputs = linkedMapOf(
-            "logits" to graphBuffers.logitsTensor,
-            "next_conv_state" to next.convTensor,
-            "next_ssm_state" to next.ssmTensor,
+            "logits" to graphBuffers.logits.tensor,
+            "next_conv_state" to next.conv.tensor,
+            "next_ssm_state" to next.ssm.tensor,
         )
 
         var lastFailure: Throwable? = null
@@ -429,26 +366,20 @@ class VN97Mamba2OrtExecutor private constructor(
     }
 
     private fun createStateSlot(): Mamba2StateSlot {
-        val convBuffer = directFloatBufferMamba2(
-            runtimePackage.convStateElements
+        val conv = Mamba2OrtTensorStorage.create(
+            environment, valueDtype, convShape,
+            runtimePackage.convStateElements,
         )
-        val ssmBuffer = directFloatBufferMamba2(
-            runtimePackage.ssmStateElements
-        )
-        return Mamba2StateSlot(
-            convBuffer = convBuffer,
-            ssmBuffer = ssmBuffer,
-            convTensor = OnnxTensor.createTensor(
-                environment,
-                convBuffer,
-                convShape,
-            ),
-            ssmTensor = OnnxTensor.createTensor(
-                environment,
-                ssmBuffer,
-                ssmShape,
-            ),
-        )
+        try {
+            val ssm = Mamba2OrtTensorStorage.create(
+                environment, valueDtype, ssmShape,
+                runtimePackage.ssmStateElements,
+            )
+            return Mamba2StateSlot(conv, ssm)
+        } catch (error: Throwable) {
+            conv.close()
+            throw error
+        }
     }
 
     private fun createGraphBuffers(): Mamba2GraphBuffers {
@@ -459,7 +390,16 @@ class VN97Mamba2OrtExecutor private constructor(
             runtimePackage.maxChunkSize.toLong(),
             runtimePackage.vocabSize.toLong(),
         )
-        val logits = directFloatBufferMamba2(logitsCount)
+        val logits = Mamba2OrtTensorStorage.create(
+            environment,
+            valueDtype,
+            longArrayOf(
+                1L,
+                runtimePackage.maxChunkSize.toLong(),
+                runtimePackage.vocabSize.toLong(),
+            ),
+            logitsCount,
+        )
         return Mamba2GraphBuffers(
             inputBuffer = input,
             validLengthBuffer = valid,
@@ -476,16 +416,7 @@ class VN97Mamba2OrtExecutor private constructor(
                 valid,
                 longArrayOf(1L),
             ),
-            logitsBuffer = logits,
-            logitsTensor = OnnxTensor.createTensor(
-                environment,
-                logits,
-                longArrayOf(
-                    1L,
-                    runtimePackage.maxChunkSize.toLong(),
-                    runtimePackage.vocabSize.toLong(),
-                ),
-            ),
+            logits = logits,
             maxChunkSize = runtimePackage.maxChunkSize,
             vocabSize = runtimePackage.vocabSize,
         )
@@ -540,13 +471,6 @@ class VN97Mamba2OrtExecutor private constructor(
     }
 }
 
-private fun directFloatBufferMamba2(count: Int): FloatBuffer {
-    require(count > 0)
-    require(count <= Int.MAX_VALUE / Float.SIZE_BYTES)
-    return ByteBuffer.allocateDirect(
-        count * Float.SIZE_BYTES
-    ).order(ByteOrder.nativeOrder()).asFloatBuffer()
-}
 
 private fun directLongBufferMamba2(count: Int): LongBuffer {
     require(count > 0)
