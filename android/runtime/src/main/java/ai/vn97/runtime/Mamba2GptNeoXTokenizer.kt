@@ -278,7 +278,33 @@ class VN97GptNeoXTokenizer(
     }
 
     fun encode(text: String): IntArray {
+        if (text.isEmpty()) return IntArray(0)
         val output = ArrayList<Int>()
+        var cursor = 0
+        while (cursor <= text.length) {
+            val special = text.indexOf(
+                packageInfo.eosToken,
+                startIndex = cursor,
+            )
+            val end = if (special >= 0) special else text.length
+            if (end > cursor) {
+                encodeOrdinary(
+                    text.substring(cursor, end),
+                    output,
+                )
+            }
+            if (special < 0) break
+            output += packageInfo.eosTokenId
+            cursor = special + packageInfo.eosToken.length
+            if (cursor == text.length) break
+        }
+        return output.toIntArray()
+    }
+
+    private fun encodeOrdinary(
+        text: String,
+        output: MutableList<Int>,
+    ) {
         val matcher = pattern.matcher(text)
         var cursor = 0
         while (matcher.find()) {
@@ -302,7 +328,6 @@ class VN97GptNeoXTokenizer(
         require(cursor == text.length) {
             "G0.8 pretokenizer did not consume full text"
         }
-        return output.toIntArray()
     }
 
     fun decodeBytes(
