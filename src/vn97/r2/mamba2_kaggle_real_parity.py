@@ -336,10 +336,18 @@ def run_real_parity(
     )
     torch.cuda.empty_cache()
     free_bytes, total_bytes = torch.cuda.mem_get_info(device)
-    if compute_dtype == "float32" and free_bytes < 12 * 1024**3:
-        raise RuntimeError(
-            "K1F float32 structural parity requires at least 12 GiB free VRAM"
-        )
+    if compute_dtype == "float32":
+        if total_bytes < 20 * 1024**3:
+            raise RuntimeError(
+                "K1F full-model float32 parity is intentionally disabled on "
+                "GPUs below 20 GiB total VRAM; use float16 fallback with the "
+                "64-layer first-divergence trace on Kaggle T4"
+            )
+        if free_bytes < 16 * 1024**3:
+            raise RuntimeError(
+                "K1F float32 structural parity requires at least 16 GiB free "
+                "VRAM before model load"
+            )
 
     model = MambaLMHeadModel.from_pretrained(
         str(source_root),
