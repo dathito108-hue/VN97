@@ -94,16 +94,58 @@ jobs:
           PY
           df -h /
 
-      - name: Export recurrent-8 G0.5 graph
+      - name: Recover exact Kaggle G0.5 exporter serialization
         shell: bash
         run: |
           set -euo pipefail
           CAPSULE="${RUNNER_TEMP}/g03-capsule"
           OUT="${RUNNER_TEMP}/g05-recurrent-8"
-          python -m vn97.r2.mamba2_parallel_onnx_cli export             --capsule-root "$CAPSULE"             --output-dir "$OUT"             --chunk-size 8
-          python -m vn97.r2.mamba2_parallel_onnx_cli verify             --bundle-dir "$OUT"
-          ls -l "$OUT/recurrent-8.onnx" "$OUT/recurrent-8.onnx.data"
-          sha256sum "$OUT/recurrent-8.onnx" "$OUT/recurrent-8.onnx.data"
+          TARGET_MANIFEST="ae782f452368b77b0c17dd7f9a2fd284b98bc0b24bc58e4c8e7d82fba046d2ce"
+          TARGET_ONNX_BYTES="45773335"
+          : > "${RUNNER_TEMP}/g05-candidate-results.txt"
+
+          for ONNXSCRIPT_VERSION in 0.6.2 0.6.1 0.6.0 0.5.7; do
+            echo "Trying onnx=1.22.0 onnxscript=$ONNXSCRIPT_VERSION"
+            rm -rf "$OUT"
+            python -m pip install --disable-pip-version-check -q               "onnx==1.22.0"               "onnxscript==$ONNXSCRIPT_VERSION"
+
+            python - <<PY
+import onnx, onnxscript
+print("candidate onnx=", onnx.__version__, "onnxscript=", onnxscript.__version__)
+PY
+
+            if ! python -m vn97.r2.mamba2_parallel_onnx_cli export               --capsule-root "$CAPSULE"               --output-dir "$OUT"               --chunk-size 8; then
+              echo "$ONNXSCRIPT_VERSION export_failed" | tee -a "${RUNNER_TEMP}/g05-candidate-results.txt"
+              continue
+            fi
+
+            python -m vn97.r2.mamba2_parallel_onnx_cli verify               --bundle-dir "$OUT"
+
+            MANIFEST_ID="$(python - <<PY
+import json
+from pathlib import Path
+print(json.loads(Path("$OUT/manifest.vn97m2g05.json").read_text())["manifest_id"])
+PY
+)"
+            ONNX_BYTES="$(stat -c %s "$OUT/recurrent-8.onnx")"
+            DATA_BYTES="$(stat -c %s "$OUT/recurrent-8.onnx.data")"
+            echo "$ONNXSCRIPT_VERSION manifest=$MANIFEST_ID onnx_bytes=$ONNX_BYTES data_bytes=$DATA_BYTES"               | tee -a "${RUNNER_TEMP}/g05-candidate-results.txt"
+            sha256sum "$OUT/recurrent-8.onnx" "$OUT/recurrent-8.onnx.data"
+
+            if [[ "$MANIFEST_ID" == "$TARGET_MANIFEST" ]]; then
+              echo "$ONNXSCRIPT_VERSION" > "${RUNNER_TEMP}/matched-onnxscript.txt"
+              echo "Exact K2P G0.5 serialization recovered."
+              break
+            fi
+
+            if [[ "$ONNX_BYTES" == "$TARGET_ONNX_BYTES" ]]; then
+              echo "Candidate reached the historical ONNX byte size but identity still differs."
+            fi
+          done
+
+          cat "${RUNNER_TEMP}/g05-candidate-results.txt"
+          test -s "${RUNNER_TEMP}/matched-onnxscript.txt"
+          echo "matched_onnxscript=$(cat "${RUNNER_TEMP}/matched-onnxscript.txt")"
           df -h /
 
       - name: Build and lock Android G0.6 descriptor
