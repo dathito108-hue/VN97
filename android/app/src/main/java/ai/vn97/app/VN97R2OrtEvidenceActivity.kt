@@ -27,7 +27,7 @@ class VN97R2OrtEvidenceActivity : Activity() {
     private lateinit var status: TextView
     private lateinit var importButton: Button
     private lateinit var runButton: Button
-    private lateinit var diagnosticsButton: Button
+    private val diagnosticButtons = mutableListOf<Button>()
     private lateinit var copyButton: Button
     private var latestReceipt: String = ""
 
@@ -75,11 +75,16 @@ class VN97R2OrtEvidenceActivity : Activity() {
         }
         content.addView(runButton)
 
-        diagnosticsButton = Button(this).apply {
-            text = "Run K2R provider diagnostics"
-            setOnClickListener { runK2RDiagnostics() }
+        listOf(1, 2, 4, 8).forEach { threads ->
+            val button = Button(this).apply {
+                text = "Run K2R CPU " + threads + "-thread safe test"
+                setOnClickListener {
+                    runK2RCpuDiagnostic(threads)
+                }
+            }
+            diagnosticButtons += button
+            content.addView(button)
         }
-        content.addView(diagnosticsButton)
 
         copyButton = Button(this).apply {
             text = "Copy evidence JSON"
@@ -353,11 +358,11 @@ class VN97R2OrtEvidenceActivity : Activity() {
         }
     }
 
-    private fun runK2RDiagnostics() {
+    private fun runK2RCpuDiagnostic(cpuThreads: Int) {
         setBusy(true)
         status.text =
-            "Running K2R Exynos provider diagnostics. " +
-                "This can take several minutes…"
+            "Running isolated K2R CPU " + cpuThreads +
+                "-thread diagnostic. Do not leave the app…"
         latestReceipt = ""
         copyButton.isEnabled = false
 
@@ -367,13 +372,14 @@ class VN97R2OrtEvidenceActivity : Activity() {
                 require(runtime.stateDtype == "float16") {
                     "K2R requires the verified FP16 runtime"
                 }
-                val report = VN97Mamba2K2RDiagnostics().run(
+                val report = VN97Mamba2K2RDiagnostics().runSingleCpu(
                     context = applicationContext,
                     runtimeRoot = runtimeRoot,
+                    cpuThreads = cpuThreads,
                 )
                 val output = File(
                     getExternalFilesDir(null) ?: filesDir,
-                    K2R_EVIDENCE_FILENAME,
+                    "vn97-r2-k2r-cpu-" + cpuThreads + ".json",
                 )
                 report.writeAtomic(output)
                 val canonical = output.readText(Charsets.US_ASCII)
@@ -387,12 +393,14 @@ class VN97R2OrtEvidenceActivity : Activity() {
                         latestReceipt = canonical
                         copyButton.isEnabled = true
                         status.text =
-                            "K2R diagnostics complete.\n" +
+                            "K2R CPU " + cpuThreads +
+                                "-thread diagnostic complete.\n" +
                                 canonical
                     },
                     onFailure = { error ->
                         status.text =
-                            "K2R diagnostics failed: " +
+                            "K2R CPU " + cpuThreads +
+                                "-thread diagnostic failed: " +
                                 (error.message ?:
                                     error::class.java.simpleName)
                     },
@@ -454,7 +462,7 @@ class VN97R2OrtEvidenceActivity : Activity() {
     private fun setBusy(busy: Boolean) {
         importButton.isEnabled = !busy
         runButton.isEnabled = !busy
-        diagnosticsButton.isEnabled = !busy
+        diagnosticButtons.forEach { it.isEnabled = !busy }
         if (busy) copyButton.isEnabled = false
     }
 
