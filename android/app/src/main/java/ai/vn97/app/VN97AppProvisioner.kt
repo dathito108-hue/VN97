@@ -22,7 +22,10 @@ import java.io.InputStream
 class VN97AppProvisioner(
     private val application: VN97Application,
 ) {
-    private val platform = AndroidVN97CapabilityProvisioner(application)
+    private val platform = AndroidVN97CapabilityProvisioner(application) { info ->
+        // Runs in prepare AND commit, before inventory mutation; never grants activation.
+        VN97ModelImportRuntime.requireCompatible(application, info)
+    }
     private val session = VN97ModelImageProvisioningSession(
         stager = platform.createStager(),
         stageRoot = platform.stageRoot,
@@ -644,6 +647,19 @@ class VN97AppProvisioner(
             reason = reason,
         ).also {
             session.clearReview()
+        }
+    }
+
+    fun reviewArchive(uri: Uri): VN97ModelProvisioningReview {
+        val input = checkNotNull(application.contentResolver.openInputStream(uri)) {
+            "Không mở được gói nhập VN97."
+        }
+        return input.use {
+            VN97ModelImportArchive.read(it, application.cacheDir) { model, signature, publicKey ->
+                model.inputStream().use { packageInput ->
+                    review(packageInput, signature, publicKey)
+                }
+            }
         }
     }
 

@@ -65,6 +65,7 @@ class VN97MainActivity : Activity() {
     private lateinit var approveButton: Button
     private lateinit var rejectButton: Button
     private lateinit var provisioningView: TextView
+    private lateinit var importArchiveButton: Button
     private lateinit var importModelButton: Button
     private lateinit var advancedProvisioningContainer: LinearLayout
     private lateinit var choosePackageButton: Button
@@ -248,8 +249,14 @@ class VN97MainActivity : Activity() {
             setTextIsSelectable(true)
         }
 
+        importArchiveButton = Button(this).apply {
+            text = "Chọn bộ mô hình ZIP"
+            visibility = if (BuildConfig.VN97_TURNKEY_REQUIRED) View.GONE else View.VISIBLE
+            setOnClickListener { openDocument(REQUEST_MODEL_ARCHIVE) }
+        }
+
         importModelButton = Button(this).apply {
-            text = "Nhập mô hình VN97"
+            text = "Nâng cao: chọn 3 tệp riêng"
             visibility =
                 if (BuildConfig.VN97_TURNKEY_REQUIRED) View.GONE else View.VISIBLE
             setOnClickListener {
@@ -412,8 +419,8 @@ class VN97MainActivity : Activity() {
                     dashboard.card("Giao dịch mô phỏng", "Theo dõi thử nghiệm bằng tiền mô phỏng.", paperTradingButton),
                 ),
                 listOf(
-                    dashboard.card("Mô hình VN97", "Cần đủ 3 tệp cùng bộ: gói VN97CAP1, chữ ký VN97SIG1 và khóa công khai Ed25519 (32 byte hoặc 64 ký tự hex). Không chọn GGUF, checkpoint huấn luyện hoặc khóa bí mật. Chọn đủ tệp → Kiểm tra gói → Tin cậy và kích hoạt.",
-                        provisioningView, importModelButton, advancedProvisioningContainer),
+                    dashboard.card("Mô hình VN97", "Chọn một ZIP gồm model.vn97cap, model.vn97sig và publisher.ed25519 tại thư mục gốc. Ứng dụng kiểm tra chữ ký và yêu cầu xác nhận nhà phát hành. Gói lõi chỉ dùng được khi có bộ thực thi R2/ONNX tương thích; ZIP này không cài runtime. GGUF, ONNX rời và checkpoint 10M chưa nhập trực tiếp được.",
+                        provisioningView, importArchiveButton, importModelButton, advancedProvisioningContainer),
                     dashboard.card("Phát triển năng lực", "Quản lý năng lực và các bản cải tiến có kiểm soát.",
                         capabilityAcquisitionButton, selfImprovementButton),
                     dashboard.card("Chẩn đoán", "Thu thập bằng chứng chạy thực tế trên thiết bị.",
@@ -1223,6 +1230,10 @@ class VN97MainActivity : Activity() {
         } catch (_: SecurityException) {
             // Some document providers grant only the current read; review still reopens immediately.
         }
+        if (requestCode == REQUEST_MODEL_ARCHIVE) {
+            reviewImportArchive(uri)
+            return
+        }
         when (requestCode) {
             REQUEST_PACKAGE -> packageUri = uri
             REQUEST_SIGNATURE -> signatureUri = uri
@@ -1239,7 +1250,7 @@ class VN97MainActivity : Activity() {
         if (!provisioningAllowed()) return
         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
-            type = "application/octet-stream"
+            type = "*/*"
             addFlags(
                 Intent.FLAG_GRANT_READ_URI_PERMISSION or
                     Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
@@ -1247,6 +1258,39 @@ class VN97MainActivity : Activity() {
         }
         startActivityForResult(intent, requestCode)
     }
+
+    private fun reviewImportArchive(uri: Uri) {
+        if (!provisioningAllowed()) return
+        packageUri = null
+        signatureUri = null
+        publisherKeyUri = null
+        setProvisioningControlsEnabled(false)
+        advancedProvisioningContainer.visibility = View.VISIBLE
+        provisioningView.text = "Đang đọc gói ZIP và xác minh mô hình, chữ ký, nhà phát hành…"
+        worker.execute {
+            try {
+                app.provisioner.clearReview()
+                val review = app.provisioner.reviewArchive(uri)
+                runOnUiThread {
+                    renderProvisioningReview(review)
+                    setProvisioningControlsEnabled(true)
+                    activateModelButton.isEnabled = true
+                }
+            } catch (exc: Throwable) {
+                app.provisioner.clearReview()
+                runOnUiThread {
+                    provisioningView.text = "Không nhập được gói: " + provisioningError(exc)
+                    setProvisioningControlsEnabled(true)
+                    activateModelButton.isEnabled = false
+                }
+            }
+        }
+    }
+
+    private fun provisioningError(error: Throwable): String =
+        generateSequence(error) { it.cause }.last().let {
+            (it.message ?: it::class.java.simpleName).take(600)
+        }
 
     private fun reviewProvisioning() {
         if (!provisioningAllowed()) return
@@ -1271,7 +1315,7 @@ class VN97MainActivity : Activity() {
                 app.provisioner.clearReview()
                 runOnUiThread {
                     provisioningView.text =
-                        "Provisioning review failed: " + exc::class.java.simpleName
+                        "Không xác minh được gói: " + provisioningError(exc)
                     setProvisioningControlsEnabled(true)
                     activateModelButton.isEnabled = false
                 }
@@ -1314,7 +1358,7 @@ class VN97MainActivity : Activity() {
             } catch (exc: Throwable) {
                 runOnUiThread {
                     provisioningView.text =
-                        "Activation failed: " + exc::class.java.simpleName
+                        "Chưa kích hoạt được: " + provisioningError(exc)
                     setProvisioningControlsEnabled(true)
                 }
             }
@@ -1331,6 +1375,7 @@ class VN97MainActivity : Activity() {
 
     private fun setProvisioningControlsEnabled(enabled: Boolean) {
         val allowed = enabled && provisioningAllowed()
+        importArchiveButton.isEnabled = allowed
         importModelButton.isEnabled = allowed
         choosePackageButton.isEnabled = allowed
         chooseSignatureButton.isEnabled = allowed
@@ -1382,7 +1427,7 @@ class VN97MainActivity : Activity() {
             append(review.sourceLicense)
             append("\nPlan SHA-256: ")
             append(review.planSha256)
-            append("\n\nReview verified. Trust & Activate is an explicit user action.")
+            append("\n\nChữ ký và gói lõi đã được xác minh. Khi bạn chọn kích hoạt, ứng dụng còn kiểm tra danh tính tokenizer và bộ thực thi R2/ONNX trước khi thay mô hình. Xác minh gói không đồng nghĩa chat đã sẵn sàng.")
         }
     }
 
@@ -2199,6 +2244,7 @@ class VN97MainActivity : Activity() {
         const val M19J_ERROR_FILE =
             "vn97-mobile-evidence.error.txt"
 
+        private const val REQUEST_MODEL_ARCHIVE = 4109
         private const val REQUEST_PACKAGE = 4101
         private const val REQUEST_SIGNATURE = 4102
         private const val REQUEST_PUBLISHER_KEY = 4103

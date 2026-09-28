@@ -51,6 +51,10 @@ data class VN97R2BridgeBinding(
         model: NativeActivatedModel,
         runtime: OrtProductionPackage,
     ) {
+        requireCompatible(model.info, runtime)
+    }
+
+    fun requireCompatible(info: NativeActivatedModelInfo, runtime: OrtProductionPackage) {
         require(runtime.runtimeId == runtimeId) {
             "F2 binding runtime identity mismatch"
         }
@@ -60,16 +64,16 @@ data class VN97R2BridgeBinding(
         require(runtime.vocabSize == vocabSize) {
             "F2 binding runtime vocab mismatch"
         }
-        require(model.info.vocabSize == vocabSize) {
+        require(info.vocabSize == vocabSize) {
             "F2 binding tokenizer vocab mismatch"
         }
-        require(model.info.hasTokenizer) {
+        require(info.hasTokenizer) {
             "F2 requires VN97TK1 tokenizer"
         }
-        require(model.info.modelId.toHexF2() == tokenizerModelId) {
+        require(info.modelId.toHexF2() == tokenizerModelId) {
             "F2 tokenizer/checkpoint identity mismatch"
         }
-        require(runtime.activeLayers <= model.info.layers) {
+        require(runtime.activeLayers <= info.layers) {
             "F2 runtime layer profile exceeds activated checkpoint geometry"
         }
     }
