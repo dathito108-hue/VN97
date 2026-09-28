@@ -4,15 +4,23 @@ import android.app.Activity
 import android.os.Bundle
 import android.view.Gravity
 import android.view.ViewGroup
+import android.view.WindowManager
 import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import java.nio.charset.StandardCharsets
 import java.util.concurrent.Executors
 
 class VN97PaperTradingActivity : Activity() {
+    private lateinit var exnessApiKeyView: EditText
+    private lateinit var exnessAccountIdView: EditText
+    private lateinit var exnessBaseUrlView: EditText
+    private lateinit var exnessSecretView: EditText
+    private lateinit var saveExnessCredentialsButton: Button
+    private lateinit var clearExnessCredentialsButton: Button
     private lateinit var endpointView: EditText
     private lateinit var sourceView: EditText
     private lateinit var symbolsView: EditText
@@ -37,6 +45,7 @@ class VN97PaperTradingActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
 
         val density = resources.displayMetrics.density
         val root = LinearLayout(this).apply {
@@ -76,6 +85,77 @@ class VN97PaperTradingActivity : Activity() {
             },
             fullWidth(),
         )
+
+        root.addView(
+            TextView(this).apply {
+                text = "Exness live channel credentials"
+                textSize = 18f
+            },
+            fullWidth(),
+        )
+        root.addView(
+            TextView(this).apply {
+                text =
+                    "Stored only on this device in no-backup app storage, " +
+                        "encrypted by Android Keystore. Saving credentials " +
+                        "does not authorize live trading."
+            },
+            fullWidth(),
+        )
+
+        exnessApiKeyView = EditText(this).apply {
+            hint = "Exness API key"
+            maxLines = 1
+        }
+        root.addView(exnessApiKeyView, fullWidth())
+
+        exnessAccountIdView = EditText(this).apply {
+            hint = "Exness account ID"
+            maxLines = 1
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER
+        }
+        root.addView(exnessAccountIdView, fullWidth())
+
+        exnessBaseUrlView = EditText(this).apply {
+            hint = "Exness base URL"
+            maxLines = 1
+            setText("https://api.exness.com")
+        }
+        root.addView(exnessBaseUrlView, fullWidth())
+
+        exnessSecretView = EditText(this).apply {
+            hint = "Exness Secret Key (never shown again)"
+            maxLines = 3
+            inputType =
+                android.text.InputType.TYPE_CLASS_TEXT or
+                    android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+        }
+        root.addView(exnessSecretView, fullWidth())
+
+        val credentialButtons = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+        }
+        saveExnessCredentialsButton = Button(this).apply {
+            text = "Encrypt & save"
+            setOnClickListener {
+                saveExnessCredentials()
+            }
+        }
+        clearExnessCredentialsButton = Button(this).apply {
+            text = "Delete credentials"
+            setOnClickListener {
+                clearExnessCredentials()
+            }
+        }
+        credentialButtons.addView(
+            saveExnessCredentialsButton,
+            weighted(),
+        )
+        credentialButtons.addView(
+            clearExnessCredentialsButton,
+            weighted(),
+        )
+        root.addView(credentialButtons, fullWidth())
 
         endpointView = EditText(this).apply {
             hint = "HTTPS VN97MKTFEED1 endpoint"
@@ -206,6 +286,77 @@ class VN97PaperTradingActivity : Activity() {
     override fun onDestroy() {
         worker.shutdownNow()
         super.onDestroy()
+    }
+
+    private fun saveExnessCredentials() {
+        val apiKey =
+            exnessApiKeyView.text.toString().trim()
+        val accountId =
+            exnessAccountIdView.text.toString().trim()
+        val baseUrl =
+            exnessBaseUrlView.text.toString().trim()
+        val secretBytes =
+            exnessSecretView.text.toString()
+                .toByteArray(StandardCharsets.UTF_8)
+        exnessSecretView.text.clear()
+
+        setControlsEnabled(false)
+        statusView.text =
+            "Encrypting Exness credentials locally…"
+        worker.execute {
+            try {
+                app.exnessCredentialVault.store(
+                    apiKey = apiKey,
+                    accountId = accountId,
+                    baseUrl = baseUrl,
+                    privateKeySecret = secretBytes,
+                )
+                runOnUiThread {
+                    exnessApiKeyView.text.clear()
+                    statusView.text =
+                        "Exness credentials encrypted in Android Keystore-backed vault. " +
+                            "Live-money authority remains disabled."
+                    setControlsEnabled(true)
+                    refreshStatus()
+                }
+            } catch (exc: Throwable) {
+                runOnUiThread {
+                    statusView.text =
+                        "Credential provisioning failed: " +
+                            (exc.message ?: exc::class.java.simpleName)
+                    setControlsEnabled(true)
+                }
+            } finally {
+                secretBytes.fill(0)
+            }
+        }
+    }
+
+    private fun clearExnessCredentials() {
+        setControlsEnabled(false)
+        worker.execute {
+            val result =
+                runCatching {
+                    app.exnessCredentialVault.clear()
+                }
+            runOnUiThread {
+                exnessApiKeyView.text.clear()
+                exnessAccountIdView.text.clear()
+                exnessSecretView.text.clear()
+                statusView.text =
+                    result.fold(
+                        onSuccess = {
+                            "Exness credentials deleted; live revenue channel locked."
+                        },
+                        onFailure = { exc ->
+                            "Credential deletion failed: " +
+                                (exc.message ?: exc::class.java.simpleName)
+                        },
+                    )
+                setControlsEnabled(true)
+                refreshStatus()
+            }
+        }
     }
 
     private fun startPaperSession() {
@@ -555,9 +706,11 @@ class VN97PaperTradingActivity : Activity() {
                     ),
                 channel =
                     VN97RevenueChannelEvidence(
-                        providerId = "unconfigured",
-                        configured = false,
-                        credentialBackedByKeystore = false,
+                        providerId = "exness",
+                        configured =
+                            app.exnessCredentialVault.hasCredentials(),
+                        credentialBackedByKeystore =
+                            app.exnessCredentialVault.hasCredentials(),
                         authenticated = false,
                         dryRunValidated = false,
                         orderSubmissionAvailable = false,
@@ -579,6 +732,8 @@ class VN97PaperTradingActivity : Activity() {
     }
 
     private fun setControlsEnabled(enabled: Boolean) {
+        saveExnessCredentialsButton.isEnabled = enabled
+        clearExnessCredentialsButton.isEnabled = enabled
         startButton.isEnabled = enabled
         revenueCampaignButton.isEnabled = enabled
         pauseButton.isEnabled = enabled
