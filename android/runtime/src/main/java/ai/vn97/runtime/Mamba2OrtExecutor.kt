@@ -240,6 +240,12 @@ class VN97Mamba2OrtExecutor private constructor(
     }
 
     @Synchronized
+    fun activeTuningId(): String? {
+        requireOpen()
+        return tuningProfile?.tuningId
+    }
+
+    @Synchronized
     fun resetRecurrentState() {
         requireOpen()
         stateSlots.forEach { it.zero() }
