@@ -10,6 +10,7 @@ KOTLINC="${KOTLINC:-kotlinc}"
 
 "$KOTLINC" \
     "$ROOT/android/app/src/main/java/ai/vn97/app/VN97AppState.kt" \
+    "$ROOT/android/app/src/main/java/ai/vn97/app/VN97BoundedTurnDriver.kt" \
     "$HERE/M10AAppStateTest.kt" \
     -Werror \
     -include-runtime \
