@@ -81,3 +81,16 @@ java -jar "$WORK/m20a-revenue-qualification-test.jar"
     -d "$WORK/m20b-revenue-campaign-test.jar"
 
 java -jar "$WORK/m20b-revenue-campaign-test.jar"
+
+
+"$KOTLINC" \
+    "$ROOT/android/app/src/main/java/ai/vn97/app/VN97RevenueQualification.kt" \
+    "$ROOT/android/app/src/main/java/ai/vn97/app/VN97RevenueCampaign.kt" \
+    "$ROOT/android/app/src/main/java/ai/vn97/app/VN97RevenueLiveReadiness.kt" \
+    "$HERE/M20ARevenueEvidenceStub.kt" \
+    "$HERE/M20CLiveRevenueReadinessTest.kt" \
+    -Werror \
+    -include-runtime \
+    -d "$WORK/m20c-live-revenue-readiness-test.jar"
+
+java -jar "$WORK/m20c-live-revenue-readiness-test.jar"
