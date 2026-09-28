@@ -601,6 +601,8 @@ tasks.matching {
 }
 
 dependencies {
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20240303")
     implementation(project(":runtime"))
     implementation(project(":platform"))
     implementation(project(":avatar"))
