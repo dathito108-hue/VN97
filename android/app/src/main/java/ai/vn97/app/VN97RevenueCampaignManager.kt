@@ -109,7 +109,9 @@ class VN97RevenueCampaignManager(
             return snapshot(record)
         }
         if (record.currentSessionId.isBlank()) {
-            return snapshot(startNext(record))
+            return snapshot(
+                advanceAfterCompletedEvidence(record)
+            )
         }
 
         val report =
@@ -192,16 +194,42 @@ class VN97RevenueCampaignManager(
             )
         save(staged)
 
-        val qualification =
-            qualificationFor(staged)
-                ?: error(
-                    "completed revenue session has no performance evidence"
+        advanceAfterCompletedEvidence(staged)
+    }
+
+    private fun advanceAfterCompletedEvidence(
+        record: RevenueCampaignRecord,
+    ): RevenueCampaignRecord {
+        check(record.state == VN97RevenueCampaignState.RUNNING)
+        check(record.currentSessionId.isBlank())
+        if (record.completedSessionIds.isEmpty()) {
+            val failed =
+                record.copy(
+                    state = VN97RevenueCampaignState.FAILED,
+                    updatedWallTimeMillis =
+                        monotonicNow(record),
                 )
+            save(failed)
+            return failed
+        }
+        val qualification =
+            qualificationFor(record)
+        if (qualification == null) {
+            val failed =
+                record.copy(
+                    state = VN97RevenueCampaignState.FAILED,
+                    updatedWallTimeMillis =
+                        monotonicNow(record),
+                )
+            save(failed)
+            return failed
+        }
         val directive =
             VN97RevenueCampaignPlanner.afterCompletedSession(
                 qualification = qualification,
-                completedSessions = completed.size,
-                policy = staged.policy(),
+                completedSessions =
+                    record.completedSessionIds.size,
+                policy = record.policy(),
             )
         val nextState =
             VN97RevenueCampaignPlanner.stateFor(directive)
@@ -209,16 +237,16 @@ class VN97RevenueCampaignManager(
             directive ==
             VN97RevenueCampaignDirective.START_NEXT_SESSION
         ) {
-            startNext(staged)
-            return
+            return startNext(record)
         }
-        save(
-            staged.copy(
+        val terminal =
+            record.copy(
                 state = nextState,
                 updatedWallTimeMillis =
-                    monotonicNow(staged),
+                    monotonicNow(record),
             )
-        )
+        save(terminal)
+        return terminal
     }
 
     private fun startNext(
