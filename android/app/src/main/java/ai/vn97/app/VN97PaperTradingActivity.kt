@@ -274,7 +274,7 @@ class VN97PaperTradingActivity : Activity() {
                 sourceIdText = sourceView.text.toString(),
                 symbolsText = symbolsView.text.toString(),
                 userGoalText = goalView.text.toString(),
-                intervalSecondsText = "120",
+                intervalSecondsText = "90",
                 maxEpisodesText = "43",
                 requiresBatteryNotLow =
                     batteryNotLowCheck.isChecked,
