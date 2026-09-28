@@ -123,14 +123,7 @@ jobs:
             rm -rf "$OUT"
             python -m pip install --disable-pip-version-check -q --force-reinstall --no-deps               "onnxscript==$ONNXSCRIPT_VERSION"               "onnx-ir==$ONNX_IR_VERSION"
 
-            python - <<'PY'
-import onnx, onnx_ir, onnxscript
-print(
-    "candidate onnx=", onnx.__version__,
-    "onnxscript=", onnxscript.__version__,
-    "onnx_ir=", onnx_ir.__version__,
-)
-PY
+            python -c 'import importlib.metadata as m, onnx, onnxscript; print("candidate onnx=", onnx.__version__, "onnxscript=", onnxscript.__version__, "onnx_ir=", m.version("onnx-ir"))'
 
             if ! python -m vn97.r2.mamba2_parallel_onnx_cli export               --capsule-root "$CAPSULE"               --output-dir "$OUT"               --chunk-size 8; then
               echo "$ONNXSCRIPT_VERSION/$ONNX_IR_VERSION export_failed" | tee -a "${RUNNER_TEMP}/g05-candidate-results.txt"
