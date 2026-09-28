@@ -16,8 +16,14 @@ fun main() {
         val assets = File(temp, "assets").apply { mkdirs() }
         val privateRoot = File(temp, "private").apply { mkdirs() }
         val manager = AssetManager(assets)
+        var validations = 0
         fun newInstaller() = VN97G06BundledRuntime(VN97Application(privateRoot, manager)) { staging ->
+            validations++
             check(!File(staging, "binding.vn97m2g09.json").readText().contains("reject"))
+            // Stand-in for the production validator's graph/tokenizer hash checks.
+            listOf("runtime/recurrent-8.onnx", "tokenizer/vocab.json", "tokenizer/merges.txt").forEach {
+                check(File(staging, it).readText() == "fixture:$it:v1")
+            }
         }
         var installer = newInstaller()
         check(!installer.installIfPresent(required = false))
@@ -44,6 +50,38 @@ fun main() {
         manager.failOpenPath = "vn97-g06/runtime/recurrent-8.onnx"
         check(!installer.installIfPresent(required = true))
         manager.failOpenPath = null
+
+        // A new process verifies installed payloads without opening/copying the
+        // APK graph. Stale temporary directories are removed only after success.
+        val stale = File(privateRoot, ".vn97-g06.staging/partial")
+        stale.parentFile.mkdirs()
+        stale.writeText("partial")
+        val oldBackup = File(privateRoot, ".vn97-g06.backup/old")
+        oldBackup.parentFile.mkdirs()
+        oldBackup.writeText("old")
+        val before = validations
+        manager.failOpenPath = "vn97-g06/runtime/recurrent-8.onnx"
+        check(!newInstaller().installIfPresent(required = true))
+        check(validations == before + 1)
+        check(!stale.parentFile.exists() && !oldBackup.parentFile.exists())
+        manager.failOpenPath = null
+
+        // A self-consistent local installation is not enough: even an activation
+        // receipt change in the trusted APK must take the replacement path.
+        writeFixture(assets, "promotion.vn97m2g10.json", "fixture:promotion:v2")
+        manager.failOpenPath = "vn97-g06/runtime/recurrent-8.onnx"
+        check(runCatching { newInstaller().installIfPresent(required = true) }.isFailure)
+        check(File(target, "promotion.vn97m2g10.json").readText() == "fixture:promotion.vn97m2g10.json:v1")
+        writeFixture(assets, "promotion.vn97m2g10.json", "fixture:promotion.vn97m2g10.json:v1")
+        manager.failOpenPath = null
+
+        // Matching descriptors and a stale identity marker cannot hide damage.
+        File(target, "runtime/recurrent-8.onnx").writeText("corrupt")
+        check(newInstaller().installIfPresent(required = true))
+        check(File(target, "runtime/recurrent-8.onnx").readText() == "fixture:runtime/recurrent-8.onnx:v1")
+        File(target, "tokenizer/vocab.json").writeText("corrupt")
+        check(newInstaller().installIfPresent(required = true))
+        check(File(target, "tokenizer/vocab.json").readText() == "fixture:tokenizer/vocab.json:v1")
 
         // A new APK/process has a new installer; its assets may differ.
         installer = newInstaller()
@@ -102,7 +140,7 @@ fun main() {
         check(runCatching { newInstaller().installIfPresent(required = false) }.isFailure)
         check(!target.exists())
         check(backup.isDirectory)
-        println("G06 bundled installer: install, update, failure preservation and interrupted swap recovery PASS")
+        println("G06 bundled installer: authenticated restart without copying, corruption repair, update and recovery PASS")
     } finally {
         check(temp.deleteRecursively())
     }
