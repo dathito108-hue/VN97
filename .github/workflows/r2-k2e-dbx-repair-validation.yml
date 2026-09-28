@@ -1,0 +1,62 @@
+name: VN97 R2-K2E dBx Repair Validation
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/vn97/r2/mamba2_onnx.py"
+      - "src/vn97/r2/mamba2_kaggle_k2d_stage_trace.py"
+      - "src/vn97/r2/mamba2_kaggle_k2e_dbx_repair.py"
+      - "tools/kaggle_r2_k2e_dbx_repair.sh"
+      - "tests/test_r2_mamba2_k2e_dbx_repair.py"
+      - "docs/VN97_R2_K2E_DBX_REPAIR.md"
+      - ".github/workflows/r2-k2e-dbx-repair-validation.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install CPU test dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --upgrade pip
+          python -m pip install --disable-pip-version-check             --index-url https://download.pytorch.org/whl/cpu             "torch>=2.2,<3"
+          python -m pip install --disable-pip-version-check numpy pytest
+          python -m pip install --disable-pip-version-check --no-deps -e .
+
+      - name: Static syntax validation
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n tools/kaggle_r2_k2e_dbx_repair.sh
+          python -m py_compile             src/vn97/r2/mamba2_onnx.py             src/vn97/r2/mamba2_kaggle_k2d_stage_trace.py             src/vn97/r2/mamba2_kaggle_k2e_dbx_repair.py
+
+      - name: K2E exact dBx semantics
+        shell: bash
+        run: |
+          set -euo pipefail
+          pytest -q             tests/test_r2_mamba2_k2e_dbx_repair.py             tests/test_r2_mamba2_k2d_stage_trace.py
+
+      - name: Existing G0.4 regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          pytest -q tests/test_r2_mamba2_g04.py
+
+      - name: Verify measurement-only boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -F '"acceptance_threshold_defined": False'             src/vn97/r2/mamba2_kaggle_k2e_dbx_repair.py
+          grep -F '"production_activation_authorized": False'             src/vn97/r2/mamba2_kaggle_k2e_dbx_repair.py
+          grep -F 'operation_order'             src/vn97/r2/mamba2_kaggle_k2e_dbx_repair.py
