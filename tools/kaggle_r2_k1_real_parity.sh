@@ -37,6 +37,16 @@ fi
 
 python -m pip install --disable-pip-version-check -q   "transformers>=4.45,<5"   "huggingface_hub>=0.24,<2"   "einops>=0.7"   "packaging>=23"   "ninja>=1.11"
 
+python - <<'PY'
+try:
+    import triton
+except Exception as exc:
+    raise SystemExit(
+        "Kaggle CUDA PyTorch environment must provide Triton: " + repr(exc)
+    )
+print("triton=", triton.__version__)
+PY
+
 python -m pip install --disable-pip-version-check --no-deps -e .
 
 if [[ ! -d "$MAMBA_ORACLE/.git" ]]; then
