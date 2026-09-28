@@ -49,8 +49,8 @@ jobs:
         run: |
           set -euo pipefail
           python -m pip install --disable-pip-version-check --upgrade pip
-          python -m pip install --disable-pip-version-check             --index-url https://download.pytorch.org/whl/cpu             "torch==2.10.0"
-          python -m pip install --disable-pip-version-check             "onnx>=1.17,<2"             "onnxscript>=0.2,<1"
+          python -m pip install --disable-pip-version-check             --index-url https://download.pytorch.org/whl/cu128             "torch==2.10.0"
+          python -m pip install --disable-pip-version-check             "onnx>=1.17,<2"             "onnxscript>=0.2,<1"             "onnxruntime-gpu==1.26.0"
           python -m pip install --disable-pip-version-check --no-deps -e .
           python - <<'PY'
           import onnx, onnxscript, onnxruntime, torch
@@ -100,6 +100,8 @@ jobs:
           OUT="${RUNNER_TEMP}/g05-recurrent-8"
           python -m vn97.r2.mamba2_parallel_onnx_cli export             --capsule-root "$CAPSULE"             --output-dir "$OUT"             --chunk-size 8
           python -m vn97.r2.mamba2_parallel_onnx_cli verify             --bundle-dir "$OUT"
+          ls -l "$OUT/recurrent-8.onnx" "$OUT/recurrent-8.onnx.data"
+          sha256sum "$OUT/recurrent-8.onnx" "$OUT/recurrent-8.onnx.data"
           df -h /
 
       - name: Build and lock Android G0.6 descriptor
