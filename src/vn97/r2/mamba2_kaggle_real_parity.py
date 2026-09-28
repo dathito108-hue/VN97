@@ -334,6 +334,13 @@ def run_real_parity(
         local_files_only=True,
         use_fast=True,
     )
+    torch.cuda.empty_cache()
+    free_bytes, total_bytes = torch.cuda.mem_get_info(device)
+    if compute_dtype == "float32" and free_bytes < 12 * 1024**3:
+        raise RuntimeError(
+            "K1F float32 structural parity requires at least 12 GiB free VRAM"
+        )
+
     model = MambaLMHeadModel.from_pretrained(
         str(source_root),
         device=str(device),
@@ -454,6 +461,29 @@ def run_real_parity(
     if total_probe_tokens <= 0:
         raise RuntimeError("K1 produced no probe tokens")
 
+    assert first_token_layerwise is not None
+    first_layer_over_threshold = next(
+        (
+            int(item["layer"])
+            for item in first_token_layerwise
+            if max(
+                float(item["hidden_max_abs_error"]),
+                float(item["conv_state_max_abs_error"]),
+                float(item["ssm_state_max_abs_error"]),
+            )
+            > max(max_hidden_error, max_state_error)
+        ),
+        None,
+    )
+    worst_first_token_layer = max(
+        first_token_layerwise,
+        key=lambda item: max(
+            float(item["hidden_max_abs_error"]),
+            float(item["conv_state_max_abs_error"]),
+            float(item["ssm_state_max_abs_error"]),
+        ),
+    )
+
     metrics = {
         "max_logits_abs_error": _finite(maxima["logits"], "logits"),
         "mean_logits_abs_error": _finite(
@@ -496,6 +526,8 @@ def run_real_parity(
         "gpu_name": gpu_name,
         "torch_version": torch.__version__,
         "cuda_version": torch.version.cuda,
+        "gpu_total_bytes": total_bytes,
+        "gpu_free_bytes_before_model_load": free_bytes,
         "dtype": compute_dtype,
         "official_kernel_mode": official_kernel_mode,
         "probe_cases": len(generated_pairs),
@@ -510,6 +542,8 @@ def run_real_parity(
         },
         "generated_pairs": generated_pairs,
         "first_token_layerwise": first_token_layerwise,
+        "first_layer_over_threshold": first_layer_over_threshold,
+        "worst_first_token_layer": worst_first_token_layer,
         "source_to_vn97_passed": passed,
         "vn97_to_ort_passed": False,
         "production_activation_authorized": False,
@@ -577,6 +611,10 @@ def main() -> None:
                 "official_kernel_mode": receipt["official_kernel_mode"],
                 "dtype": receipt["dtype"],
                 "first_token_layerwise": receipt["first_token_layerwise"],
+                "first_layer_over_threshold":
+                    receipt["first_layer_over_threshold"],
+                "worst_first_token_layer":
+                    receipt["worst_first_token_layer"],
                 "output": str(args.output),
             },
             sort_keys=True,
