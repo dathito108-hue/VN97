@@ -109,10 +109,7 @@ jobs:
             rm -rf "$OUT"
             python -m pip install --disable-pip-version-check -q               "onnx==1.22.0"               "onnxscript==$ONNXSCRIPT_VERSION"
 
-            python - <<PY
-import onnx, onnxscript
-print("candidate onnx=", onnx.__version__, "onnxscript=", onnxscript.__version__)
-PY
+            python -c 'import onnx,onnxscript; print("candidate onnx=",onnx.__version__,"onnxscript=",onnxscript.__version__)'
 
             if ! python -m vn97.r2.mamba2_parallel_onnx_cli export               --capsule-root "$CAPSULE"               --output-dir "$OUT"               --chunk-size 8; then
               echo "$ONNXSCRIPT_VERSION export_failed" | tee -a "${RUNNER_TEMP}/g05-candidate-results.txt"
@@ -121,12 +118,7 @@ PY
 
             python -m vn97.r2.mamba2_parallel_onnx_cli verify               --bundle-dir "$OUT"
 
-            MANIFEST_ID="$(python - <<PY
-import json
-from pathlib import Path
-print(json.loads(Path("$OUT/manifest.vn97m2g05.json").read_text())["manifest_id"])
-PY
-)"
+            MANIFEST_ID="$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["manifest_id"])' "$OUT/manifest.vn97m2g05.json")"
             ONNX_BYTES="$(stat -c %s "$OUT/recurrent-8.onnx")"
             DATA_BYTES="$(stat -c %s "$OUT/recurrent-8.onnx.data")"
             echo "$ONNXSCRIPT_VERSION manifest=$MANIFEST_ID onnx_bytes=$ONNX_BYTES data_bytes=$DATA_BYTES"               | tee -a "${RUNNER_TEMP}/g05-candidate-results.txt"
