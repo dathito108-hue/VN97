@@ -50,7 +50,7 @@ jobs:
           set -euo pipefail
           python -m pip install --disable-pip-version-check --upgrade pip
           python -m pip install --disable-pip-version-check             --index-url https://download.pytorch.org/whl/cu128             "torch==2.10.0"
-          python -m pip install --disable-pip-version-check             "onnx>=1.17,<2"             "onnxscript>=0.2,<1"             "onnxruntime-gpu==1.26.0"
+          python -m pip install --disable-pip-version-check             "onnx==1.22.0"             "onnxscript==0.7.0"             "onnxruntime-gpu==1.26.0"
           python -m pip install --disable-pip-version-check --no-deps -e .
           python - <<'PY'
           import onnx, onnxscript, onnxruntime, torch
@@ -60,6 +60,8 @@ jobs:
           print("onnxruntime=", onnxruntime.__version__)
           assert torch.__version__ == "2.10.0+cu128"
           assert torch.version.cuda == "12.8"
+          assert onnx.__version__ == "1.22.0"
+          assert onnxscript.__version__ == "0.7.0"
           assert onnxruntime.__version__ == "1.26.0"
           PY
           df -h /
