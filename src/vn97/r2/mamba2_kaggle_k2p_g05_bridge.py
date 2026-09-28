@@ -15,7 +15,6 @@ from .mamba2_kaggle_k2a_ort import (
     _canonical_json,
     _epsilon_metrics,
 )
-from .mamba2_kaggle_k2f_dbx_operands import _verify_receipt
 from .mamba2_kaggle_k2j_closed_loop import (
     TOP_K,
     _topk_overlap,
@@ -35,6 +34,66 @@ DECODE_TOKENS = 32
 CONTINUATION_TOKENS = 8
 MAX_REFERENCE_GAP_ULP_FOR_MISMATCH = 1.0
 MIN_TOP5_OVERLAP_FOR_MISMATCH = 4
+
+
+def _require_sha256(value: Any, label: str) -> str:
+    if (
+        not isinstance(value, str)
+        or len(value) != 64
+        or any(ch not in "0123456789abcdef" for ch in value)
+    ):
+        raise ValueError(f"K2P {label} must be lowercase SHA-256")
+    return value
+
+
+def _verify_k2o_receipt(path: Path) -> dict[str, Any]:
+    try:
+        receipt = json.loads(path.read_text(encoding="ascii"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError("K2P K2O receipt is unreadable") from exc
+    if not isinstance(receipt, dict):
+        raise ValueError("K2P K2O receipt must be an object")
+    if receipt.get("schema") != K2O_SCHEMA:
+        raise ValueError("K2P K2O receipt schema mismatch")
+    if receipt.get("status") != "PASS":
+        raise ValueError("K2P K2O receipt must be PASS")
+    if receipt.get("gate_passed") is not True:
+        raise ValueError("K2P K2O gate must have passed")
+    if receipt.get("gate_failures") != []:
+        raise ValueError("K2P K2O gate failures must be empty")
+    if receipt.get("acceptance_threshold_defined") is not True:
+        raise ValueError("K2P K2O receipt must carry its predeclared gate")
+    policy = receipt.get("acceptance_policy")
+    if not isinstance(policy, dict):
+        raise ValueError("K2P K2O acceptance policy missing")
+    if policy.get("predeclared_before_holdout_measurement") is not True:
+        raise ValueError("K2P K2O gate was not predeclared")
+    if receipt.get("production_graph_changed") is not False:
+        raise ValueError("K2P requires unchanged K2O G0.4 graph")
+    if receipt.get("production_activation_authorized") is not False:
+        raise ValueError("K2P K2O receipt must not authorize production")
+
+    _require_sha256(receipt.get("capsule_id"), "K2O capsule ID")
+    _require_sha256(
+        receipt.get("source_weight_sha256"),
+        "K2O source weight SHA-256",
+    )
+    _require_sha256(
+        receipt.get("g04_manifest_id"),
+        "K2O G0.4 manifest ID",
+    )
+    receipt_id = _require_sha256(
+        receipt.get("receipt_id"),
+        "K2O receipt ID",
+    )
+    body = dict(receipt)
+    body.pop("receipt_id", None)
+    expected = hashlib.sha256(
+        K2O_SCHEMA.encode("ascii") + b"\0" + _canonical_json(body)
+    ).hexdigest()
+    if receipt_id != expected:
+        raise ValueError("K2P K2O receipt identity mismatch")
+    return receipt
 
 DECODE_PROMPTS = (
     "A recurrent mobile model preserves state by",
@@ -362,15 +421,7 @@ def run_k2p(
     if "T4" not in gpu_name.upper():
         raise RuntimeError(f"K2P expects Kaggle T4, got {gpu_name!r}")
 
-    k2o = _verify_receipt(
-        k2o_receipt_path,
-        schema=K2O_SCHEMA,
-        label="K2O receipt",
-    )
-    if k2o.get("status") != "PASS" or k2o.get("gate_passed") is not True:
-        raise ValueError("K2P requires a passing K2O holdout gate")
-    if k2o.get("production_graph_changed") is not False:
-        raise ValueError("K2P requires unchanged K2O G0.4 graph")
+    k2o = _verify_k2o_receipt(k2o_receipt_path)
 
     manifest = verify_g05_bundle(g05_bundle_dir)
     if int(manifest["max_chunk_size"]) != CHUNK_SIZE:

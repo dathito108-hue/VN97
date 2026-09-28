@@ -1,3 +1,7 @@
+import hashlib
+import json
+from pathlib import Path
+
 import numpy as np
 
 from vn97.r2.mamba2_kaggle_k2p_g05_bridge import (
@@ -5,6 +9,7 @@ from vn97.r2.mamba2_kaggle_k2p_g05_bridge import (
     MIN_TOP5_OVERLAP_FOR_MISMATCH,
     _final_logits,
     _gate,
+    _verify_k2o_receipt,
 )
 
 
@@ -55,3 +60,60 @@ def test_gate_fails_material_decision_divergence() -> None:
     )
     assert passed is False
     assert "mismatch_exceeds_one_reference_fp16_ulp" in failures
+
+
+def _write_k2o_receipt(path: Path, *, status: str = "PASS") -> None:
+    body = {
+        "schema": "VN97M2K2OHOLDOUT1",
+        "status": status,
+        "gate_passed": status == "PASS",
+        "gate_failures": [],
+        "acceptance_threshold_defined": True,
+        "acceptance_policy": {
+            "predeclared_before_holdout_measurement": True,
+        },
+        "production_graph_changed": False,
+        "production_activation_authorized": False,
+        "capsule_id": "a" * 64,
+        "source_weight_sha256": "b" * 64,
+        "g04_manifest_id": "c" * 64,
+    }
+    canonical = json.dumps(
+        body,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+        allow_nan=False,
+    ).encode("ascii")
+    receipt_id = hashlib.sha256(
+        b"VN97M2K2OHOLDOUT1\0" + canonical
+    ).hexdigest()
+    payload = {**body, "receipt_id": receipt_id}
+    path.write_text(
+        json.dumps(
+            payload,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=True,
+        ) + "\n",
+        encoding="ascii",
+    )
+
+
+def test_verify_k2o_receipt_accepts_pass_gate(tmp_path: Path) -> None:
+    path = tmp_path / "k2o.json"
+    _write_k2o_receipt(path)
+    receipt = _verify_k2o_receipt(path)
+    assert receipt["status"] == "PASS"
+    assert receipt["gate_passed"] is True
+
+
+def test_verify_k2o_receipt_rejects_measured_status(tmp_path: Path) -> None:
+    path = tmp_path / "k2o.json"
+    _write_k2o_receipt(path, status="MEASURED")
+    try:
+        _verify_k2o_receipt(path)
+    except ValueError as exc:
+        assert "must be PASS" in str(exc)
+    else:
+        raise AssertionError("K2P must reject non-PASS K2O receipts")
