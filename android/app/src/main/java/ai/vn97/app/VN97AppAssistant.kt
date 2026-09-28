@@ -489,9 +489,6 @@ class VN97AppAssistant(
         )
 
     private fun openIfActivatedLocked(): Boolean {
-        application.r2BundledRuntime.installIfPresent(
-            required = BuildConfig.VN97_TURNKEY_REQUIRED,
-        )
         if (
             model != null &&
             resources != null
@@ -499,6 +496,12 @@ class VN97AppAssistant(
             return true
         }
 
+        // APK assets do not change within this process. A live, validated
+        // session must not restage the entire bundled model on every turn.
+        // reloadActivatedModel() closes resources before reopening this path.
+        application.r2BundledRuntime.installIfPresent(
+            required = BuildConfig.VN97_TURNKEY_REQUIRED,
+        )
         val opened =
             NativeActivatedInventoryModelLoader
                 .openOrNull(
