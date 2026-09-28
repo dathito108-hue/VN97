@@ -306,7 +306,7 @@ class VN97Mamba2OrtProviderProfiler(
     }
 }
 
-private class Mamba2ProfileBuffers(
+internal class Mamba2ProfileBuffers(
     environment: OrtEnvironment,
     private val runtime: Mamba2OrtRuntimePackage,
 ) : AutoCloseable {
