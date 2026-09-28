@@ -1,0 +1,51 @@
+name: VN97 R2-K2P Receipt Fix Validation
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/vn97/r2/mamba2_kaggle_k2p_g05_bridge.py"
+      - "tests/test_r2_mamba2_k2p_g05_bridge.py"
+      - ".github/workflows/r2-k2p-receipt-fix-validation.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install CPU test dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --upgrade pip
+          python -m pip install --disable-pip-version-check             --index-url https://download.pytorch.org/whl/cpu             "torch==2.10.0"
+          python -m pip install --disable-pip-version-check numpy pytest
+          python -m pip install --disable-pip-version-check --no-deps -e .
+
+      - name: Static validation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile src/vn97/r2/mamba2_kaggle_k2p_g05_bridge.py
+
+      - name: K2P receipt tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          pytest -q             tests/test_r2_mamba2_k2p_g05_bridge.py             tests/test_r2_mamba2_k2o_holdout_gate.py
+
+      - name: Verify K2O PASS contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -F 'receipt.get("status") != "PASS"'             src/vn97/r2/mamba2_kaggle_k2p_g05_bridge.py
+          grep -F 'receipt.get("acceptance_threshold_defined") is not True'             src/vn97/r2/mamba2_kaggle_k2p_g05_bridge.py
+          grep -F 'receipt.get("production_activation_authorized") is not False'             src/vn97/r2/mamba2_kaggle_k2p_g05_bridge.py
