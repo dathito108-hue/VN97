@@ -98,19 +98,19 @@ object VN97ExnessApiSigner {
         val payload =
             buildString {
                 append("{\"api_key\":")
-                appendJsonString(apiKey)
+                append(jsonString(apiKey))
                 append(",\"idempotency_key\":")
-                appendJsonString(idempotencyKey)
+                append(jsonString(idempotencyKey))
                 append(",\"timestamp\":")
                 append(timestampMillis)
                 append(",\"sign_version\":")
                 append(SIGN_VERSION)
                 append(",\"method\":")
-                appendJsonString(normalizedMethod)
+                append(jsonString(normalizedMethod))
                 append(",\"path\":")
-                appendJsonString(pathWithQuery)
+                append(jsonString(pathWithQuery))
                 append(",\"body_hash\":")
-                appendJsonString(bodyHash)
+                append(jsonString(bodyHash))
                 append('}')
             }
         val payloadBytes =
@@ -195,7 +195,7 @@ object VN97ExnessApiSigner {
             .withoutPadding()
             .encodeToString(value)
 
-    private fun appendJsonString(
+    private fun jsonString(
         value: String,
     ): String =
         buildString {
