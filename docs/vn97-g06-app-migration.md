@@ -69,6 +69,13 @@ routes. Android CI builds the APK and runs app/platform JVM and host contracts.
 Device evidence now measures actual G06 prefill/decode, without the old native
 speech probe; its schema identifies a G06 deployment.
 
+The developer evidence intent no longer stages or activates CAP/MI1 files. It
+opens only the already installed, fully validated G06 deployment and refuses to
+measure when that deployment is absent. The main activity also no longer
+constructs hidden legacy model-picker controls; G06 delivery remains the signed
+APK/bootstrap responsibility until a separately authenticated streaming
+distribution format is specified.
+
 Compilation and these tests are not real G06 language quality or S21 FE latency
 evidence. Need a qualified full deployment to test chat/tool decisions and real
 process death/reboot on-device. No training is started by this migration. The

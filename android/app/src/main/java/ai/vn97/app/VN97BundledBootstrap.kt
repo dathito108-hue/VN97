@@ -8,7 +8,6 @@ enum class VN97BundledBootstrapOutcome { ABSENT, ALREADY_ACTIVE, ACTIVATED }
 /** Trust root is the signed APK; local hashes bind its G06 deployment components. */
 class VN97BundledBootstrap(
     private val application: VN97Application,
-    @Suppress("UNUSED_PARAMETER") provisioner: VN97AppProvisioner,
 ) {
     fun activateIfPresent(required: Boolean = false): VN97BundledBootstrapOutcome {
         val changed = application.g06BundledRuntime.installIfPresent(required)

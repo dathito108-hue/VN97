@@ -25,7 +25,6 @@ import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
 import java.io.File
-import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
@@ -51,7 +50,6 @@ class VN97MainActivity : Activity() {
     private lateinit var r2OrtEvidenceButton: Button
     private lateinit var paperTradingButton: Button
     private lateinit var capabilityAcquisitionButton: Button
-    private lateinit var selfImprovementButton: Button
     private lateinit var transcriptView: TextView
     private lateinit var inputView: EditText
     private lateinit var sendButton: Button
@@ -65,18 +63,6 @@ class VN97MainActivity : Activity() {
     private lateinit var approveButton: Button
     private lateinit var rejectButton: Button
     private lateinit var provisioningView: TextView
-    private lateinit var importArchiveButton: Button
-    private lateinit var importModelButton: Button
-    private lateinit var advancedProvisioningContainer: LinearLayout
-    private lateinit var choosePackageButton: Button
-    private lateinit var chooseSignatureButton: Button
-    private lateinit var choosePublisherKeyButton: Button
-    private lateinit var reviewModelButton: Button
-    private lateinit var activateModelButton: Button
-
-    private var packageUri: Uri? = null
-    private var signatureUri: Uri? = null
-    private var publisherKeyUri: Uri? = null
     private var pendingFloatingAssistantEnable = false
     private var pendingCameraCapture = false
     private var latestCancellableAutonomousJobId: Int? = null
@@ -212,18 +198,6 @@ class VN97MainActivity : Activity() {
             }
         }
 
-        selfImprovementButton = Button(this).apply {
-            text = "Cải tiến có kiểm soát"
-            setOnClickListener {
-                startActivity(
-                    Intent(
-                        this@VN97MainActivity,
-                        VN97SelfImprovementActivity::class.java,
-                    )
-                )
-            }
-        }
-
         approvalView = TextView(this).apply {
             visibility = View.GONE
             setTextIsSelectable(true)
@@ -248,83 +222,6 @@ class VN97MainActivity : Activity() {
             }
             setTextIsSelectable(true)
         }
-
-        importArchiveButton = Button(this).apply {
-            text = "Chọn bộ mô hình ZIP"
-            visibility = if (BuildConfig.VN97_TURNKEY_REQUIRED) View.GONE else View.VISIBLE
-            setOnClickListener { openDocument(REQUEST_MODEL_ARCHIVE) }
-        }
-
-        importModelButton = Button(this).apply {
-            text = "Nâng cao: chọn 3 tệp riêng"
-            visibility =
-                if (BuildConfig.VN97_TURNKEY_REQUIRED) View.GONE else View.VISIBLE
-            setOnClickListener {
-                if (BuildConfig.VN97_TURNKEY_REQUIRED) {
-                    return@setOnClickListener
-                }
-                advancedProvisioningContainer.visibility =
-                    if (advancedProvisioningContainer.visibility == View.VISIBLE) {
-                        View.GONE
-                    } else {
-                        View.VISIBLE
-                    }
-            }
-        }
-
-        advancedProvisioningContainer = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            visibility = View.GONE
-        }
-
-        val provisioningRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-        }
-        choosePackageButton = Button(this).apply {
-            text = "Chọn gói mô hình"
-            setOnClickListener { openDocument(REQUEST_PACKAGE) }
-        }
-        chooseSignatureButton = Button(this).apply {
-            text = "Chọn chữ ký"
-            setOnClickListener { openDocument(REQUEST_SIGNATURE) }
-        }
-        choosePublisherKeyButton = Button(this).apply {
-            text = "Chọn khóa nhà phát hành"
-            setOnClickListener { openDocument(REQUEST_PUBLISHER_KEY) }
-        }
-        provisioningRow.addView(choosePackageButton)
-        provisioningRow.addView(chooseSignatureButton)
-        provisioningRow.addView(choosePublisherKeyButton)
-        advancedProvisioningContainer.addView(
-            provisioningRow,
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            ),
-        )
-
-        val provisioningActionRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.END
-        }
-        reviewModelButton = Button(this).apply {
-            text = "Kiểm tra gói"
-            setOnClickListener { reviewProvisioning() }
-        }
-        activateModelButton = Button(this).apply {
-            text = "Tin cậy và kích hoạt"
-            isEnabled = false
-            setOnClickListener { activateReviewedModel() }
-        }
-        provisioningActionRow.addView(reviewModelButton)
-        provisioningActionRow.addView(activateModelButton)
-        advancedProvisioningContainer.addView(
-            provisioningActionRow,
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            ),
-        )
 
         transcriptView = TextView(this).apply {
             textSize = 16f
@@ -1174,7 +1071,6 @@ class VN97MainActivity : Activity() {
                             } else {
                                 "VN97 model active."
                             }
-                        advancedProvisioningContainer.visibility = View.GONE
                     } else {
                         render(state)
                         provisioningView.text =
@@ -1219,215 +1115,8 @@ class VN97MainActivity : Activity() {
             refreshVisualButtons()
             return
         }
-        if (resultCode != RESULT_OK) return
-        val uri = data?.data ?: return
-        try {
-            contentResolver.takePersistableUriPermission(
-                uri,
-                Intent.FLAG_GRANT_READ_URI_PERMISSION,
-            )
-        } catch (_: SecurityException) {
-            // Some document providers grant only the current read; review still reopens immediately.
-        }
-        if (requestCode == REQUEST_MODEL_ARCHIVE) {
-            reviewImportArchive(uri)
-            return
-        }
-        when (requestCode) {
-            REQUEST_PACKAGE -> packageUri = uri
-            REQUEST_SIGNATURE -> signatureUri = uri
-            REQUEST_PUBLISHER_KEY -> publisherKeyUri = uri
-            else -> return
-        }
-        app.provisioner.clearReview()
-        advancedProvisioningContainer.visibility = View.VISIBLE
-        activateModelButton.isEnabled = false
-        renderProvisioningSelection()
-    }
-
-    private fun openDocument(requestCode: Int) {
-        if (!provisioningAllowed()) return
-        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-            addCategory(Intent.CATEGORY_OPENABLE)
-            type = "*/*"
-            addFlags(
-                Intent.FLAG_GRANT_READ_URI_PERMISSION or
-                    Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
-            )
-        }
-        startActivityForResult(intent, requestCode)
-    }
-
-    private fun reviewImportArchive(uri: Uri) {
-        if (!provisioningAllowed()) return
-        packageUri = null
-        signatureUri = null
-        publisherKeyUri = null
-        setProvisioningControlsEnabled(false)
-        advancedProvisioningContainer.visibility = View.VISIBLE
-        provisioningView.text = "Đang đọc gói ZIP và xác minh mô hình, chữ ký, nhà phát hành…"
-        worker.execute {
-            try {
-                app.provisioner.clearReview()
-                val review = app.provisioner.reviewArchive(uri)
-                runOnUiThread {
-                    renderProvisioningReview(review)
-                    setProvisioningControlsEnabled(true)
-                    activateModelButton.isEnabled = true
-                }
-            } catch (exc: Throwable) {
-                app.provisioner.clearReview()
-                runOnUiThread {
-                    provisioningView.text = "Không nhập được gói: " + provisioningError(exc)
-                    setProvisioningControlsEnabled(true)
-                    activateModelButton.isEnabled = false
-                }
-            }
-        }
-    }
-
-    private fun provisioningError(error: Throwable): String =
-        generateSequence(error) { it.cause }.last().let {
-            (it.message ?: it::class.java.simpleName).take(600)
-        }
-
-    private fun reviewProvisioning() {
-        if (!provisioningAllowed()) return
-        val packageValue = packageUri ?: return
-        val signatureValue = signatureUri ?: return
-        val keyValue = publisherKeyUri ?: return
-        setProvisioningControlsEnabled(false)
-        provisioningView.text = "Verifying publisher and compatibility…"
-        worker.execute {
-            try {
-                val review = app.provisioner.review(
-                    packageUri = packageValue,
-                    signatureUri = signatureValue,
-                    publisherKeyUri = keyValue,
-                )
-                runOnUiThread {
-                    renderProvisioningReview(review)
-                    setProvisioningControlsEnabled(true)
-                    activateModelButton.isEnabled = true
-                }
-            } catch (exc: Throwable) {
-                app.provisioner.clearReview()
-                runOnUiThread {
-                    provisioningView.text =
-                        "Không xác minh được gói: " + provisioningError(exc)
-                    setProvisioningControlsEnabled(true)
-                    activateModelButton.isEnabled = false
-                }
-            }
-        }
-    }
-
-    private fun activateReviewedModel() {
-        if (!provisioningAllowed()) return
-        if (app.provisioner.pendingReview() == null) return
-        setProvisioningControlsEnabled(false)
-        activateModelButton.isEnabled = false
-        provisioningView.text = "Activating reviewed VN97 model…"
-        worker.execute {
-            try {
-                val item = app.provisioner.activateReviewed()
-                val opened = app.assistant.reloadActivatedModel()
-                check(opened) { "activated model could not be reopened" }
-                runOnUiThread {
-                    provisioningView.text =
-                        "Activated model v${item.capabilityVersion}\n" +
-                            "Artifact SHA-256: ${item.artifactSha256}"
-                    val next = when (state.phase) {
-                        VN97AppPhase.MODEL_REQUIRED,
-                        VN97AppPhase.ERROR,
-                        -> VN97AppReducer.reduce(
-                            state,
-                            VN97AppEvent.TrustedModelActivated,
-                        )
-                        VN97AppPhase.READY -> state.copy(
-                            status = "VN97 model activation updated.",
-                            inputEnabled = true,
-                        )
-                        else -> state
-                    }
-                    render(next)
-                    advancedProvisioningContainer.visibility = View.GONE
-                    setProvisioningControlsEnabled(true)
-                }
-            } catch (exc: Throwable) {
-                runOnUiThread {
-                    provisioningView.text =
-                        "Chưa kích hoạt được: " + provisioningError(exc)
-                    setProvisioningControlsEnabled(true)
-                }
-            }
-        }
-    }
-
-    private fun provisioningAllowed(): Boolean =
-        !BuildConfig.VN97_TURNKEY_REQUIRED &&
-            (
-                state.phase == VN97AppPhase.MODEL_REQUIRED ||
-                    state.phase == VN97AppPhase.READY ||
-                    state.phase == VN97AppPhase.ERROR
-            )
-
-    private fun setProvisioningControlsEnabled(enabled: Boolean) {
-        val allowed = enabled && provisioningAllowed()
-        importArchiveButton.isEnabled = allowed
-        importModelButton.isEnabled = allowed
-        choosePackageButton.isEnabled = allowed
-        chooseSignatureButton.isEnabled = allowed
-        choosePublisherKeyButton.isEnabled = allowed
-        reviewModelButton.isEnabled = allowed &&
-            packageUri != null &&
-            signatureUri != null &&
-            publisherKeyUri != null
-        if (!allowed) activateModelButton.isEnabled = false
-    }
-
-    private fun renderProvisioningSelection() {
-        provisioningView.text = buildString {
-            append("Package: ")
-            append(if (packageUri == null) "missing" else "selected")
-            append(" | Signature: ")
-            append(if (signatureUri == null) "missing" else "selected")
-            append(" | Publisher key: ")
-            append(if (publisherKeyUri == null) "missing" else "selected")
-        }
-        setProvisioningControlsEnabled(true)
-    }
-
-    private fun renderProvisioningReview(
-        review: ai.vn97.runtime.VN97ModelProvisioningReview,
-    ) {
-        provisioningView.text = buildString {
-            append("Publisher: ")
-            append(review.publisherKeyId)
-            append("\nKey SHA-256: ")
-            append(review.publisherKeySha256)
-            append("\nTrust status: ")
-            append(
-                if (review.publisherPreviouslyTrusted) {
-                    "publisher key already enrolled"
-                } else {
-                    "NEW publisher key — explicit trust will be persisted"
-                }
-            )
-            append("\nPackage SHA-256: ")
-            append(review.packageSha256)
-            append("\nCapability: ")
-            append(review.capabilityId)
-            append(" v")
-            append(review.capabilityVersion)
-            append("\nSource: ")
-            append(review.sourceOrigin)
-            append("\nLicense: ")
-            append(review.sourceLicense)
-            append("\nPlan SHA-256: ")
-            append(review.planSha256)
-            append("\n\nChữ ký và gói lõi đã được xác minh. Khi bạn chọn kích hoạt, ứng dụng còn kiểm tra danh tính tokenizer và bộ thực thi G06/ONNX trước khi thay mô hình. Xác minh gói không đồng nghĩa chat đã sẵn sàng.")
-        }
+        // Model deployment is G06-only and is installed by the signed APK path.
+        // Legacy CAP/MI1 document selection was deliberately removed.
     }
 
     private fun handleM19JDeveloperEvidenceIntent(
@@ -1460,16 +1149,10 @@ class VN97MainActivity : Activity() {
                 EXTRA_M19J_DECODE_TOKENS,
                 16,
             )
-        val speechFrames =
-            request.getIntExtra(
-                EXTRA_M19J_SPEECH_FRAMES,
-                8,
-            )
         if (
             warmupRuns !in 0..10 ||
             measuredRuns !in 3..100 ||
-            decodeTokens !in 1..256 ||
-            speechFrames !in 1..256
+            decodeTokens !in 1..256
         ) {
             statusView.text =
                 "M19J developer evidence parameters are outside safe bounds."
@@ -1479,7 +1162,7 @@ class VN97MainActivity : Activity() {
         mobileEvidenceButton.isEnabled = false
         sendButton.isEnabled = false
         statusView.text =
-            "M19J provisioning exact VN97MI1 and collecting physical-device evidence…"
+            "M19J verifying the active G06 deployment and collecting physical-device evidence…"
 
         worker.execute {
             val stagingRoot =
@@ -1498,48 +1181,12 @@ class VN97MainActivity : Activity() {
                     M19J_ERROR_FILE,
                 )
             try {
-                val packageFile =
-                    requireM19JStagedFile(
-                        stagingRoot,
-                        "model.vn97cap1",
-                        512L * 1024L * 1024L,
-                    )
-                val signatureFile =
-                    requireM19JStagedFile(
-                        stagingRoot,
-                        "model.vn97sig1",
-                        16L * 1024L,
-                    )
-                val publisherFile =
-                    requireM19JStagedFile(
-                        stagingRoot,
-                        "publisher.ed25519",
-                        256L,
-                    )
+                requireM19JOutputRoot(stagingRoot)
                 evidenceTarget.delete()
                 errorTarget.delete()
 
-                val signature =
-                    signatureFile.readBytes()
-                val publisher =
-                    publisherFile.readBytes()
-                FileInputStream(packageFile).use {
-                    packageInput ->
-                    app.provisioner.review(
-                        packageInput =
-                            packageInput,
-                        signatureBytes =
-                            signature,
-                        publisherKeyBytes =
-                            publisher,
-                    )
-                }
-                app.provisioner.activateReviewed()
-                check(
-                    app.assistant
-                        .reloadActivatedModel()
-                ) {
-                    "M19J activated model could not be reopened"
+                check(app.assistant.openIfActivated()) {
+                    "M19J requires the signed APK G06 deployment to be installed and valid"
                 }
 
                 val evidence =
@@ -1552,8 +1199,6 @@ class VN97MainActivity : Activity() {
                                     measuredRuns,
                                 decodeTokens =
                                     decodeTokens,
-                                speechFrames =
-                                    speechFrames,
                             )
                         )
                 val bytes =
@@ -1613,11 +1258,12 @@ class VN97MainActivity : Activity() {
         }
     }
 
-    private fun requireM19JStagedFile(
-        root: File,
-        name: String,
-        maxBytes: Long,
-    ): File {
+    private fun requireM19JOutputRoot(root: File) {
+        if (!root.exists()) {
+            check(root.mkdirs()) {
+                "M19J could not create its app-private evidence directory"
+            }
+        }
         val rootPath =
             root.toPath()
         check(
@@ -1629,34 +1275,8 @@ class VN97MainActivity : Activity() {
                     rootPath
                 )
         ) {
-            "M19J staging root must be a real directory"
+            "M19J evidence root must be a real app-private directory"
         }
-        val file =
-            File(
-                root,
-                name,
-            )
-        val path =
-            file.toPath()
-        check(
-            Files.isRegularFile(
-                path,
-                LinkOption.NOFOLLOW_LINKS,
-            ) &&
-                !Files.isSymbolicLink(
-                    path
-                )
-        ) {
-            "M19J staged asset must be a regular file: $name"
-        }
-        val size =
-            Files.size(path)
-        check(
-            size in 1L..maxBytes
-        ) {
-            "M19J staged asset size is outside bounds: $name"
-        }
-        return file
     }
 
     private fun publishM19JBytes(
@@ -2193,14 +1813,6 @@ class VN97MainActivity : Activity() {
         rejectButton.visibility = approvalVisibility
         approveButton.isEnabled = approval != null
         rejectButton.isEnabled = approval != null
-        setProvisioningControlsEnabled(true)
-        val pendingReview = app.provisioner.pendingReview()
-        if (pendingReview != null) {
-            advancedProvisioningContainer.visibility = View.VISIBLE
-            renderProvisioningReview(pendingReview)
-            activateModelButton.isEnabled = provisioningAllowed()
-        }
-
         val mode = when (state.phase) {
             VN97AppPhase.MODEL_REQUIRED -> AssistantMode.SLEEPING
             VN97AppPhase.READY -> AssistantMode.IDLE
@@ -2234,8 +1846,6 @@ class VN97MainActivity : Activity() {
             "ai.vn97.app.extra.M19J_MEASURED_RUNS"
         const val EXTRA_M19J_DECODE_TOKENS =
             "ai.vn97.app.extra.M19J_DECODE_TOKENS"
-        const val EXTRA_M19J_SPEECH_FRAMES =
-            "ai.vn97.app.extra.M19J_SPEECH_FRAMES"
         const val M19J_STAGING_DIRECTORY =
             "m19j-evidence"
         const val M19J_EVIDENCE_FILE =
@@ -2243,10 +1853,6 @@ class VN97MainActivity : Activity() {
         const val M19J_ERROR_FILE =
             "vn97-mobile-evidence.error.txt"
 
-        private const val REQUEST_MODEL_ARCHIVE = 4109
-        private const val REQUEST_PACKAGE = 4101
-        private const val REQUEST_SIGNATURE = 4102
-        private const val REQUEST_PUBLISHER_KEY = 4103
         private const val REQUEST_MICROPHONE_PERMISSION = 4201
         private const val REQUEST_AUTONOMOUS_NOTIFICATION_PERMISSION = 4202
         private const val REQUEST_SCREEN_CAPTURE = 4301

@@ -454,15 +454,18 @@ def main() -> None:
         "BuildConfig.VN97_TURNKEY_REQUIRED",
         handler,
     )
-    provision = activity.index(
-        "app.provisioner.review(",
+    activate = activity.index(
+        "app.assistant.openIfActivated()",
         handler,
     )
     collect = activity.index(
         ".collectMobileEvidence(",
         handler,
     )
-    assert handler < turnkey < provision < collect
+    assert handler < turnkey < activate < collect
+    assert "app.provisioner" not in activity[handler:collect]
+    assert "VN97MI1" not in activity[handler:collect]
+    assert "model.vn97cap1" not in activity[handler:collect]
     assert CAMPAIGN.ANDROID_ACTION in activity
 
     print(

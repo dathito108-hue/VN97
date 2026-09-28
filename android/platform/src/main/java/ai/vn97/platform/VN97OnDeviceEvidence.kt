@@ -1,11 +1,6 @@
 package ai.vn97.platform
 
 import ai.vn97.runtime.VN97G06Model
-import ai.vn97.runtime.NativeAudioModality
-import ai.vn97.runtime.NativeBackend
-import ai.vn97.runtime.NativePreparedAudio
-import ai.vn97.runtime.NativeRuntimeConfig
-import ai.vn97.runtime.NativeRuntimeSession
 import android.content.Context
 import android.os.BatteryManager
 import android.os.Build
@@ -19,14 +14,12 @@ data class VN97MobileEvidenceConfig(
     val warmupRuns: Int = 1,
     val measuredRuns: Int = 5,
     val decodeTokens: Int = 16,
-    val speechFrames: Int = 8,
     val prompt: String = "VN97 mobile production evidence probe.",
 ) {
     init {
         require(warmupRuns >= 0) { "warmupRuns must be non-negative" }
         require(measuredRuns >= 3) { "measuredRuns must be at least 3" }
         require(decodeTokens > 0) { "decodeTokens must be positive" }
-        require(speechFrames > 0) { "speechFrames must be positive" }
         require(prompt.isNotBlank()) { "prompt must be non-blank" }
     }
 }
@@ -152,13 +145,10 @@ class VN97OnDeviceEvidenceCollector(
 
         val promptIds = model.tokenizer.encode(config.prompt)
         require(promptIds.isNotEmpty())
-        val preparedSpeech: NativePreparedAudio? = null
-
         repeat(config.warmupRuns) {
             measureOne(
                 model = model,
                 promptIds = promptIds,
-                preparedSpeech = preparedSpeech,
                 decodeTokens = config.decodeTokens,
             )
         }
@@ -168,24 +158,14 @@ class VN97OnDeviceEvidenceCollector(
         var peakPss = Debug.getPss().coerceAtLeast(1L)
         val prefillMs = ArrayList<Double>(config.measuredRuns)
         val decodeMsPerToken = ArrayList<Double>(config.measuredRuns)
-        val speechMs = if (preparedSpeech != null) {
-            ArrayList<Double>(config.measuredRuns)
-        } else {
-            null
-        }
-
         repeat(config.measuredRuns) {
             val observation = measureOne(
                 model = model,
                 promptIds = promptIds,
-                preparedSpeech = preparedSpeech,
                 decodeTokens = config.decodeTokens,
             )
             prefillMs += observation.textPrefillMs
             decodeMsPerToken += observation.textDecodeMsPerToken
-            observation.speechPrefillMs?.let { value ->
-                speechMs?.add(value)
-            }
             peakPss = maxOf(peakPss, Debug.getPss().coerceAtLeast(1L))
             maxThermal = maxOf(maxThermal, thermalStatus())
         }
@@ -206,7 +186,7 @@ class VN97OnDeviceEvidenceCollector(
             runs = config.measuredRuns,
             textPrefill = percentiles(prefillMs),
             textDecodePerToken = percentiles(decodeMsPerToken),
-            speechPrefill = speechMs?.let(::percentiles),
+            speechPrefill = null,
             peakPssKib = peakPss,
             thermalStatusMax = maxThermal,
             batteryEnergyCounterDeltaNwh = energyDelta,
@@ -216,14 +196,12 @@ class VN97OnDeviceEvidenceCollector(
     private fun measureOne(
         model: VN97G06Model,
         promptIds: IntArray,
-        preparedSpeech: NativePreparedAudio?,
         decodeTokens: Int,
     ): Observation {
-        check(preparedSpeech == null) { "G06 speech graph is not installed" }
         model.requireOpen()
         return ai.vn97.runtime.VN97G06CognitionInference.open(appContext, model).use {
             val timing = it.measurePrefillDecode(promptIds, decodeTokens)
-            Observation(nanosToMs(timing.first), nanosToMs(timing.second) / decodeTokens.toDouble(), null)
+            Observation(nanosToMs(timing.first), nanosToMs(timing.second) / decodeTokens.toDouble())
         }
     }
 
@@ -274,7 +252,6 @@ class VN97OnDeviceEvidenceCollector(
     private data class Observation(
         val textPrefillMs: Double,
         val textDecodeMsPerToken: Double,
-        val speechPrefillMs: Double?,
     )
 }
 

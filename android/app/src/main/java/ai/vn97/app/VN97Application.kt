@@ -92,7 +92,7 @@ class VN97Application :
     }
 
     val bundledBootstrap: VN97BundledBootstrap by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
-        VN97BundledBootstrap(this, provisioner)
+        VN97BundledBootstrap(this)
     }
 
     val g06BundledRuntime: VN97G06BundledRuntime by lazy(
