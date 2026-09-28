@@ -109,6 +109,17 @@ android {
             )
             matchingFallbacks += listOf("debug")
         }
+        create("k2rsafe") {
+            initWith(getByName("debug"))
+            applicationIdSuffix = ".k2rsafe"
+            versionNameSuffix = "-k2rsafe"
+            buildConfigField(
+                "boolean",
+                "VN97_TURNKEY_REQUIRED",
+                "false",
+            )
+            matchingFallbacks += listOf("debug")
+        }
         release {
             buildConfigField(
                 "boolean",
