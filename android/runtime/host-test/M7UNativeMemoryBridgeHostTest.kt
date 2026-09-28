@@ -15,7 +15,7 @@ private inline fun expectState(block: () -> Unit) {
 
 
 private class RetrievalInference(
-    private val semanticId: Long,
+    private val correctionId: Long,
 ) : NativeCognitionInference {
     private var stepCalls = 0
 
@@ -29,11 +29,13 @@ private class RetrievalInference(
         NativeCognitionOperation.STEP -> {
             stepCalls += 1
             if (stepCalls == 1) {
-                check(requestJson.contains("semantic fact ✓"))
-                check(requestJson.contains("\"record_id\":$semanticId"))
+                check(requestJson.contains("corrected semantic fact ✓"))
+                check(requestJson.contains("\"record_id\":$correctionId"))
+                check(requestJson.contains("\"parent_record_id\":1"))
+                check(requestJson.contains("\"supersedes_record_id\":1"))
                 """{"result":"retrieved","confidence":1.0}"""
             } else {
-                check(requestJson.contains("\"evidence_record_ids\":[$semanticId]"))
+                check(requestJson.contains("\"evidence_record_ids\":[$correctionId]"))
                 """{"result":"final response","confidence":1.0}"""
             }
         }
@@ -105,6 +107,26 @@ fun main() {
             vector = floatArrayOf(1f),
         )
     }
+    expectArgument {
+        created.append(
+            NativeMemoryKind.SEMANTIC,
+            timestampNs = 30L,
+            importance = 1.0f,
+            source = "VN97COR1:forged",
+            content = "must use correction API",
+            vector = floatArrayOf(1f, 0f),
+            parentId = semanticId,
+        )
+    }
+    val correctionId = created.appendCorrection(
+        correctedRecordId = semanticId,
+        timestampNs = 30L,
+        importance = 1.0f,
+        provenanceSource = "unit:verified",
+        correctedContent = "corrected semantic fact ✓",
+        vector = floatArrayOf(1f, 0f),
+    )
+    check(correctionId == 3L)
     created.close()
 
     val store = NativeMemoryStore.openForTest(
@@ -124,12 +146,17 @@ fun main() {
     )
     val semanticHits = store.retrieve(semanticQuery, topK = 2)
     check(semanticHits.size == 1)
-    check(semanticHits.single().recordId == semanticId)
-    check(semanticHits.single().source == "unit:α")
-    check(semanticHits.single().content == "semantic fact ✓")
+    check(semanticHits.single().recordId == correctionId)
+    check(semanticHits.single().source == "VN97COR1:unit:verified")
+    check(semanticHits.single().content == "corrected semantic fact ✓")
     check(semanticHits.single().semanticScore > 0.99)
+    check(semanticHits.single().timestampNs == 30L)
+    check(semanticHits.single().parentRecordId == semanticId)
+    check(semanticHits.single().supersedesRecordId == semanticId)
+    check(semanticHits.single().kind == NativeMemoryKind.SEMANTIC)
+    check(store.record(semanticId).content == "semantic fact ✓")
 
-    val cognition = NativeTypedCognitionAdapter(RetrievalInference(semanticId))
+    val cognition = NativeTypedCognitionAdapter(RetrievalInference(correctionId))
     val controller = NativePlanController.create(
         goal = "use memory",
         specs = listOf(
@@ -148,8 +175,8 @@ fun main() {
     )
     check(cognitionResult.boundary == NativeCognitionBoundary.COMPLETED)
     check(cognitionResult.finalResponse == "final response")
-    check(controller.plan.step(1).evidenceRecordIds == listOf(semanticId))
-    check(controller.plan.step(2).evidenceRecordIds == listOf(semanticId))
+    check(controller.plan.step(1).evidenceRecordIds == listOf(correctionId))
+    check(controller.plan.step(2).evidenceRecordIds == listOf(correctionId))
 
     val importanceQuery = NativeMemoryQuery(
         vector = floatArrayOf(1f, 0f),
@@ -161,7 +188,7 @@ fun main() {
         recencyHalfLifeNs = 100L,
     )
     val ranked = store.retrieve(importanceQuery, topK = 2)
-    check(ranked.map { it.recordId } == listOf(semanticId, episodicId))
+    check(ranked.map { it.recordId } == listOf(correctionId, episodicId))
     check(ranked[0].importanceScore > ranked[1].importanceScore)
 
     val wrongDimension = NativeMemoryQuery(
@@ -180,9 +207,11 @@ fun main() {
         NativeMemoryRetentionPolicy(maxRecords = 1L),
         nowNs = 100L,
     )
-    check(compacted.retained >= 1L)
-    check(compacted.removed >= 0L)
+    check(compacted.retained == 2L)
+    check(compacted.removed == 1L)
     check(store.stats().recordCount == compacted.retained)
+    check(store.record(semanticId).content == "semantic fact ✓")
+    check(store.record(correctionId).content == "corrected semantic fact ✓")
 
     store.close()
     expectState { store.stats() }

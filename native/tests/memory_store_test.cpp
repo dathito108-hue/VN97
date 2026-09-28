@@ -270,5 +270,102 @@ int main() {
     delete store;
 
     assert(::unlink(path.c_str()) == 0);
+
+    // Ordinary parent/child lineage must not hide evidence. Only a retrievable
+    // semantic child with the explicit correction envelope supersedes its
+    // semantic parent, while the original remains addressable for provenance.
+    const std::string correction_path = TempPath();
+    assert(
+        vn97::MemoryStore::Create(
+            correction_path.c_str(), 2, false, &store) ==
+        vn97::MemoryStatus::kOk);
+    const float correction_vector[] = {1.0f, 0.0f};
+    std::uint64_t original = 0;
+    std::uint64_t derived = 0;
+    std::uint64_t correction = 0;
+    std::uint64_t second_correction = 0;
+    assert(
+        store->Append(
+            MakeAppend(
+                vn97::MemoryKind::kSemantic,
+                10,
+                0.9f,
+                "unit:original",
+                "stale fact",
+                correction_vector,
+                2),
+            &original) ==
+        vn97::MemoryStatus::kOk);
+    assert(
+        store->Append(
+            MakeAppend(
+                vn97::MemoryKind::kSemantic,
+                20,
+                0.8f,
+                "unit:derived",
+                "ordinary child",
+                correction_vector,
+                2,
+                original),
+            &derived) ==
+        vn97::MemoryStatus::kOk);
+
+    semantic_only.top_k = 4;
+    semantic_only.kind_mask = 0x2u;
+    semantic_only.now_ns = 30;
+    assert(
+        store->Retrieve(
+            correction_vector, 2, semantic_only, &hits) ==
+        vn97::MemoryStatus::kOk);
+    assert(hits.size() == 2);
+    assert(hits[0].record_id == derived);
+    assert(hits[1].record_id == original);
+
+    assert(
+        store->Append(
+            MakeAppend(
+                vn97::MemoryKind::kSemantic,
+                30,
+                1.0f,
+                "VN97COR1:unit:verified",
+                "corrected fact",
+                correction_vector,
+                2,
+                original),
+            &correction) ==
+        vn97::MemoryStatus::kOk);
+    assert(
+        store->Retrieve(
+            correction_vector, 2, semantic_only, &hits) ==
+        vn97::MemoryStatus::kOk);
+    assert(hits.size() == 2);
+    assert(hits[0].record_id == correction);
+    assert(hits[1].record_id == derived);
+
+    assert(
+        store->Append(
+            MakeAppend(
+                vn97::MemoryKind::kSemantic,
+                40,
+                1.0f,
+                "VN97COR1:unit:second",
+                "newest corrected fact",
+                correction_vector,
+                2,
+                correction),
+            &second_correction) ==
+        vn97::MemoryStatus::kOk);
+    assert(
+        store->Retrieve(
+            correction_vector, 2, semantic_only, &hits) ==
+        vn97::MemoryStatus::kOk);
+    assert(hits.size() == 2);
+    assert(hits[0].record_id == second_correction);
+    assert(hits[1].record_id == derived);
+    assert(store->ViewRecord(original, &view) == vn97::MemoryStatus::kOk);
+    assert(view.content_size == std::strlen("stale fact"));
+    assert(store->ViewRecord(correction, &view) == vn97::MemoryStatus::kOk);
+    delete store;
+    assert(::unlink(correction_path.c_str()) == 0);
     return 0;
 }

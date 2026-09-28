@@ -181,6 +181,7 @@ class NativeMemoryStore private constructor(
 
     companion object {
         private const val MAX_TOP_K = 1024
+        internal const val CORRECTION_SOURCE_PREFIX = "VN97COR1:"
 
         fun create(
             file: File,
@@ -269,6 +270,71 @@ class NativeMemoryStore private constructor(
         vector: FloatArray? = null,
         parentId: Long = 0L,
         durable: Boolean = true,
+    ): Long {
+        require(!source.startsWith(CORRECTION_SOURCE_PREFIX)) {
+            "reserved correction source requires appendCorrection"
+        }
+        return appendInternal(
+            kind, timestampNs, importance, source, content,
+            vector, parentId, durable,
+        )
+    }
+
+    /**
+     * Append an explicit semantic correction without mutating original evidence.
+     * Native retrieval suppresses corrected ancestors and returns only the newest
+     * surviving correction in a chain. The reserved source prefix makes this
+     * behavior opt-in rather than overloading ordinary parent/child records.
+     */
+    fun appendCorrection(
+        correctedRecordId: Long,
+        timestampNs: Long,
+        importance: Float,
+        provenanceSource: String,
+        correctedContent: String,
+        vector: FloatArray,
+        durable: Boolean = true,
+    ): Long {
+        require(correctedRecordId > 0L) {
+            "correctedRecordId must be positive"
+        }
+        require(provenanceSource.isNotBlank()) {
+            "correction provenanceSource must not be blank"
+        }
+        require(!provenanceSource.startsWith(CORRECTION_SOURCE_PREFIX)) {
+            "correction provenanceSource must not contain the reserved envelope"
+        }
+        require(correctedContent.isNotBlank()) {
+            "correctedContent must not be blank"
+        }
+        val corrected = record(correctedRecordId)
+        require(corrected.kind == NativeMemoryKind.SEMANTIC) {
+            "only semantic records can be corrected"
+        }
+        require(timestampNs >= corrected.timestampNs) {
+            "correction timestamp must not precede corrected evidence"
+        }
+        return appendInternal(
+            kind = NativeMemoryKind.SEMANTIC,
+            timestampNs = timestampNs,
+            importance = importance,
+            source = CORRECTION_SOURCE_PREFIX + provenanceSource,
+            content = correctedContent,
+            vector = vector,
+            parentId = correctedRecordId,
+            durable = durable,
+        )
+    }
+
+    private fun appendInternal(
+        kind: NativeMemoryKind,
+        timestampNs: Long,
+        importance: Float,
+        source: String,
+        content: String,
+        vector: FloatArray?,
+        parentId: Long,
+        durable: Boolean,
     ): Long {
         require(timestampNs >= 0L) { "timestampNs must be non-negative" }
         require(parentId >= 0L) { "parentId must be non-negative" }
@@ -362,6 +428,15 @@ class NativeMemoryStore private constructor(
                     semanticScore = semanticScores[index].toDouble(),
                     recencyScore = recencyScores[index].toDouble(),
                     importanceScore = importanceScores[index].toDouble(),
+                    timestampNs = record.timestampNs,
+                    parentRecordId = record.parentId,
+                    kind = record.kind,
+                    supersedesRecordId =
+                        if (
+                            record.kind == NativeMemoryKind.SEMANTIC &&
+                            record.parentId > 0L &&
+                            record.source.startsWith(CORRECTION_SOURCE_PREFIX)
+                        ) record.parentId else 0L,
                 )
             }
         }
