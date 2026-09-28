@@ -113,7 +113,8 @@ fun main() {
             nowWallTimeMillis = 2_000L,
         )
     check(ready.state == VN97RevenueLiveReadinessState.READY)
-    check(ready.productionMoneyMovementAuthorized)
+    check(ready.readyForM6Execution)
+    check(!ready.productionMoneyMovementAuthorized)
 
     val overRisk =
         VN97RevenueLiveReadinessGate.evaluate(
