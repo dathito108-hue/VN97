@@ -300,22 +300,20 @@ class VN97DigitalServicesActivity : Activity() {
                     zip.write(report.toString(2).toByteArray(Charsets.UTF_8))
                     zip.closeEntry()
                 }
+                if (orderId != null) {
+                    val ledger = readLedger()
+                    ledger.markExported(orderId, System.currentTimeMillis())
+                    writeLedger(ledger)
+                }
             }
             runOnUiThread {
                 if (!isDestroyed) {
-                    if (result.isSuccess && orderId != null) {
-                        worker.execute {
-                            runCatching {
-                                val ledger = readLedger()
-                                ledger.markExported(orderId, System.currentTimeMillis())
-                                writeLedger(ledger)
-                            }
-                            runOnUiThread { if (!isDestroyed) refreshLedger() }
-                        }
-                    }
+                    if (result.isSuccess) refreshLedger()
                     statusView.text = if (result.isSuccess) {
                         "Đã xuất ZIP và ghi nhận bàn giao tại máy. Chưa có thanh toán xác minh."
-                    } else "Xuất tệp thất bại; tệp đích có thể chưa đầy đủ. Hãy xuất lại."
+                    } else {
+                        "Xuất hoặc ghi sổ thất bại; tệp đích có thể chưa đầy đủ. Hãy kiểm tra và xuất lại."
+                    }
                 }
             }
         }
