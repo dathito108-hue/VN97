@@ -1,0 +1,37 @@
+name: VN97 K2A Validation
+
+on:
+  push:
+    branches:
+      - r2-k2-real-onnx-parity
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vn97-k2a-validation
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install CPU torch and pytest
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check             --index-url https://download.pytorch.org/whl/cpu             "torch>=2.2,<3"
+          python -m pip install --disable-pip-version-check "pytest>=8"
+          python -m pip install --disable-pip-version-check --no-deps -e .
+      - name: Validate K2A code and FP16 step semantics
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile src/vn97/r2/mamba2_kaggle_k2a_ort.py
+          bash -n tools/kaggle_r2_k2a_real_onnx_parity.sh
+          python -m pytest -q tests/test_r2_mamba2_g04_onnx.py
