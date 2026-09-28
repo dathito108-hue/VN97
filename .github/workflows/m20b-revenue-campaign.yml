@@ -10,6 +10,7 @@ on:
     paths:
       - ".github/workflows/m20b-revenue-campaign.yml"
       - "android/app/**"
+      - "android/platform/**"
       - "android/runtime/src/main/java/ai/vn97/runtime/Mamba2OrtExecutor.kt"
       - "android/runtime/src/main/java/ai/vn97/runtime/Mamba2OrtExecutionBuffers.kt"
       - "android/runtime/src/main/java/ai/vn97/runtime/Mamba2OrtTensorStorage.kt"
@@ -61,8 +62,39 @@ jobs:
       - name: Run host contracts
         shell: bash
         run: |
-          if command -v kotlinc >/dev/null 2>&1; then
-            bash android/app/host-test/run.sh
-          else
-            echo "kotlinc not present; Android Kotlin compilation already passed."
-          fi
+          command -v kotlinc
+          bash android/app/host-test/run.sh
+
+      - name: Prepare verified debug artifact
+        shell: bash
+        run: |
+          mkdir -p android/app/build/verified-debug
+          cp android/app/build/outputs/apk/debug/app-debug.apk android/app/build/verified-debug/
+          cp docs/mobile-debug-artifacts.md android/app/build/verified-debug/README.md
+          python3 - <<'PY'
+          import json, os, pathlib, subprocess
+          out = pathlib.Path("android/app/build/verified-debug")
+          metadata = {
+              "schema": "VN97_DEBUG_BUILD_1",
+              "commit": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
+              "source_ref": os.environ["GITHUB_REF"],
+              "workflow_run": os.environ["GITHUB_RUN_ID"],
+              "workflow_attempt": os.environ["GITHUB_RUN_ATTEMPT"],
+              "variant": "debug",
+              "host_contracts": "passed",
+              "device_tested": False,
+              "production_ready": False,
+          }
+          (out / "build.json").write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
+          PY
+          cd android/app/build/verified-debug
+          sha256sum app-debug.apk build.json README.md > SHA256SUMS
+          sha256sum --check SHA256SUMS
+
+      - name: Upload verified debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: VN97-debug-${{ github.run_id }}-${{ github.run_attempt }}
+          path: android/app/build/verified-debug/
+          if-no-files-found: error
+          retention-days: 7
