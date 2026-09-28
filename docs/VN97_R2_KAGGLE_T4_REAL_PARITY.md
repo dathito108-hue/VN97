@@ -123,3 +123,24 @@ same Kaggle session so the exact source is immediately available for T4 parity.
 
 Do not start G1 augmentation training until K1 has passed. Preserving the
 pretrained intelligence baseline has priority over adding new VN97 modules.
+
+## K1D kernel diagnosis
+
+If the default optimized run reports `generation_exact=true` but numerical
+thresholds fail, do not relax the tolerances. First rerun the same exact model
+and probes with the official Mamba-2 optional recurrent CUDA update kernels
+disabled so both sides use the unfused fallback recurrence:
+
+    %env VN97_K1_OFFICIAL_KERNEL_MODE=fallback
+    !bash tools/kaggle_r2_k1_real_parity.sh
+
+The source weights, tokenizer, probe set and thresholds remain unchanged.
+
+Interpretation:
+
+- fallback PASS + optimized FAIL: the architecture/equations are aligned and the
+  observed gap is backend numerical drift from the optimized FP16 kernels;
+- fallback FAIL: treat it as a real implementation-parity defect and diagnose the
+  first divergent operation before K2 or G1 training.
+
+This diagnostic is intentionally preferred over simply widening the error gate.
