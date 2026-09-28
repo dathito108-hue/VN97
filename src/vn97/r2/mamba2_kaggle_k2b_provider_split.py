@@ -257,6 +257,13 @@ def run_k2b(
     k2a_receipt_id = k2a.get("receipt_id")
     if not isinstance(k2a_receipt_id, str) or len(k2a_receipt_id) != 64:
         raise ValueError("K2B K2A receipt identity invalid")
+    k2a_body = dict(k2a)
+    k2a_body.pop("receipt_id", None)
+    expected_k2a_id = hashlib.sha256(
+        b"VN97M2K2AORT1\\0" + _canonical_json(k2a_body)
+    ).hexdigest()
+    if k2a_receipt_id != expected_k2a_id:
+        raise ValueError("K2B K2A receipt identity mismatch")
 
     manifest = verify_mamba2_g04_bundle(bundle_dir)
     if manifest.get("manifest_id") != k2a.get("g04_manifest_id"):
