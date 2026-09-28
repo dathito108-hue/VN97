@@ -13,6 +13,13 @@ class LanguageCandidateTests(unittest.TestCase):
         self.model = NativeLanguageCandidate(CandidateConfig(d_model=8, d_inner=12, n_layers=2))
         self.ids = torch.randint(0, 256, (2, 11))
 
+    def test_parameter_budget_matches_real_model(self):
+        self.assertEqual(self.model.config.parameter_count(), sum(p.numel() for p in self.model.parameters()))
+        pilot = CandidateConfig(d_model=512, d_inner=768, n_layers=5)
+        self.assertEqual(pilot.parameter_count(), 9_979_914)
+        with self.assertRaises(ValueError):
+            CandidateConfig(d_model=1024, d_inner=1024, n_layers=8)
+
     def test_language_logits_token_and_chunk_parity(self):
         expected, _ = self.model(self.ids)
         first, state = self.model(self.ids[:, :4])
@@ -64,3 +71,17 @@ class LanguageCandidateTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)
+
+class PilotDataTests(unittest.TestCase):
+    def test_splits_and_answer_only_loss(self):
+        from pilot_10m import dataset, batch
+        splits = dataset()
+        self.assertEqual([len(v) for v in splits.values()], [512, 64, 64])
+        prompts = [set(x['prompt'] for x in rows) for rows in splits.values()]
+        self.assertTrue(all(not prompts[a] & prompts[b] for a in range(3) for b in range(a)))
+        for rows in splits.values():
+            x, y = batch(rows[:4])
+            for i, row in enumerate(rows[:4]):
+                values = y[i][y[i] != -100].tolist()
+                self.assertEqual(bytes(values), row['answer'].encode())
+                self.assertEqual(x[i, :len(row['prompt'].encode())].tolist(), list(row['prompt'].encode()))

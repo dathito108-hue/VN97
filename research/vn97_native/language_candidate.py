@@ -39,10 +39,15 @@ class CandidateConfig:
         for value in (self.d_model, self.d_inner, self.n_layers, self.vocab_size):
             if type(value) is not int or value <= 0:
                 raise ValueError("dimensions must be positive integers")
-        if not self.d_model <= self.d_inner <= 128 or self.n_layers > 4:
-            raise ValueError("candidate is restricted to small CPU experiments")
+        if not self.d_model <= self.d_inner <= 1024 or self.n_layers > 8 or self.parameter_count() > 10_500_000:
+            raise ValueError("candidate exceeds the bounded 10M research budget")
         if self.vocab_size != 256 or self.schema != "VN97ASC-LM1":
             raise ValueError("candidate requires the experimental byte vocabulary")
+
+    def parameter_count(self):
+        return (self.vocab_size + 1) * self.d_model + self.n_layers * (
+            5 * self.d_model * self.d_inner + 4 * self.d_inner + self.d_model + 2
+        )
 
     def fingerprint(self):
         return hashlib.sha256(json.dumps(asdict(self), sort_keys=True, separators=(",", ":")).encode()).hexdigest()
