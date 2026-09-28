@@ -51,7 +51,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          pytest -q tests/test_r2_mamba2_g04.py
+          pytest -q tests/test_r2_mamba2_g04_onnx.py
 
       - name: Verify measurement-only boundary
         shell: bash
