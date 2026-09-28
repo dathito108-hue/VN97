@@ -21,9 +21,13 @@ K2E replaces only this lowering with the explicit activation-dtype order:
     (dt_value[:, :, None, None] * x_heads[:, :, :, None])
         * b_value[:, None, None, :]
 
-For FP16 CPU tensors this is the same left-associated operation order observed
-from PyTorch's source-side Einsum for the no-reduction equation. No weight,
-model geometry, recurrent equation, tokenizer or authority policy changes.
+This explicit order removes the generic ONNX Einsum contraction choice.
+Because FP16 multiplication is not associative and CPU kernels can differ,
+K2E does not claim bit-exact equivalence from static algebra alone: the
+regression bounds the rewrite to one FP16 epsilon of the source Einsum, while
+the real Kaggle trace decides whether the observed nine-epsilon ORT drift is
+actually repaired. No weight, model geometry, recurrent equation, tokenizer
+or authority policy changes.
 
 ## Measurement boundary
 
