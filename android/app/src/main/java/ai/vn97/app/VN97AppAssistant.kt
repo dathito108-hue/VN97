@@ -7,8 +7,7 @@ import ai.vn97.platform.VN97AssistantTurnUpdate
 import ai.vn97.platform.VN97MobileEvidenceConfig
 import ai.vn97.platform.VN97MobileEvidenceRecord
 import ai.vn97.platform.VN97ProductionAssistantResources
-import ai.vn97.runtime.NativeActivatedInventoryModelLoader
-import ai.vn97.runtime.NativeActivatedModel
+import ai.vn97.runtime.VN97G06Model
 import ai.vn97.runtime.NativePreparedAudio
 import ai.vn97.runtime.NativePreparedVision
 import ai.vn97.runtime.VN97KnowledgeAcquisitionResult
@@ -36,7 +35,7 @@ class VN97AppAssistant(
     private val application: VN97Application,
 ) : AutoCloseable {
     private val lock = Any()
-    private var model: NativeActivatedModel? = null
+    private var model: VN97G06Model? = null
     private var resources: VN97ProductionAssistantResources? = null
     private var pendingResult: VN97AppTurnResult? = null
     private var yieldedResult: VN97AppTurnResult? = null
@@ -256,6 +255,7 @@ class VN97AppAssistant(
             "trusted VN97 model is not active"
         }
         createVN97AutonomousContinuationSeed(
+            context = application,
             model = activeModel,
             goal = goal,
         )
@@ -529,16 +529,15 @@ class VN97AppAssistant(
         // APK assets do not change within this process. A live, validated
         // session must not restage the entire bundled model on every turn.
         // reloadActivatedModel() closes resources before reopening this path.
-        application.r2BundledRuntime.installIfPresent(
+        application.g06BundledRuntime.installIfPresent(
             required = BuildConfig.VN97_TURNKEY_REQUIRED,
         )
         val opened =
-            NativeActivatedInventoryModelLoader
-                .openOrNull(
-                    File(
+            VN97G06Model
+                .openOrNull(context = application, root = File(
                         application
                             .noBackupFilesDir,
-                        "vn97-capabilities",
+                        "vn97-g06",
                     )
                 )
                 ?: return false

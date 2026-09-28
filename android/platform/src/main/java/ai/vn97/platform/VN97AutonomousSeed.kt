@@ -1,7 +1,8 @@
 package ai.vn97.platform
 
-import ai.vn97.runtime.NativeActivatedModel
-import ai.vn97.runtime.NativeCognitionInferenceEngine
+import ai.vn97.runtime.VN97G06Model
+import ai.vn97.runtime.VN97G06CognitionInference
+import android.content.Context
 import ai.vn97.runtime.NativeCognitionLimits
 import ai.vn97.runtime.NativeCognitionLoop
 import ai.vn97.runtime.NativeCognitionRuntimeConfig
@@ -10,7 +11,6 @@ import ai.vn97.runtime.NativePlanController
 import ai.vn97.runtime.NativeReasoningBudget
 import ai.vn97.runtime.NativeRuntimeCheckpointSnapshot
 import ai.vn97.runtime.NativeRuntimeConfig
-import ai.vn97.runtime.NativeRuntimeOwner
 import ai.vn97.runtime.NativeTypedCognitionAdapter
 
 data class VN97AutonomousContinuationSeed(
@@ -31,30 +31,17 @@ data class VN97AutonomousContinuationSeed(
     }
 }
 
-private fun autonomousRuntimeConfig(
-    model: NativeActivatedModel,
-    cognitionRuntimeConfig: NativeCognitionRuntimeConfig,
-): NativeRuntimeConfig = NativeRuntimeConfig(
-    layers = model.info.layers,
-    batch = 1,
-    dModel = model.info.dModel,
-    dState = model.info.dState,
-    recurrentBackend = cognitionRuntimeConfig.recurrentBackend,
-    packedBackend = cognitionRuntimeConfig.packedBackend,
-)
+private fun autonomousRuntimeConfig(): NativeRuntimeConfig = VN97G06Model.continuityConfig()
 
 private fun autonomousSeed(
-    model: NativeActivatedModel,
+    model: VN97G06Model,
     controller: NativePlanController,
     cognitionRuntimeConfig: NativeCognitionRuntimeConfig,
 ): VN97AutonomousContinuationSeed {
     val runtimeConfig =
-        autonomousRuntimeConfig(model, cognitionRuntimeConfig)
+        autonomousRuntimeConfig()
     val snapshot =
-        NativeRuntimeOwner.createModelBoundSeedSnapshot(
-            model = model,
-            config = runtimeConfig,
-        )
+        model.continuitySnapshot()
     if (!snapshot.modelBinding.modelId.contentEquals(model.info.modelId)) {
         throw IllegalStateException(
             "autonomous continuation seed model identity mismatch"
@@ -68,7 +55,8 @@ private fun autonomousSeed(
 }
 
 fun createVN97AutonomousContinuationSeed(
-    model: NativeActivatedModel,
+    context: Context,
+    model: VN97G06Model,
     goal: String,
     budget: NativeReasoningBudget = NativeReasoningBudget(
         maxTransitions = 128,
@@ -92,23 +80,16 @@ fun createVN97AutonomousContinuationSeed(
         "autonomous goal createdNs must be non-negative"
     }
     require(model.info.hasTokenizer) {
-        "autonomous goal planning requires VN97TK1 tokenizer"
+        "autonomous goal planning requires G06 tokenizer"
     }
 
-    val cognition = NativeTypedCognitionAdapter(
-        NativeCognitionInferenceEngine(
-            model = model,
-            config = cognitionRuntimeConfig,
-        )
-    )
-    val controller = NativeCognitionLoop(
-        cognition,
-        cognitionLimits,
-    ).buildPlan(
+    val controller = VN97G06CognitionInference.open(context, model, cognitionRuntimeConfig).use { engine ->
+        NativeCognitionLoop(NativeTypedCognitionAdapter(engine), cognitionLimits).buildPlan(
         goal = goal,
         budget = budget,
         createdNs = createdNs,
-    )
+            )
+    }
 
     return autonomousSeed(
         model = model,
@@ -119,7 +100,8 @@ fun createVN97AutonomousContinuationSeed(
 
 
 fun createVN97AutonomousReplanSeed(
-    model: NativeActivatedModel,
+    context: Context,
+    model: VN97G06Model,
     previousPlan: NativePlan,
     feedback: String,
     cognitionRuntimeConfig: NativeCognitionRuntimeConfig =
@@ -141,23 +123,17 @@ fun createVN97AutonomousReplanSeed(
         "autonomous replan feedback must not be blank"
     }
     require(model.info.hasTokenizer) {
-        "autonomous replanning requires VN97TK1 tokenizer"
+        "autonomous replanning requires G06 tokenizer"
     }
 
-    val cognition = NativeTypedCognitionAdapter(
-        NativeCognitionInferenceEngine(
-            model = model,
-            config = cognitionRuntimeConfig,
-        )
-    )
-    val revision = NativeCognitionLoop(
-        cognition,
-        cognitionLimits,
-    ).replanTerminalPlan(
+    val revision = VN97G06CognitionInference.open(context, model, cognitionRuntimeConfig).use { engine ->
+        NativeCognitionLoop(NativeTypedCognitionAdapter(engine), cognitionLimits).replanTerminalPlan(
         previousPlan = previousPlan,
         feedback = feedback,
         createdNs = createdNs,
-    )
+            )
+    }
+
     return autonomousSeed(
         model = model,
         controller = revision.controller,

@@ -82,43 +82,15 @@ class VN97TurnkeyAcceptanceReceiver : BroadcastReceiver() {
                         )
                         .requireActivationReady()
 
-                    var activation =
-                        app.provisioner
-                            .currentModelActivation()
-                    if (activation == null) {
-                        val outcome =
-                            app.bundledBootstrap
-                                .activateIfPresent(
-                                    required = true
-                                )
-                        check(
-                            outcome !=
-                                VN97BundledBootstrapOutcome
-                                    .ABSENT
-                        ) {
-                            "turnkey bootstrap remained absent"
-                        }
-                        activation =
-                            app.provisioner
-                                .currentModelActivation()
-                    }
-                    val active =
-                        checkNotNull(
-                            activation
-                        ) {
-                            "turnkey model activation is missing"
-                        }
-                    check(
-                        active.packageSha256 ==
-                            expectedPackageSha256
-                    ) {
-                        "active turnkey package identity mismatch"
-                    }
-
-                    app.r2BundledRuntime
-                        .installIfPresent(
-                            required = true
+                    app.g06BundledRuntime.installIfPresent(required = true)
+                    val deploymentId = checkNotNull(
+                        ai.vn97.runtime.VN97G06Model.openOrNull(
+                            java.io.File(app.noBackupFilesDir, ai.vn97.runtime.VN97G06Model.ROOT_DIR), app
                         )
+                    ).use { it.promotion.promotionId }
+                    check(deploymentId == expectedPackageSha256) {
+                        "G06 promotion identity differs from expected deployment"
+                    }
 
                     val assistantOpen =
                         app.assistant
@@ -219,7 +191,7 @@ class VN97TurnkeyAcceptanceReceiver : BroadcastReceiver() {
                     val payload =
                         canonicalResult(
                             activePackageSha256 =
-                                active.packageSha256,
+                                deploymentId,
                             assistantOpen =
                                 assistantOpen,
                             autonomousGoalPresent =

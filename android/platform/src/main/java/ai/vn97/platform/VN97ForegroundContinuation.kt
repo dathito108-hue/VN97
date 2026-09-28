@@ -2,7 +2,7 @@ package ai.vn97.platform
 
 import ai.vn97.runtime.AtomicCheckpointStore
 import ai.vn97.runtime.AtomicCompositeContinuityStore
-import ai.vn97.runtime.NativeActivatedModel
+import ai.vn97.runtime.VN97G06Model
 import ai.vn97.runtime.NativePlan
 import ai.vn97.runtime.NativeRuntimeConfig
 import ai.vn97.runtime.NativeRuntimeOwner
@@ -13,7 +13,7 @@ import java.io.File
 class VN97ForegroundAssistantContinuationSession internal constructor(
     val jobId: Int,
     val binding: VN97AssistantContinuationBinding,
-    private val model: NativeActivatedModel,
+    private val model: VN97G06Model,
     private val owner: NativeRuntimeOwner,
     private val resources: VN97ProductionAssistantResources,
     private val compositeStore: AtomicCompositeContinuityStore,
@@ -126,7 +126,7 @@ fun openVN97ForegroundAssistantContinuation(
     context: Context,
     platformRuntime: AndroidPlatformRuntime,
     jobId: Int,
-    model: NativeActivatedModel,
+    model: VN97G06Model,
     grants: List<M6PolicyGrant>,
     runtimeConfig: NativeRuntimeConfig,
     cognitionRuntimeConfig: ai.vn97.runtime.NativeCognitionRuntimeConfig =

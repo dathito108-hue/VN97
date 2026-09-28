@@ -2,7 +2,7 @@ package ai.vn97.platform
 
 import ai.vn97.runtime.AtomicCheckpointStore
 import ai.vn97.runtime.AtomicCompositeContinuityStore
-import ai.vn97.runtime.NativeActivatedModel
+import ai.vn97.runtime.VN97G06Model
 import ai.vn97.runtime.NativeBackend
 import ai.vn97.runtime.NativePlan
 import ai.vn97.runtime.NativePlanController
@@ -93,7 +93,7 @@ class VN97AssistantContinuationContext internal constructor(
 
     fun isStopped(): Boolean = stopped.get()
 
-    fun requireActivatedModel(model: NativeActivatedModel) {
+    fun requireActivatedModel(model: VN97G06Model) {
         binding.requireModelId(model.info.modelId)
     }
 }

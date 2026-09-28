@@ -181,7 +181,8 @@ data class Mamba2CognitionBridgeBinding(
 /**
  * G0.9 candidate-only text cognition bridge.
  *
- * This class is deliberately not wired into AndroidPlatformRuntime. It exists
+ * The app opens this engine through VN97G06CognitionInference after G0.10
+ * validation. Direct opening remains available for candidate diagnostics. It exists
  * so the exact G0.6/G0.7/G0.8 stack can be validated end-to-end before G0.10
  * evidence promotion. There is no fallback to the old F1/VN97TK1 inference
  * path inside this class.
@@ -213,7 +214,7 @@ class VN97Mamba2CognitionCandidate private constructor(
                 runtimeRoot = runtimeRoot,
                 qnnBackendPath = qnnBackendPath,
                 tuningFile = tuningFile,
-                maxCachedSessions = 2,
+                maxCachedSessions = 1,
             )
             try {
                 require(executor.hasDeviceMeasuredTuning()) {
@@ -317,6 +318,24 @@ class VN97Mamba2CognitionCandidate private constructor(
         )
     }
 
+    /** Timings from this same engine; does not open a second model for diagnostics. */
+    fun measurePrefillDecode(promptIds: IntArray, decodeTokens: Int): Pair<Long, Long> = synchronized(lock) {
+        check(!closed)
+        require(promptIds.isNotEmpty() && promptIds.size <= config.inferenceLimits.maxPromptTokens)
+        require(promptIds.all { it in 0 until binding.tokenIdSpace })
+        require(decodeTokens in 1..1024)
+        executor.resetRecurrentState()
+        val start = System.nanoTime()
+        var run = executor.prefill(promptIds)
+        val prefillEnd = System.nanoTime()
+        repeat(decodeTokens) {
+            tokenizer.maskInvalidPaddedLogits(run.logits)
+            val token = sampleG09(run.logits, binding.tokenIdSpace, Mamba2CandidateSamplerConfig(), Random(97))
+            run = executor.step(token)
+        }
+        Pair(prefillEnd - start, System.nanoTime() - prefillEnd)
+    }
+
     override fun embedText(
         text: String,
         vectorDim: Int,
@@ -325,33 +344,15 @@ class VN97Mamba2CognitionCandidate private constructor(
         require(vectorDim == executor.runtimePackage.dModel) {
             "G0.9 retrieval vector dimension must match Mamba-2 dModel"
         }
-        val ids = tokenizer.encode(text)
-        val output = FloatArray(vectorDim)
-        ids.forEachIndexed { position, token ->
-            val mixed = mixG09(token, position)
-            val index = (mixed and Int.MAX_VALUE) % vectorDim
-            val sign = if ((mixed ushr 31) == 0) 1.0f else -1.0f
-            output[index] +=
-                sign / sqrt((position + 1).toFloat())
-        }
-        var norm2 = 0.0
-        output.forEach {
-            norm2 += it.toDouble() * it.toDouble()
-        }
-        if (norm2 > 0.0) {
-            val inv = (1.0 / sqrt(norm2)).toFloat()
-            for (index in output.indices) {
-                output[index] *= inv
-            }
-        }
-        output
+        g06TokenFeatures(tokenizer.encode(text), vectorDim)
     }
 
-    @Synchronized
     override fun close() {
-        if (closed) return
-        closed = true
-        executor.close()
+        synchronized(lock) {
+            if (closed) return
+            closed = true
+            executor.close()
+        }
     }
 }
 
@@ -429,14 +430,6 @@ private fun sampleG09(
         }
     }
     return order[keep - 1]
-}
-
-private fun mixG09(token: Int, position: Int): Int {
-    var value = token * -0x61c88647 + position * 0x045d9f3b
-    value = value xor (value ushr 16)
-    value *= 0x045d9f3b
-    value = value xor (value ushr 16)
-    return value
 }
 
 private fun requireG09Sha(value: String, label: String) {

@@ -5,7 +5,7 @@ ROOT="$(cd "$HERE/../../.." && pwd)"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 "${KOTLINC:-kotlinc}" \
-    "$ROOT/android/app/src/main/java/ai/vn97/app/VN97R2BundledRuntime.kt" \
+    "$ROOT/android/app/src/main/java/ai/vn97/app/VN97G06BundledRuntime.kt" \
     "$HERE/R2BundledAssetManagerStub.kt" \
     "$HERE/R2BundledApplicationStub.kt" \
     "$HERE/R2BundledRuntimeTest.kt" \

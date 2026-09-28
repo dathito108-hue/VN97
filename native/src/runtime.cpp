@@ -14,6 +14,7 @@ namespace {
 
 constexpr std::array<std::uint8_t, 8> kMagicV1 = {'V','N','9','7','R','U','N','1'};
 constexpr std::array<std::uint8_t, 8> kMagicV2 = {'V','N','9','7','R','U','N','2'};
+constexpr std::array<std::uint8_t, 8> kMagicV3 = {'V','N','9','7','P','L','N','3'};
 constexpr std::uint16_t kVersionV1 = 1;
 constexpr std::uint16_t kVersionV2 = 2;
 constexpr std::uint16_t kHeaderSizeV1 = 64;
@@ -171,6 +172,24 @@ RuntimeStatus RuntimeSession::Create(const RuntimeConfig& config, RuntimeSession
     return RuntimeStatus::kOk;
 }
 
+RuntimeStatus RuntimeSession::CreateExternalIdentity(
+    const std::uint8_t* id, std::size_t count, RuntimeSession** out) {
+    if (id == nullptr || out == nullptr) return RuntimeStatus::kNullArgument;
+    *out = nullptr;
+    if (count != 32 || std::all_of(id, id + count, [](std::uint8_t b) { return b == 0; }))
+        return RuntimeStatus::kInvalidConfig;
+    RuntimeConfig config;
+    config.layers = config.batch = config.d_model = config.d_state = 1;
+    RuntimeSession* session = nullptr;
+    const auto status = Create(config, &session);
+    if (status != RuntimeStatus::kOk) return status;
+    session->external_identity_ = true;
+    session->model_bound_ = true;
+    std::copy(id, id + count, session->model_id_.begin());
+    *out = session;
+    return RuntimeStatus::kOk;
+}
+
 RuntimeStatus RuntimeSession::Activate() {
     std::lock_guard<std::mutex> lock(mutex_);
     if (lifecycle_ != RuntimeLifecycle::kCreated) return RuntimeStatus::kInvalidLifecycle;
@@ -266,6 +285,7 @@ RuntimeStatus RuntimeSession::InferStepOutput(
         return RuntimeStatus::kNullArgument;
     }
     std::lock_guard<std::mutex> lock(mutex_);
+    if (external_identity_) return RuntimeStatus::kInferenceError;
     if (lifecycle_ != RuntimeLifecycle::kActive) return RuntimeStatus::kInvalidLifecycle;
     if (model.n_layers != config_.layers ||
         model.d_model != config_.d_model ||
@@ -391,6 +411,7 @@ RuntimeStatus RuntimeSession::ReadState(float* out, std::size_t count) const {
 RuntimeStatus RuntimeSession::WriteState(const float* state, std::size_t count) {
     if (state == nullptr) return RuntimeStatus::kNullArgument;
     std::lock_guard<std::mutex> lock(mutex_);
+    if (external_identity_) return RuntimeStatus::kInferenceError;
     if (lifecycle_ == RuntimeLifecycle::kActive) return RuntimeStatus::kInvalidLifecycle;
     if (count != state_.size()) return RuntimeStatus::kCheckpointMismatch;
     for (std::size_t i = 0; i < count; ++i) {
@@ -424,9 +445,9 @@ RuntimeStatus RuntimeSession::WriteCheckpoint(
     if (capacity < required) return RuntimeStatus::kOutputTooSmall;
 
     std::fill(out, out + required, 0);
-    const auto& magic = model_bound_ ? kMagicV2 : kMagicV1;
+    const auto& magic = external_identity_ ? kMagicV3 : (model_bound_ ? kMagicV2 : kMagicV1);
     std::copy(magic.begin(), magic.end(), out);
-    WriteU16(out + 8, model_bound_ ? kVersionV2 : kVersionV1);
+    WriteU16(out + 8, external_identity_ ? 3 : (model_bound_ ? kVersionV2 : kVersionV1));
     WriteU16(
         out + 10,
         static_cast<std::uint16_t>(header_size));
@@ -491,10 +512,13 @@ RuntimeStatus RuntimeSession::Restore(
         std::equal(kMagicV2.begin(), kMagicV2.end(), blob) &&
         ReadU16(blob + 8) == kVersionV2 &&
         ReadU16(blob + 10) == kHeaderSizeV2;
-    if (!is_v1 && !is_v2) return RuntimeStatus::kCheckpointCorrupt;
+    const bool is_v3 = blob_size >= kHeaderSizeV2 &&
+        std::equal(kMagicV3.begin(), kMagicV3.end(), blob) &&
+        ReadU16(blob + 8) == 3 && ReadU16(blob + 10) == kHeaderSizeV2;
+    if (!is_v1 && !is_v2 && !is_v3) return RuntimeStatus::kCheckpointCorrupt;
 
     const std::size_t header_size =
-        is_v2 ? kHeaderSizeV2 : kHeaderSizeV1;
+        (is_v2 || is_v3) ? kHeaderSizeV2 : kHeaderSizeV1;
     if (is_v1) {
         if (ReadU32(blob + 60) != Crc32(blob, 60)) {
             return RuntimeStatus::kCheckpointCorrupt;
@@ -571,10 +595,21 @@ RuntimeStatus RuntimeSession::Restore(
 
     session->sequence_position_ = ReadU64(blob + 40);
     session->lifecycle_ = RuntimeLifecycle::kSuspended;
-    if (is_v2 &&
+    if ((is_v2 || is_v3) &&
         (ReadU32(blob + 60) & kCheckpointModelBound) != 0) {
         session->model_bound_ = true;
         std::copy(blob + 64, blob + 96, session->model_id_.begin());
+    }
+    if (is_v3) {
+        if (!session->model_bound_ || config.layers != 1 || config.batch != 1 ||
+            config.d_model != 1 || config.d_state != 1 ||
+            config.recurrent_backend != RecurrentBackend::kAuto ||
+            config.packed_backend != PackedTernaryBackend::kAuto ||
+            session->sequence_position_ != 0 || !StateAllZero(session->state_)) {
+            delete session;
+            return RuntimeStatus::kCheckpointCorrupt;
+        }
+        session->external_identity_ = true;
     }
     *out = session;
     return RuntimeStatus::kOk;
@@ -628,6 +663,12 @@ int vn97_runtime_create(const vn97_runtime_config* config, std::uint64_t* handle
     const auto status=vn97::RuntimeSession::Create(cpp,&raw);
     if(status!=vn97::RuntimeStatus::kOk) return static_cast<int>(status);
     return AddSession(raw,handle_out);
+}
+int vn97_runtime_create_external_identity(const std::uint8_t* id, std::size_t count, std::uint64_t* out) {
+    vn97::RuntimeSession* session = nullptr;
+    const auto status = vn97::RuntimeSession::CreateExternalIdentity(id, count, &session);
+    if (status != vn97::RuntimeStatus::kOk) return static_cast<int>(status);
+    return AddSession(session, out);
 }
 int vn97_runtime_restore(const std::uint8_t* blob,std::size_t blob_size,std::uint64_t* handle_out){ vn97::RuntimeSession* raw=nullptr; const auto s=vn97::RuntimeSession::Restore(blob,blob_size,&raw); if(s!=vn97::RuntimeStatus::kOk) return static_cast<int>(s); return AddSession(raw,handle_out); }
 int vn97_runtime_destroy(std::uint64_t handle){ std::lock_guard<std::mutex> lock(g_registry_mutex); return g_sessions.erase(handle)==1?0:static_cast<int>(vn97::RuntimeStatus::kInvalidHandle); }

@@ -182,6 +182,8 @@ internal object NativeRuntimeBindings {
         outputIds: IntArray,
         countOut: IntArray,
     ): Int
+    external fun nativeCreateExternalIdentity(identity: ByteArray, output: LongArray): Int
+
     external fun nativeModelBinding(
         runtimeHandle: Long,
         boundOut: IntArray,
@@ -193,6 +195,14 @@ class NativeRuntimeSession private constructor(private var handle: Long) : AutoC
     private val lock = Any()
 
     companion object {
+        internal fun createExternalIdentity(identity: ByteArray): NativeRuntimeSession {
+            require(identity.size == 32 && identity.any { it.toInt() != 0 })
+            val output = LongArray(1)
+            checkStatus(NativeRuntimeBindings.nativeCreateExternalIdentity(identity, output), "planner identity create")
+            check(output[0] != 0L)
+            return NativeRuntimeSession(output[0])
+        }
+
         fun create(config: NativeRuntimeConfig): NativeRuntimeSession {
             val out = LongArray(1)
             checkStatus(

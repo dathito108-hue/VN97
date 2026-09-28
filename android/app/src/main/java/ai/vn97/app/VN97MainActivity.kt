@@ -419,10 +419,10 @@ class VN97MainActivity : Activity() {
                     dashboard.card("Giao dịch mô phỏng", "Theo dõi thử nghiệm bằng tiền mô phỏng.", paperTradingButton),
                 ),
                 listOf(
-                    dashboard.card("Mô hình VN97", "Chọn một ZIP gồm model.vn97cap, model.vn97sig và publisher.ed25519 tại thư mục gốc. Ứng dụng kiểm tra chữ ký và yêu cầu xác nhận nhà phát hành. Gói lõi chỉ dùng được khi có bộ thực thi R2/ONNX tương thích; ZIP này không cài runtime. GGUF, ONNX rời và checkpoint 10M chưa nhập trực tiếp được.",
-                        provisioningView, importArchiveButton, importModelButton, advancedProvisioningContainer),
+                    dashboard.card("Mô hình VN97", "Lõi duy nhất: G06. Cần bản phân phối có runtime ONNX, tokenizer và bằng chứng tương thích. Nhập CAP/MI1 và checkpoint fast/slow đã ngừng; không dùng các nút nhập cũ để thay lõi G06.",
+                        provisioningView),
                     dashboard.card("Phát triển năng lực", "Quản lý năng lực và các bản cải tiến có kiểm soát.",
-                        capabilityAcquisitionButton, selfImprovementButton),
+                        capabilityAcquisitionButton),
                     dashboard.card("Chẩn đoán", "Thu thập bằng chứng chạy thực tế trên thiết bị.",
                         mobileEvidenceButton, r2OrtEvidenceButton),
                 ),
@@ -1178,14 +1178,13 @@ class VN97MainActivity : Activity() {
                     } else {
                         render(state)
                         provisioningView.text =
-                            "APK thử nghiệm này chưa kèm mô hình, nên chat chưa hoạt động. Chỉ nhập bộ mô hình VN97 đã được đóng gói và ký hợp lệ; không tự tạo tệp chữ ký hoặc khóa để điền vào đây."
+                            "Chưa có bộ G06 đã kiểm chứng, nên chat chưa hoạt động. Cần runtime, tokenizer và hồ sơ tương thích G06; CAP/MI1 và fast/slow không còn được dùng. Các công cụ dịch vụ số vẫn hoạt động."
                     }
                 }
             } catch (exc: Throwable) {
                 runOnUiThread {
                     renderFailure(
-                        "Trusted model activation failed: " +
-                            exc::class.java.simpleName
+                        "Không mở được G06: " + (exc.message ?: exc::class.java.simpleName).take(500)
                     )
                 }
             }
@@ -1427,7 +1426,7 @@ class VN97MainActivity : Activity() {
             append(review.sourceLicense)
             append("\nPlan SHA-256: ")
             append(review.planSha256)
-            append("\n\nChữ ký và gói lõi đã được xác minh. Khi bạn chọn kích hoạt, ứng dụng còn kiểm tra danh tính tokenizer và bộ thực thi R2/ONNX trước khi thay mô hình. Xác minh gói không đồng nghĩa chat đã sẵn sàng.")
+            append("\n\nChữ ký và gói lõi đã được xác minh. Khi bạn chọn kích hoạt, ứng dụng còn kiểm tra danh tính tokenizer và bộ thực thi G06/ONNX trước khi thay mô hình. Xác minh gói không đồng nghĩa chat đã sẵn sàng.")
         }
     }
 
@@ -1768,7 +1767,7 @@ class VN97MainActivity : Activity() {
                 runOnUiThread {
                     statusView.text =
                         "VN97 mobile evidence saved: ${target.absolutePath}\n" +
-                            "Model SHA-256: ${evidence.modelImageSha256}\n" +
+                            "G06 deployment SHA-256: ${evidence.modelImageSha256}\n" +
                             "Text p95: ${evidence.textPrefill.p95Ms} ms prefill / " +
                             "${evidence.textDecodePerToken.p95Ms} ms per decode token"
                     mobileEvidenceButton.isEnabled = true

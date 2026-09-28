@@ -3,7 +3,7 @@ package ai.vn97.platform
 import ai.vn97.runtime.NativeCognitionBoundary
 import ai.vn97.runtime.NativeCognitionLimits
 import ai.vn97.runtime.NativeCognitionLoop
-import ai.vn97.runtime.VN97R2CognitionInference
+import ai.vn97.runtime.VN97G06CognitionInference
 import ai.vn97.runtime.NativeMemoryRetriever
 import ai.vn97.runtime.NativeReasoningBudget
 import ai.vn97.runtime.NativeTypedCognitionAdapter
@@ -47,7 +47,7 @@ class VN97PaperTradingAgent private constructor(
     private val account: VN97PaperTradingAccount,
     private val memory: NativeMemoryRetriever?,
     private val limits: VN97PaperTradingAgentLimits,
-    private val inference: VN97R2CognitionInference,
+    private val inference: VN97G06CognitionInference,
 ) : AutoCloseable {
     fun evaluate(
         userGoal: String,
@@ -186,7 +186,7 @@ class VN97PaperTradingAgent private constructor(
 
     companion object {
         fun production(
-            inference: VN97R2CognitionInference,
+            inference: VN97G06CognitionInference,
             account: VN97PaperTradingAccount,
             memory: NativeMemoryRetriever? = null,
             limits: VN97PaperTradingAgentLimits =

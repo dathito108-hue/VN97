@@ -6,17 +6,19 @@ import java.io.FileOutputStream
 import java.security.MessageDigest
 
 /**
- * F6 crash-safe installer for APK-bundled R2 runtime assets.
+ * G06 crash-safe installer for APK-bundled G06 runtime assets.
  *
- * Release APKs must carry vn97-r2/. The installer copies into an app-private
+ * Release APKs must carry vn97-g06/. The installer copies into an app-private
  * staging directory, computes a deterministic tree identity, fsyncs files,
- * then atomically swaps the directory. F1/F2 perform semantic/hash validation
+ * then atomically swaps the directory. G06/G09/G10 perform semantic/hash validation
  * before any inference session can be opened.
  */
-class VN97R2BundledRuntime(
+class VN97G06BundledRuntime(
     private val application: VN97Application,
+    private val validateDeployment: (File) -> Unit,
 ) {
     private val lock = Any()
+    private var installedAssetId: String? = null
 
     fun installIfPresent(required: Boolean): Boolean =
         synchronized(lock) {
@@ -27,13 +29,21 @@ class VN97R2BundledRuntime(
                     .orEmpty()
             if (entries.isEmpty()) {
                 check(!required) {
-                    "turnkey APK is missing bundled VN97 R2 runtime"
+                    "turnkey APK is missing bundled VN97 G06 runtime"
                 }
                 return@synchronized false
             }
 
             val target =
                 File(application.noBackupFilesDir, TARGET_DIR)
+            // APK assets are immutable for this process. Runtime opening still verifies
+            // every declared file; this only avoids a multi-GB staging copy on reopen.
+            val cached = installedAssetId
+            if (cached != null && File(target, IDENTITY_FILE).takeIf { it.isFile }
+                    ?.readText(Charsets.US_ASCII)?.trim() == cached &&
+                runCatching { requireRequiredLayout(target) }.isSuccess) {
+                return@synchronized false
+            }
             val staging =
                 File(application.noBackupFilesDir, STAGING_DIR)
             val backup =
@@ -41,7 +51,7 @@ class VN97R2BundledRuntime(
 
             deleteRecursivelySafe(staging)
             check(staging.mkdirs()) {
-                "failed to create VN97 R2 staging directory"
+                "failed to create VN97 G06 staging directory"
             }
 
             val digest = MessageDigest.getInstance("SHA-256")
@@ -58,11 +68,12 @@ class VN97R2BundledRuntime(
                     byteCounter = { count ->
                         totalBytes = Math.addExact(totalBytes, count)
                         check(totalBytes <= MAX_TOTAL_BYTES) {
-                            "bundled VN97 R2 runtime exceeds byte bound"
+                            "bundled VN97 G06 runtime exceeds byte bound"
                         }
                     },
                 )
                 requireRequiredLayout(staging)
+                validateDeployment(staging)
                 val treeId =
                     digest.digest().joinToString("") {
                         "%02x".format(it.toInt() and 0xff)
@@ -75,7 +86,12 @@ class VN97R2BundledRuntime(
                         .takeIf { it.isFile }
                         ?.readText(Charsets.US_ASCII)
                         ?.trim()
-                if (existingId == treeId) {
+                if (existingId == treeId && runCatching {
+                        requireRequiredLayout(target)
+                        validateDeployment(target)
+                    }.isSuccess) {
+                    // Do not trust a stale marker over corrupt/missing installed bytes.
+                    installedAssetId = treeId
                     deleteRecursivelySafe(staging)
                     return@synchronized false
                 }
@@ -83,12 +99,12 @@ class VN97R2BundledRuntime(
                 deleteRecursivelySafe(backup)
                 if (target.exists()) {
                     check(target.renameTo(backup)) {
-                        "failed to stage prior VN97 R2 runtime for migration"
+                        "failed to stage prior VN97 G06 runtime for migration"
                     }
                 }
                 try {
                     check(staging.renameTo(target)) {
-                        "failed to atomically install VN97 R2 runtime"
+                        "failed to atomically install VN97 G06 runtime"
                     }
                     deleteRecursivelySafe(backup)
                 } catch (error: Throwable) {
@@ -97,6 +113,7 @@ class VN97R2BundledRuntime(
                     }
                     throw error
                 }
+                installedAssetId = treeId
                 true
             } catch (error: Throwable) {
                 deleteRecursivelySafe(staging)
@@ -116,13 +133,13 @@ class VN97R2BundledRuntime(
         val children = assets.list(assetPath)?.toList().orEmpty()
         if (children.isEmpty()) {
             require(relative.isNotEmpty()) {
-                "VN97 R2 asset root is empty"
+                "VN97 G06 asset root is empty"
             }
             requireSafeRelative(relative)
             val out = File(destination, relative)
             val parent = checkNotNull(out.parentFile)
             check(parent.isDirectory || parent.mkdirs()) {
-                "failed to create VN97 R2 asset directory"
+                "failed to create VN97 G06 asset directory"
             }
             digest.update(relative.toByteArray(Charsets.UTF_8))
             digest.update(0.toByte())
@@ -133,7 +150,7 @@ class VN97R2BundledRuntime(
                         val count = input.read(buffer)
                         if (count < 0) break
                         check(count > 0) {
-                            "VN97 R2 asset read made no progress"
+                            "VN97 G06 asset read made no progress"
                         }
                         byteCounter(count.toLong())
                         digest.update(buffer, 0, count)
@@ -165,15 +182,18 @@ class VN97R2BundledRuntime(
 
     private fun requireRequiredLayout(root: File) {
         val required = listOf(
-            "binding.vn97r2f2.json",
-            "tuning.vn97r2e4.json",
-            "runtime/runtime.vn97ort1.json",
-            "runtime/step.onnx",
+            "binding.vn97m2g09.json",
+            "promotion.vn97m2g10.json",
+            "tokenizer/tokenizer.vn97m2g08.json",
+            "tokenizer/vocab.json",
+            "tokenizer/merges.txt",
+            "tuning.vn97m2g07.json",
+            "runtime/runtime.vn97m2g06.json",
         )
         required.forEach { relative ->
             val file = File(root, relative)
             check(file.isFile && file.length() > 0L) {
-                "bundled VN97 R2 required asset missing: $relative"
+                "bundled VN97 G06 required asset missing: $relative"
             }
         }
         val chunks =
@@ -181,13 +201,13 @@ class VN97R2BundledRuntime(
                 .listFiles()
                 ?.filter {
                     it.isFile &&
-                        Regex("^chunk-[1-9][0-9]*\\.onnx$")
+                        Regex("^recurrent-(8|16|32)\\.onnx$")
                             .matches(it.name) &&
                         it.length() > 0L
                 }
                 .orEmpty()
         check(chunks.isNotEmpty()) {
-            "bundled VN97 R2 runtime has no chunk graph"
+            "bundled VN97 G06 runtime has no chunk graph"
         }
     }
 
@@ -201,7 +221,7 @@ class VN97R2BundledRuntime(
         )
         file.deleteRecursively()
         check(!file.exists()) {
-            "failed to clean VN97 R2 runtime path"
+            "failed to clean VN97 G06 runtime path"
         }
     }
 
@@ -227,12 +247,12 @@ class VN97R2BundledRuntime(
     }
 
     companion object {
-        private const val ASSET_ROOT = "vn97-r2"
-        private const val TARGET_DIR = "vn97-r2"
-        private const val STAGING_DIR = ".vn97-r2.staging"
-        private const val BACKUP_DIR = ".vn97-r2.backup"
+        private const val ASSET_ROOT = "vn97-g06"
+        private const val TARGET_DIR = "vn97-g06"
+        private const val STAGING_DIR = ".vn97-g06.staging"
+        private const val BACKUP_DIR = ".vn97-g06.backup"
         private const val IDENTITY_FILE = ".apk-assets.sha256"
         private const val MAX_TOTAL_BYTES =
-            768L * 1024L * 1024L
+            8L * 1024L * 1024L * 1024L
     }
 }

@@ -12,10 +12,10 @@ import ai.vn97.platform.VN97ExecutionHealthLease
 import ai.vn97.platform.VN97ExecutionHealthState
 import ai.vn97.platform.VN97ExecutionHealthStore
 import ai.vn97.platform.VN97ExecutionWatchdog
-import ai.vn97.runtime.NativeActivatedInventoryModelLoader
+import ai.vn97.runtime.VN97G06Model
 import ai.vn97.runtime.NativeCognitionBoundary
 import ai.vn97.runtime.NativePreparedVision
-import ai.vn97.runtime.VN97R2CognitionInference
+import ai.vn97.runtime.VN97G06CognitionInference
 import ai.vn97.runtime.NativePlanController
 import ai.vn97.runtime.NativeTypedCognitionAdapter
 import android.app.Notification
@@ -304,17 +304,16 @@ class VN97GameAgentService : Service() {
                 }
 
                 val model = checkNotNull(
-                    NativeActivatedInventoryModelLoader.openOrNull(
-                        File(
+                    VN97G06Model.openOrNull(context = app, root = File(
                             app.noBackupFilesDir,
-                            "vn97-capabilities",
+                            "vn97-g06",
                         )
                     )
                 ) {
                     "trusted VN97 model is not active"
                 }
                 model.use {
-                    VN97R2CognitionInference.open(
+                    VN97G06CognitionInference.open(
                         context = app,
                         model = model,
                     ).use { engine ->
@@ -427,7 +426,7 @@ class VN97GameAgentService : Service() {
         app: VN97Application,
         goal: String,
         packageName: String,
-        engine: VN97R2CognitionInference,
+        engine: VN97G06CognitionInference,
         coordinator: ai.vn97.platform.M6EndToEndExternalCoordinator,
         memory: ai.vn97.runtime.NativeMemoryStore,
         episodeMemory: VN97GameEpisodeMemory,
@@ -641,7 +640,7 @@ class VN97GameAgentService : Service() {
     }
 
     private fun verifyOutcome(
-        engine: VN97R2CognitionInference,
+        engine: VN97G06CognitionInference,
         goal: String,
         beforeObservation: String,
         afterObservation: String,
