@@ -363,7 +363,7 @@ class VN97GptNeoXTokenizer(
     ): String = decodeBytes(
         tokenIds,
         skipEos=skipEos,
-    ).toString(Charsets.UTF_8.name())
+    ).toString(Charsets.UTF_8)
 
     fun maskInvalidPaddedLogits(logits: FloatArray) {
         packageInfo.maskInvalidPaddedLogits(logits)
