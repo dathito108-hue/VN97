@@ -1,6 +1,8 @@
 package ai.vn97.platform
 
 import ai.vn97.runtime.VN97G06Model
+import ai.vn97.runtime.VN97G06CognitionInference
+import android.content.Context
 import ai.vn97.runtime.NativeCognitionLimits
 import ai.vn97.runtime.NativeCognitionLoop
 import ai.vn97.runtime.NativeCognitionRuntimeConfig
@@ -29,28 +31,112 @@ data class VN97AutonomousContinuationSeed(
     }
 }
 
+private fun autonomousRuntimeConfig(): NativeRuntimeConfig = VN97G06Model.continuityConfig()
 
-/** Planner continuity must not serialize old SSM state as if it were G06 state. */
-@Suppress("UNUSED_PARAMETER")
+private fun autonomousSeed(
+    model: VN97G06Model,
+    controller: NativePlanController,
+    cognitionRuntimeConfig: NativeCognitionRuntimeConfig,
+): VN97AutonomousContinuationSeed {
+    val runtimeConfig =
+        autonomousRuntimeConfig()
+    val snapshot =
+        model.continuitySnapshot()
+    if (!snapshot.modelBinding.modelId.contentEquals(model.info.modelId)) {
+        throw IllegalStateException(
+            "autonomous continuation seed model identity mismatch"
+        )
+    }
+    return VN97AutonomousContinuationSeed(
+        runtimeConfig = runtimeConfig,
+        snapshot = snapshot,
+        plan = controller.plan,
+    )
+}
+
 fun createVN97AutonomousContinuationSeed(
+    context: Context,
     model: VN97G06Model,
     goal: String,
-    budget: NativeReasoningBudget = NativeReasoningBudget(),
-    cognitionRuntimeConfig: NativeCognitionRuntimeConfig = NativeCognitionRuntimeConfig(),
-    cognitionLimits: NativeCognitionLimits = NativeCognitionLimits(),
+    budget: NativeReasoningBudget = NativeReasoningBudget(
+        maxTransitions = 128,
+        maxRetriesPerStep = 3,
+        maxMemoryQueries = 16,
+        maxMemoryHits = 8,
+    ),
+    cognitionRuntimeConfig: NativeCognitionRuntimeConfig =
+        NativeCognitionRuntimeConfig(),
+    cognitionLimits: NativeCognitionLimits = NativeCognitionLimits(
+        maxPlanSteps = 24,
+        maxExternalSteps = 8,
+        maxCyclesPerRun = 32,
+    ),
     createdNs: Long = System.currentTimeMillis() * 1_000_000L,
-): VN97AutonomousContinuationSeed = error(
-    "G06: tác vụ qua khởi động lại đang chờ chuyển checkpoint; chat và tác vụ trong phiên vẫn dùng được. Không chạy lại lõi cũ."
-)
+): VN97AutonomousContinuationSeed {
+    require(goal.isNotBlank()) {
+        "autonomous goal must not be blank"
+    }
+    require(createdNs >= 0L) {
+        "autonomous goal createdNs must be non-negative"
+    }
+    require(model.info.hasTokenizer) {
+        "autonomous goal planning requires G06 tokenizer"
+    }
 
-@Suppress("UNUSED_PARAMETER")
+    val controller = VN97G06CognitionInference.open(context, model, cognitionRuntimeConfig).use { engine ->
+        NativeCognitionLoop(NativeTypedCognitionAdapter(engine), cognitionLimits).buildPlan(
+        goal = goal,
+        budget = budget,
+        createdNs = createdNs,
+            )
+    }
+
+    return autonomousSeed(
+        model = model,
+        controller = controller,
+        cognitionRuntimeConfig = cognitionRuntimeConfig,
+    )
+}
+
+
 fun createVN97AutonomousReplanSeed(
+    context: Context,
     model: VN97G06Model,
     previousPlan: NativePlan,
     feedback: String,
-    cognitionRuntimeConfig: NativeCognitionRuntimeConfig = NativeCognitionRuntimeConfig(),
-    cognitionLimits: NativeCognitionLimits = NativeCognitionLimits(),
+    cognitionRuntimeConfig: NativeCognitionRuntimeConfig =
+        NativeCognitionRuntimeConfig(),
+    cognitionLimits: NativeCognitionLimits = NativeCognitionLimits(
+        maxPlanSteps = 24,
+        maxExternalSteps = 8,
+        maxCyclesPerRun = 32,
+    ),
     createdNs: Long = System.currentTimeMillis() * 1_000_000L,
-): VN97AutonomousContinuationSeed = error(
-    "G06: checkpoint tác vụ cũ không tương thích; không tự tiếp tục bằng lõi cũ."
-)
+): VN97AutonomousContinuationSeed {
+    require(previousPlan.isTerminal()) {
+        "autonomous replan requires terminal previous plan"
+    }
+    require(previousPlan.goal.isNotBlank()) {
+        "autonomous replan goal must not be blank"
+    }
+    require(feedback.isNotBlank()) {
+        "autonomous replan feedback must not be blank"
+    }
+    require(model.info.hasTokenizer) {
+        "autonomous replanning requires G06 tokenizer"
+    }
+
+    val revision = VN97G06CognitionInference.open(context, model, cognitionRuntimeConfig).use { engine ->
+        NativeCognitionLoop(NativeTypedCognitionAdapter(engine), cognitionLimits).replanTerminalPlan(
+        previousPlan = previousPlan,
+        feedback = feedback,
+        createdNs = createdNs,
+            )
+    }
+
+    return autonomousSeed(
+        model = model,
+        controller = revision.controller,
+        cognitionRuntimeConfig = cognitionRuntimeConfig,
+    )
+}

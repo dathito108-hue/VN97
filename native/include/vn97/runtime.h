@@ -67,6 +67,9 @@ public:
         std::size_t blob_size,
         RuntimeSession** out);
 
+    // Planner-only lifecycle carrier for an external ONNX model; never native inference.
+    static RuntimeStatus CreateExternalIdentity(const std::uint8_t* model_id,
+        std::size_t count, RuntimeSession** out);
     RuntimeStatus Activate();
     RuntimeStatus Suspend();
     RuntimeStatus Resume();
@@ -123,6 +126,7 @@ private:
     RuntimeLifecycle lifecycle_ = RuntimeLifecycle::kCreated;
     std::uint64_t sequence_position_ = 0;
     bool model_bound_ = false;
+    bool external_identity_ = false;
     std::array<std::uint8_t, 32> model_id_ = {};
     std::vector<float> state_;
     std::vector<float> language_workspace_;
@@ -165,6 +169,8 @@ int vn97_runtime_restore(
     std::size_t blob_size,
     std::uint64_t* handle_out);
 
+int vn97_runtime_create_external_identity(const std::uint8_t* model_id,
+    std::size_t count, std::uint64_t* handle_out);
 int vn97_runtime_destroy(std::uint64_t handle);
 int vn97_runtime_activate(std::uint64_t handle);
 int vn97_runtime_suspend(std::uint64_t handle);

@@ -779,6 +779,7 @@ class VN97AutonomousWorkManager(
         }
 
         val seed = createVN97AutonomousReplanSeed(
+            context = application,
             model = model,
             previousPlan = terminalPlan,
             feedback = buildReplanFeedback(
@@ -1191,17 +1192,10 @@ class VN97AutonomousWorkManager(
         }
     }
 
-    private fun runtimeConfigFor(
-        model: ai.vn97.runtime.VN97G06Model,
-    ): NativeRuntimeConfig =
-        NativeRuntimeConfig(
-            layers = model.info.layers,
-            batch = 1,
-            dModel = model.info.dModel,
-            dState = model.info.dState,
-            recurrentBackend = NativeBackend.AUTO,
-            packedBackend = NativeBackend.AUTO,
-        )
+    private fun runtimeConfigFor(model: ai.vn97.runtime.VN97G06Model): NativeRuntimeConfig {
+        model.requireOpen()
+        return ai.vn97.runtime.VN97G06Model.continuityConfig()
+    }
 
     private fun terminalRecordFromPlan(
         running: VN97AutonomousGoalRecord,

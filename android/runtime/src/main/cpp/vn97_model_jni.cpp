@@ -516,3 +516,20 @@ Java_ai_vn97_runtime_NativeRuntimeBindings_nativeModelBinding(
         reinterpret_cast<const jbyte*>(model_id.data()));
     return 0;
 }
+
+extern "C" JNIEXPORT jint JNICALL
+Java_ai_vn97_runtime_NativeRuntimeBindings_nativeCreateExternalIdentity(
+    JNIEnv* env, jobject, jbyteArray identity, jlongArray output) {
+    if (identity == nullptr || env->GetArrayLength(identity) != 32 || !HasLength(env, output, 1))
+        return kRuntimeInvalidConfig;
+    std::array<std::uint8_t, 32> id{};
+    env->GetByteArrayRegion(identity, 0, 32, reinterpret_cast<jbyte*>(id.data()));
+    if (env->ExceptionCheck()) return kRuntimeInvalidConfig;
+    std::uint64_t handle = 0;
+    const int status = vn97_runtime_create_external_identity(id.data(), id.size(), &handle);
+    if (status == 0) {
+        const jlong result = static_cast<jlong>(handle);
+        env->SetLongArrayRegion(output, 0, 1, &result);
+    }
+    return status;
+}

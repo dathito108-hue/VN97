@@ -80,13 +80,13 @@ data class VN97MobileEvidenceRecord(
             append(",\"sdk_int\":")
             append(sdkInt)
             append("}")
-            append(",\"model_image_sha256\":")
+            append(",\"deployment_identity_sha256\":")
             append(jsonString(modelImageSha256))
             append(",\"peak_pss_kib\":")
             append(peakPssKib)
             append(",\"runs\":")
             append(runs)
-            append(",\"schema\":\"VN97MOBEVID1\"")
+            append(",\"schema\":\"VN97G06MOBEVID1\"")
             append(",\"speech_prefill\":")
             append(speech)
             append(",\"text_decode_per_token\":")
@@ -221,24 +221,9 @@ class VN97OnDeviceEvidenceCollector(
     ): Observation {
         check(preparedSpeech == null) { "G06 speech graph is not installed" }
         model.requireOpen()
-        val textSession = ai.vn97.runtime.VN97Mamba2OrtExecutor.open(
-            context = appContext,
-            runtimeRoot = java.io.File(model.root, "runtime"),
-            tuningFile = java.io.File(model.root, ai.vn97.runtime.VN97G06Model.TUNING_FILE),
-            maxCachedSessions = 1,
-        )
-        return textSession.use {
-            val prefillStart = SystemClock.elapsedRealtimeNanos()
-            var logits = it.prefill(promptIds).logits
-            val prefillEnd = SystemClock.elapsedRealtimeNanos()
-            val decodeStart = SystemClock.elapsedRealtimeNanos()
-            repeat(decodeTokens) { _ ->
-                model.tokenizer.maskInvalidPaddedLogits(logits)
-                logits = it.step(argmax(logits)).logits
-            }
-            val decodeEnd = SystemClock.elapsedRealtimeNanos()
-            Observation(nanosToMs(prefillEnd - prefillStart),
-                nanosToMs(decodeEnd - decodeStart) / decodeTokens.toDouble(), null)
+        return ai.vn97.runtime.VN97G06CognitionInference.open(appContext, model).use {
+            val timing = it.measurePrefillDecode(promptIds, decodeTokens)
+            Observation(nanosToMs(timing.first), nanosToMs(timing.second) / decodeTokens.toDouble(), null)
         }
     }
 

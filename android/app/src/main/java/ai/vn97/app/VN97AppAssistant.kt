@@ -255,6 +255,7 @@ class VN97AppAssistant(
             "trusted VN97 model is not active"
         }
         createVN97AutonomousContinuationSeed(
+            context = application,
             model = activeModel,
             goal = goal,
         )

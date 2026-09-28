@@ -214,7 +214,7 @@ class VN97Mamba2CognitionCandidate private constructor(
                 runtimeRoot = runtimeRoot,
                 qnnBackendPath = qnnBackendPath,
                 tuningFile = tuningFile,
-                maxCachedSessions = 2,
+                maxCachedSessions = 1,
             )
             try {
                 require(executor.hasDeviceMeasuredTuning()) {
@@ -316,6 +316,24 @@ class VN97Mamba2CognitionCandidate private constructor(
             stopReason = stop,
             sequencePosition = executor.currentSequencePosition(),
         )
+    }
+
+    /** Timings from this same engine; does not open a second model for diagnostics. */
+    fun measurePrefillDecode(promptIds: IntArray, decodeTokens: Int): Pair<Long, Long> = synchronized(lock) {
+        check(!closed)
+        require(promptIds.isNotEmpty() && promptIds.size <= config.inferenceLimits.maxPromptTokens)
+        require(promptIds.all { it in 0 until binding.tokenIdSpace })
+        require(decodeTokens in 1..1024)
+        executor.resetRecurrentState()
+        val start = System.nanoTime()
+        var run = executor.prefill(promptIds)
+        val prefillEnd = System.nanoTime()
+        repeat(decodeTokens) {
+            tokenizer.maskInvalidPaddedLogits(run.logits)
+            val token = sampleG09(run.logits, binding.tokenIdSpace, Mamba2CandidateSamplerConfig(), Random(97))
+            run = executor.step(token)
+        }
+        Pair(prefillEnd - start, System.nanoTime() - prefillEnd)
     }
 
     override fun embedText(

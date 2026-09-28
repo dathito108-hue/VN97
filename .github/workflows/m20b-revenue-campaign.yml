@@ -13,6 +13,10 @@ on:
       - "android/avatar/**"
       - "android/platform/**"
       - "android/runtime/**"
+      - "native/src/runtime.cpp"
+      - "native/include/vn97/runtime.h"
+      - "native/tests/external_identity_test.cpp"
+      - "tests/host_g06_app_route.py"
   workflow_dispatch:
 
 permissions:
@@ -52,6 +56,16 @@ jobs:
           fi
           yes | "$SDKMANAGER" --licenses >/dev/null || true
           "$SDKMANAGER" --channel=3 "platforms;android-37.0" "build-tools;36.0.0" "ndk;28.2.13676358" "cmake;3.22.1"
+
+      - name: Verify G06 route and planner-only continuity
+        shell: bash
+        run: |
+          python3 tests/host_g06_app_route.py
+          python3 tests/host_mamba2_runtime_contract.py
+          for test in external_identity_test runtime_test; do
+            g++ -std=c++17 -O1 -pthread -I native/include "native/tests/$test.cpp" native/src/runtime.cpp native/src/language.cpp native/src/packed_ternary.cpp native/src/recurrent.cpp native/src/selective.cpp -o "$RUNNER_TEMP/$test"
+            "$RUNNER_TEMP/$test"
+          done
 
       - name: Compile debug APK
         shell: bash
