@@ -95,8 +95,8 @@ data class Mamba2ProductionPromotion(
                 "model_parity_receipt_id",
                 "token_parity_receipt_id",
                 "mobile_qualification_receipt_id",
-                "model_max_abs_error",
-                "state_max_abs_error",
+                "model_max_abs_error_e12",
+                "state_max_abs_error_e12",
                 "token_parity_cases",
                 "target_family",
                 "same_weights_semantics",
@@ -116,8 +116,8 @@ data class Mamba2ProductionPromotion(
             require(root.getBoolean("rollback_required"))
             require(root.getBoolean("production_activation_authorized"))
             require(root.getInt("token_parity_cases") >= 100)
-            require(root.getDouble("model_max_abs_error") >= 0.0)
-            require(root.getDouble("state_max_abs_error") >= 0.0)
+            require(root.getLong("model_max_abs_error_e12") >= 0L)
+            require(root.getLong("state_max_abs_error_e12") >= 0L)
             require(
                 root.getString("target_family") ==
                     "Samsung Galaxy S21 FE"
