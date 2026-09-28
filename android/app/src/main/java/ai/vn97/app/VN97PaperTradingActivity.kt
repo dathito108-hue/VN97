@@ -341,7 +341,8 @@ class VN97PaperTradingActivity : Activity() {
                     )
                 statusView.text =
                     sessionText +
-                        formatPerformanceEvidence(performance)
+                        formatPerformanceEvidence(performance) +
+                        formatRevenueQualification(performance)
                 if (
                     jobIdView.text.isNullOrBlank() &&
                     reports.isNotEmpty()
@@ -397,6 +398,39 @@ class VN97PaperTradingActivity : Activity() {
                 append(" orders=")
                 append(summary.orderCount)
             }
+        }
+    }
+
+    private fun formatRevenueQualification(
+        aggregate: VN97PaperPerformanceAggregate,
+    ): String {
+        val result =
+            VN97RevenueQualificationGate.evaluate(aggregate)
+        return buildString {
+            append("\n\nRevenue qualification:")
+            append("\nstage=")
+            append(result.stage.name)
+            append(" paper_qualified=")
+            append(result.paperQualified)
+            append("\nsessions=")
+            append(result.sessionsConsidered)
+            append(" evidence=")
+            append(result.evidenceConsidered)
+            append(" profitable_sessions=")
+            append(result.profitableSessions)
+            append(" orders=")
+            append(result.ordersTotal)
+            append("\nmedian_return_bps=")
+            append(result.medianReturnBasisPoints ?: "n/a")
+            append(" worst_return_bps=")
+            append(result.worstReturnBasisPoints ?: "n/a")
+            append(" worst_drawdown_bps=")
+            append(result.worstDrawdownBasisPoints ?: "n/a")
+            if (result.blockers.isNotEmpty()) {
+                append("\nblockers=")
+                append(result.blockers.joinToString(","))
+            }
+            append("\nproduction_money_movement_authorized=false")
         }
     }
 
