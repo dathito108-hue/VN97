@@ -19,6 +19,11 @@ import torch
 
 print("torch=", torch.__version__)
 print("onnxruntime=", ort.__version__)
+if not torch.__version__.startswith("2.10.0"):
+    raise SystemExit(
+        f"K2E source-semantic baseline requires Torch 2.10.0; "
+        f"got {torch.__version__}"
+    )
 print("providers=", ort.get_available_providers())
 if "CPUExecutionProvider" not in ort.get_available_providers():
     raise SystemExit("K2E requires CPUExecutionProvider")
