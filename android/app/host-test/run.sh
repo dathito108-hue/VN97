@@ -58,3 +58,14 @@ java -jar "$WORK/m10j-bootstrap-asset-contract-test.jar"
     -d "$WORK/m13a-autonomous-goal-store-test.jar"
 
 java -jar "$WORK/m13a-autonomous-goal-store-test.jar"
+
+
+"$KOTLINC" \
+    "$ROOT/android/app/src/main/java/ai/vn97/app/VN97RevenueQualification.kt" \
+    "$HERE/M20ARevenueEvidenceStub.kt" \
+    "$HERE/M20ARevenueQualificationTest.kt" \
+    -Werror \
+    -include-runtime \
+    -d "$WORK/m20a-revenue-qualification-test.jar"
+
+java -jar "$WORK/m20a-revenue-qualification-test.jar"
