@@ -291,11 +291,12 @@ def run_real_parity(
         )
 
     transfer = _load_transfer_evidence(evidence_path)
-    spec, _, source_receipt = inspect_pinned_source(
+    spec, source_state, source_receipt = inspect_pinned_source(
         source_root,
         source_revision=PINNED_SOURCE_REVISION,
         verify_weight_sha256=True,
     )
+    del source_state
     if source_receipt.weight_sha256 != transfer["source_weight_sha256"]:
         raise ValueError("K1 source weight differs from real G0.3 transfer")
     if int(transfer["unique_core_parameters"]) != 2_702_599_680:
