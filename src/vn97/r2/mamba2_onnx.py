@@ -133,6 +133,24 @@ def _frozen_parameter(value: torch.Tensor) -> nn.Parameter:
     return nn.Parameter(value.detach(), requires_grad=False)
 
 
+def _mamba2_d_b_x_activation(
+    dt_value: torch.Tensor,
+    b_value: torch.Tensor,
+    x_heads: torch.Tensor,
+) -> torch.Tensor:
+    """Exact activation-dtype dBx lowering without ONNX Einsum.
+
+    For the no-reduction equation bh,bn,bhp->bhpn, PyTorch's FP16 CPU
+    semantics match the left-associated product (dt*x)*B. Keeping that
+    explicit prevents ORT from choosing a different Einsum contraction/order
+    while preserving the inherited activation dtype.
+    """
+    return (
+        dt_value[:, :, None, None]
+        * x_heads[:, :, :, None]
+    ) * b_value[:, None, None, :]
+
+
 class VN97Mamba2OnnxLayer(nn.Module):
     def __init__(
         self,
@@ -276,8 +294,12 @@ class VN97Mamba2OnnxLayer(nn.Module):
         # Preserve the official Mamba-2 fallback activation precision
         # for dBx. dA remains float32 through A_log, while dt/B/x multiply
         # in the inherited activation dtype before the recurrent add.
-        d_b_x = torch.einsum(
-            "bh,bn,bhp->bhpn",
+        #
+        # K2D isolated ORT CPU drift to the no-reduction dBx Einsum. Use an
+        # explicit left-associated broadcast product so ONNX keeps the same
+        # FP16 operation order as PyTorch CPU instead of selecting its own
+        # Einsum contraction/order.
+        d_b_x = _mamba2_d_b_x_activation(
             dt_value,
             b_value,
             x_heads,
