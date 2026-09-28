@@ -93,12 +93,29 @@ fun main() {
             previousFailure = "",
             dependencies = listOf(dependency),
             memoryContext = listOf(
-                NativeMemoryContextItem(7L, "fact", "unit", 1.0, 1.0, 0.5, 0.8)
+                NativeMemoryContextItem(
+                    recordId = 7L,
+                    content = "fact",
+                    source = "unit",
+                    score = 1.0,
+                    semanticScore = 1.0,
+                    recencyScore = 0.5,
+                    importanceScore = 0.8,
+                    timestampNs = 30L,
+                    parentRecordId = 6L,
+                    kind = NativeMemoryKind.SEMANTIC,
+                    supersedesRecordId = 6L,
+                )
             ),
             contextTruncated = false,
         )
     )
     check(proposal.result == "candidate" && proposal.confidence == 0.8)
+    val stepRequest = inference.calls[2].second
+    check(stepRequest.contains("\"timestamp_ns\":30"))
+    check(stepRequest.contains("\"parent_record_id\":6"))
+    check(stepRequest.contains("\"kind\":\"SEMANTIC\""))
+    check(stepRequest.contains("\"supersedes_record_id\":6"))
 
     val decision = adapter.verifyStep(
         NativeVerificationRequest(

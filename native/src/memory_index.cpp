@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -10,6 +11,43 @@ namespace vn97 {
 namespace {
 
 using namespace memory_internal;
+
+constexpr char kCorrectionSourcePrefix[] = "VN97COR1:";
+
+bool IsExplicitSemanticCorrection(
+    const std::uint8_t* blob,
+    std::size_t blob_size,
+    const MemoryIndex& index,
+    const MemoryIndexEntry& entry) {
+    if (
+        entry.kind != MemoryKind::kSemantic ||
+        entry.parent_id == 0 ||
+        entry.vector_count != index.vector_dim ||
+        entry.source_size < sizeof(kCorrectionSourcePrefix) - 1 ||
+        entry.source_offset > blob_size ||
+        entry.source_size > blob_size - entry.source_offset
+    ) {
+        return false;
+    }
+    const auto parent = std::lower_bound(
+        index.entries.begin(),
+        index.entries.end(),
+        entry.parent_id,
+        [](const MemoryIndexEntry& candidate, std::uint64_t record_id) {
+            return candidate.record_id < record_id;
+        });
+    if (
+        parent == index.entries.end() ||
+        parent->record_id != entry.parent_id ||
+        parent->kind != MemoryKind::kSemantic
+    ) {
+        return false;
+    }
+    return std::memcmp(
+        blob + entry.source_offset,
+        kCorrectionSourcePrefix,
+        sizeof(kCorrectionSourcePrefix) - 1) == 0;
+}
 
 MemoryStatus ParseFrame(
     const std::uint8_t* blob,
@@ -324,7 +362,21 @@ MemoryStatus RetrieveMemory(
     std::vector<RankedHit> ranked;
     ranked.reserve(index.entries.size());
 
+    // Corrections are append-only semantic records with an explicit reserved
+    // source envelope. Suppress every corrected ancestor before ranking so a
+    // stale fact cannot win merely because it has a higher historical score.
+    std::unordered_set<std::uint64_t> superseded_record_ids;
     for (const auto& entry : index.entries) {
+        if (IsExplicitSemanticCorrection(blob, blob_size, index, entry)) {
+            superseded_record_ids.insert(entry.parent_id);
+        }
+    }
+
+    for (const auto& entry : index.entries) {
+        if (superseded_record_ids.find(entry.record_id) !=
+            superseded_record_ids.end()) {
+            continue;
+        }
         const std::uint32_t kind_bit =
             entry.kind == MemoryKind::kEpisodic ? 0x1u : 0x2u;
         if (

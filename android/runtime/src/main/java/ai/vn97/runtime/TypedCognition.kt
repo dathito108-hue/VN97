@@ -108,9 +108,24 @@ data class NativeMemoryContextItem(
     val semanticScore: Double,
     val recencyScore: Double,
     val importanceScore: Double,
+    val timestampNs: Long = 0L,
+    val parentRecordId: Long = 0L,
+    val kind: NativeMemoryKind = NativeMemoryKind.SEMANTIC,
+    val supersedesRecordId: Long = 0L,
 ) {
     init {
         require(recordId > 0L) { "recordId must be positive" }
+        require(timestampNs >= 0L) { "timestampNs must be non-negative" }
+        require(parentRecordId >= 0L) { "parentRecordId must be non-negative" }
+        require(supersedesRecordId >= 0L) {
+            "supersedesRecordId must be non-negative"
+        }
+        require(
+            supersedesRecordId == 0L ||
+                supersedesRecordId == parentRecordId
+        ) {
+            "supersedesRecordId must identify the parent record"
+        }
         require(listOf(score, semanticScore, recencyScore, importanceScore).all { it.isFinite() }) {
             "memory context scores must be finite"
         }
@@ -412,6 +427,10 @@ private fun memoryContextJson(item: NativeMemoryContextItem): VnJsonObject = VnS
     "semantic_score" to VnStrictJson.double(item.semanticScore),
     "recency_score" to VnStrictJson.double(item.recencyScore),
     "importance_score" to VnStrictJson.double(item.importanceScore),
+    "timestamp_ns" to VnStrictJson.long(item.timestampNs),
+    "parent_record_id" to VnStrictJson.long(item.parentRecordId),
+    "kind" to VnStrictJson.string(item.kind.name),
+    "supersedes_record_id" to VnStrictJson.long(item.supersedesRecordId),
 )
 
 private fun parsePlanStep(value: VnJsonValue, index: Int): NativePlanStepSpec {
