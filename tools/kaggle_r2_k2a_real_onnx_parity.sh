@@ -62,11 +62,25 @@ else
 fi
 
 python -m pip uninstall -y -q onnxruntime onnxruntime-gpu || true
-python -m pip install --disable-pip-version-check -q   "onnx>=1.17,<2"   "onnxscript>=0.2,<1"   "onnxruntime-gpu>=1.20,<2"
+python -m pip install --disable-pip-version-check -q   "onnx>=1.17,<2"   "onnxscript>=0.2,<1"   "onnxruntime-gpu==1.26.0"
 
 python - <<'PY'
+import torch
 import onnxruntime as ort
+
+expected_ort = "1.26.0"
+if ort.__version__ != expected_ort:
+    raise SystemExit(
+        f"K2A requires onnxruntime-gpu {expected_ort} for Kaggle CUDA 12.8; "
+        f"got {ort.__version__}"
+    )
+if not str(torch.version.cuda).startswith("12."):
+    raise SystemExit(
+        f"K2A CUDA-12 runtime contract mismatch: torch CUDA={torch.version.cuda}"
+    )
+ort.preload_dlls()
 print("onnxruntime=", ort.__version__)
+print("torch_cuda=", torch.version.cuda)
 print("providers=", ort.get_available_providers())
 if "CUDAExecutionProvider" not in ort.get_available_providers():
     raise SystemExit("CUDAExecutionProvider is unavailable")

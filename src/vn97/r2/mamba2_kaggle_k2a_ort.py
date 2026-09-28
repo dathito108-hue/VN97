@@ -137,6 +137,12 @@ def _ort_actual(
 ) -> tuple[list[dict[str, Any]], str]:
     import onnxruntime as ort
 
+    # K2A runs in the same process after torch has initialized the Kaggle
+    # CUDA runtime. Explicitly preload the CUDA/cuDNN libraries before ORT
+    # creates its provider so it resolves the same runtime family.
+    if hasattr(ort, "preload_dlls"):
+        ort.preload_dlls()
+
     providers = ort.get_available_providers()
     if "CUDAExecutionProvider" not in providers:
         raise RuntimeError(
