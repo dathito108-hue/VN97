@@ -87,6 +87,17 @@ android {
                 "false",
             )
         }
+        create("k2q") {
+            initWith(getByName("debug"))
+            applicationIdSuffix = ".k2q"
+            versionNameSuffix = "-k2q"
+            buildConfigField(
+                "boolean",
+                "VN97_TURNKEY_REQUIRED",
+                "false",
+            )
+            matchingFallbacks += listOf("debug")
+        }
         release {
             buildConfigField(
                 "boolean",
