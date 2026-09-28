@@ -175,3 +175,37 @@ gates must remain non-production regardless of this probe's loss.
 Run `python research/vn97_native/evaluate_language_candidate.py --output NEW_DIR`.
 CI preserves the tiny research checkpoint and evidence for seven days; exact
 results must be read from that run's report rather than assumed from this plan.
+
+## User-requested 10M CPU pilot
+
+The bounded research configuration now admits d_model=512, d_inner=768 and five
+layers: **9,979,914 trainable parameters**. `CandidateConfig.parameter_count()`
+is tested against instantiated small models and the pilot checks the actual
+10M count before optimization. The hard ceiling is 10.5M, not unlimited scaling.
+Production geometry/loaders remain untouched.
+
+`pilot_10m.py` uses 512 original synthetic training records over copy-ID, sum,
+deduplication and request classification. Validation/test each contain 64 records
+with different prompt templates. Full prompts are disjoint; common task rules,
+substrings and some answers are shared. Byte vocabulary remains experimental.
+Only answer bytes contribute to loss. Fixed seed97, batch4, AdamW 0.0003, up to
+160 steps or 480 training seconds; no validation/test checkpoint selection.
+Preflight requires 2.5GB available memory and 1GB free disk. The time guard is
+checked after each completed step and excludes setup, evaluation and saving.
+
+Evaluation includes answer-byte loss/accuracy per task and eight bounded greedy
+free-generation examples with exact answer matching. Accuracy with provided
+previous correct bytes must not be confused with successful autonomous answers.
+Inspect raw generations, even if byte loss improves. This is a short learning
+pilot, not completed pretraining, AGI, architecture superiority or mobile speed.
+
+The workflow runs this heavier stage only on `vn97-10m-cpu-pilot` PR events;
+ordinary future research PRs keep lightweight checks. Job timeout20min is a
+ceiling, not a request to consume all that time. Do not manually rerun unchanged
+training just to improve a score. Report completed steps and any time-budget stop.
+
+Exact FP32 weights and provenance are saved and hash-checked through a reload.
+The ZIP is split into 20MiB pieces solely for transport; concatenate in numbered
+order and compare SHA256 with `bundle-sha256.json`. This is not quantization.
+Optimizer/RNG are not saved: later learning may start from these weights but is
+not a bit-exact resume of this optimizer run. Keep production activation false.

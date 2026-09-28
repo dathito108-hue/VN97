@@ -24,7 +24,7 @@ jobs:
         run: python -m unittest discover -s research/vn97_native -p 'test_adaptive_state.py' -v
   trainable:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -43,5 +43,37 @@ jobs:
         with:
           name: VN97-native-language-${{ github.run_id }}
           path: /tmp/vn97-language-evidence
+          retention-days: 7
+          if-no-files-found: error
+      - name: Train bounded 10M CPU pilot
+        if: github.head_ref == 'vn97-10m-cpu-pilot'
+        run: python research/vn97_native/pilot_10m.py --output /tmp/vn97-10m-pilot
+      - name: Preserve 10M report and split identities
+        if: github.head_ref == 'vn97-10m-cpu-pilot'
+        uses: actions/upload-artifact@v4
+        with:
+          name: VN97-10M-report-${{ github.run_id }}
+          path: |
+            /tmp/vn97-10m-pilot/report.json
+            /tmp/vn97-10m-pilot/bundle-sha256.json
+            /tmp/vn97-10m-pilot/dataset.json
+          retention-days: 7
+          if-no-files-found: error
+      - name: Preserve exact 10M weights part 00
+        if: github.head_ref == 'vn97-10m-cpu-pilot'
+        uses: actions/upload-artifact@v4
+        with:
+          name: VN97-10M-part00-${{ github.run_id }}
+          path: /tmp/vn97-10m-pilot/bundle.part00
+          compression-level: 0
+          retention-days: 7
+          if-no-files-found: error
+      - name: Preserve exact 10M weights part 01
+        if: github.head_ref == 'vn97-10m-cpu-pilot'
+        uses: actions/upload-artifact@v4
+        with:
+          name: VN97-10M-part01-${{ github.run_id }}
+          path: /tmp/vn97-10m-pilot/bundle.part01
+          compression-level: 0
           retention-days: 7
           if-no-files-found: error
