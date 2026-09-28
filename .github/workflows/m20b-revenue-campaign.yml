@@ -13,6 +13,7 @@ on:
       - "android/avatar/**"
       - "android/platform/**"
       - "android/runtime/src/main/java/ai/vn97/runtime/R2CognitionInference.kt"
+      - "android/runtime/src/main/java/ai/vn97/runtime/AdaptiveStateOrtCore.kt"
       - "android/runtime/src/main/java/ai/vn97/runtime/Mamba2OrtExecutor.kt"
       - "android/runtime/src/main/java/ai/vn97/runtime/Mamba2OrtExecutionBuffers.kt"
       - "android/runtime/src/main/java/ai/vn97/runtime/Mamba2OrtTensorStorage.kt"

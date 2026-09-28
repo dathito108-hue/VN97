@@ -35,89 +35,21 @@ jobs:
           python-version: '3.11'
       - name: Install CPU-only training test dependency
         run: python -m pip install torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu
-      - name: Verify oracle, gradients, checkpoints and synthetic optimization
-        run: python -m unittest discover -s research/vn97_native -p 'test_trainable_state.py' -v
+      - name: Verify cell without optimizer or training
+        run: |
+          PYTHONPATH=research/vn97_native python - <<'PYTEST'
+          import unittest
+          from test_trainable_state import TrainableStateTests
+          names = [n for n in unittest.defaultTestLoader.getTestCaseNames(TrainableStateTests)
+                   if n != 'test_optimizer_reduces_synthetic_memory_task_loss']
+          result = unittest.TextTestRunner(verbosity=2).run(unittest.TestSuite(TrainableStateTests(n) for n in names))
+          raise SystemExit(not result.wasSuccessful())
+          PYTEST
       - name: Verify VN97 backbone integration and candidate checkpoints
         run: python -m unittest discover -s research/vn97_native -p 'test_language_candidate.py' -v
-      - name: Train fixed small candidate and evaluate disjoint records
-        run: python research/vn97_native/evaluate_language_candidate.py --output /tmp/vn97-language-evidence
-      - name: Preserve research weights, dataset and measured report
-        uses: actions/upload-artifact@v4
-        with:
-          name: VN97-native-language-${{ github.run_id }}
-          path: /tmp/vn97-language-evidence
-          retention-days: 7
-          if-no-files-found: error
-      - name: Train bounded 10M CPU pilot
-        if: github.head_ref == 'vn97-10m-cpu-pilot'
-        run: python research/vn97_native/pilot_10m.py --output /tmp/vn97-10m-pilot
-      - name: Preserve 10M report and split identities
-        if: github.head_ref == 'vn97-10m-cpu-pilot'
-        uses: actions/upload-artifact@v4
-        with:
-          name: VN97-10M-report-${{ github.run_id }}
-          path: |
-            /tmp/vn97-10m-pilot/report.json
-            /tmp/vn97-10m-pilot/bundle-sha256.json
-            /tmp/vn97-10m-pilot/dataset.json
-          retention-days: 7
-          if-no-files-found: error
-      - name: Preserve exact 10M weights part 00
-        if: github.head_ref == 'vn97-10m-cpu-pilot'
-        uses: actions/upload-artifact@v4
-        with:
-          name: VN97-10M-part00-${{ github.run_id }}
-          path: /tmp/vn97-10m-pilot/bundle.part00
-          compression-level: 0
-          retention-days: 7
-          if-no-files-found: error
-      - name: Preserve exact 10M weights part 01
-        if: github.head_ref == 'vn97-10m-cpu-pilot'
-        uses: actions/upload-artifact@v4
-        with:
-          name: VN97-10M-part01-${{ github.run_id }}
-          path: /tmp/vn97-10m-pilot/bundle.part01
-          compression-level: 0
-          retention-days: 7
-          if-no-files-found: error
-      - name: Recover verified parent pilot artifacts
-        if: github.head_ref == 'vn97-10m-curriculum'
-        uses: actions/download-artifact@v4
-        with:
-          github-token: ${{ github.token }}
-          run-id: 36453857564
-          pattern: VN97-10M-*
-          merge-multiple: true
-          path: /tmp/vn97-parent-pilot
-      - name: Continue 10M weights with balanced curriculum
-        if: github.head_ref == 'vn97-10m-curriculum'
-        run: python research/vn97_native/train_curriculum.py --source /tmp/vn97-parent-pilot --output /tmp/vn97-10m-curriculum
-      - name: Preserve curriculum metrics and data identities
-        if: github.head_ref == 'vn97-10m-curriculum'
-        uses: actions/upload-artifact@v4
-        with:
-          name: VN97-curriculum-report-${{ github.run_id }}
-          path: |
-            /tmp/vn97-10m-curriculum/report.json
-            /tmp/vn97-10m-curriculum/dataset.json
-            /tmp/vn97-10m-curriculum/bundle-sha256.json
-          retention-days: 7
-          if-no-files-found: error
-      - name: Preserve curriculum weights part 00
-        if: github.head_ref == 'vn97-10m-curriculum'
-        uses: actions/upload-artifact@v4
-        with:
-          name: VN97-curriculum-part00-${{ github.run_id }}
-          path: /tmp/vn97-10m-curriculum/bundle.part00
-          compression-level: 0
-          retention-days: 7
-          if-no-files-found: error
-      - name: Preserve curriculum weights part 01
-        if: github.head_ref == 'vn97-10m-curriculum'
-        uses: actions/upload-artifact@v4
-        with:
-          name: VN97-curriculum-part01-${{ github.run_id }}
-          path: /tmp/vn97-10m-curriculum/bundle.part01
-          compression-level: 0
-          retention-days: 7
-          if-no-files-found: error
+      # Training remains paused by user request. Keep checkpoint scripts available,
+      # but PR verification performs no optimizer steps or training campaigns.
+      - name: Install portable inference dependencies
+        run: python -m pip install numpy==1.26.4 onnx==1.17.0 onnxruntime==1.20.1
+      - name: Verify adaptive core export and real ONNX Runtime parity
+        run: python -m unittest discover -s research/vn97_native -p 'test_portable_core.py' -v
