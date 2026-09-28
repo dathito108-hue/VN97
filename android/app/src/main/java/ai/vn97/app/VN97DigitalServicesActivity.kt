@@ -19,7 +19,6 @@ import java.util.concurrent.Executors
 import java.util.UUID
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
-import org.json.JSONArray
 import org.json.JSONObject
 
 /** Explicit local workbench: no marketplace posting, customer messaging or payment claims. */
@@ -181,9 +180,7 @@ class VN97DigitalServicesActivity : Activity() {
                     outputSha256 = delivery.outputSha256,
                     createdAtEpochMs = System.currentTimeMillis(),
                 )
-                val ledger = readLedger()
-                ledger.recordOrder(order)
-                writeLedger(ledger)
+                ledgerRepository.update { it.recordOrder(order) }
                 val record = JSONObject().put("schema", 2).put("orderId", orderId).put("title", title)
                     .put("service", service.name).put("source", source)
                     .put("priceVnd", quote.priceVnd).put("costVnd", quote.estimatedCostVnd)
@@ -301,9 +298,7 @@ class VN97DigitalServicesActivity : Activity() {
                     zip.closeEntry()
                 }
                 if (orderId != null) {
-                    val ledger = readLedger()
-                    ledger.markExported(orderId, System.currentTimeMillis())
-                    writeLedger(ledger)
+                    ledgerRepository.update { it.markExported(orderId, System.currentTimeMillis()) }
                 }
             }
             runOnUiThread {
@@ -345,9 +340,7 @@ class VN97DigitalServicesActivity : Activity() {
         }
         worker.execute {
             val result = runCatching {
-                val ledger = readLedger()
-                ledger.recordPayment(payment)
-                writeLedger(ledger)
+                ledgerRepository.update { it.recordPayment(payment) }
             }
             runOnUiThread {
                 if (!isDestroyed) {
@@ -364,7 +357,13 @@ class VN97DigitalServicesActivity : Activity() {
 
     private fun refreshLedger() {
         worker.execute {
-            val ledger = runCatching { readLedger() }.getOrElse { VN97ServiceRevenueLedger() }
+            val ledger = runCatching { ledgerRepository.load() }.getOrElse {
+                runOnUiThread {
+                    if (!isDestroyed) ledgerView.text =
+                        "Không đọc được sổ việc. Dữ liệu cũ được giữ nguyên; chưa thể xác định số dư."
+                }
+                return@execute
+            }
             val summary = ledger.summary()
             val recent = ledger.orders().takeLast(8).reversed().joinToString("\n") {
                 "• ${it.title} · ${it.quotedPriceVnd} VND · " +
@@ -380,86 +379,27 @@ class VN97DigitalServicesActivity : Activity() {
         }
     }
 
-    private fun readLedger(): VN97ServiceRevenueLedger {
-        val root = runCatching {
-            ledgerStore.openRead().use { JSONObject(readBounded(it, 2 * 1024 * 1024)) }
-        }.getOrNull() ?: return VN97ServiceRevenueLedger()
-        require(root.getInt("schema") == 1)
-        val orders = root.getJSONArray("orders")
-        val payments = root.getJSONArray("payments")
-        require(orders.length() <= VN97ServiceRevenueLedger.MAX_ORDERS)
-        require(payments.length() <= VN97ServiceRevenueLedger.MAX_PAYMENTS)
-        return VN97ServiceRevenueLedger(
-            orders = (0 until orders.length()).map { index ->
-                val value = orders.getJSONObject(index)
-                VN97ServiceOrder(
-                    orderId = value.getString("orderId"),
-                    title = value.getString("title"),
-                    service = VN97DigitalService.valueOf(value.getString("service")),
-                    quotedPriceVnd = value.getLong("quotedPriceVnd"),
-                    estimatedCostVnd = value.getLong("estimatedCostVnd"),
-                    outputSha256 = value.getString("outputSha256"),
-                    createdAtEpochMs = value.getLong("createdAtEpochMs"),
-                    exportedAtEpochMs = if (value.isNull("exportedAtEpochMs")) null else {
-                        value.getLong("exportedAtEpochMs")
-                    },
-                )
+    private val ledgerRepository by lazy {
+        VN97ServiceLedgerRepository(
+            read = {
+                try {
+                    ledgerStore.openRead().use { readBounded(it, VN97ServiceLedgerCodec.MAX_BYTES) }
+                } catch (failure: java.io.FileNotFoundException) {
+                    if (VN97ServiceLedgerRepository.definitelyMissing(ledgerStore.baseFile)) null
+                    else throw failure
+                }
             },
-            payments = (0 until payments.length()).map { index ->
-                val value = payments.getJSONObject(index)
-                VN97PaymentRecord(
-                    orderId = value.getString("orderId"),
-                    provider = value.getString("provider"),
-                    providerAccountFingerprint = value.getString("providerAccountFingerprint"),
-                    externalEventId = value.getString("externalEventId"),
-                    grossVnd = value.getLong("grossVnd"),
-                    providerFeeVnd = value.getLong("providerFeeVnd"),
-                    refundVnd = value.getLong("refundVnd"),
-                    realizedCostVnd = value.getLong("realizedCostVnd"),
-                    verification = VN97PaymentVerification.valueOf(value.getString("verification")),
-                    evidenceSha256 = if (value.isNull("evidenceSha256")) null else {
-                        value.getString("evidenceSha256")
-                    },
-                    settledAtEpochMs = value.getLong("settledAtEpochMs"),
-                )
+            write = { encoded ->
+                val output = ledgerStore.startWrite()
+                try {
+                    output.write(encoded.toByteArray(Charsets.UTF_8))
+                    ledgerStore.finishWrite(output)
+                } catch (failure: Exception) {
+                    ledgerStore.failWrite(output)
+                    throw failure
+                }
             },
         )
-    }
-
-    private fun writeLedger(ledger: VN97ServiceRevenueLedger) {
-        val root = JSONObject().put("schema", 1)
-            .put("orders", JSONArray().also { array ->
-                ledger.orders().forEach { order ->
-                    array.put(JSONObject().put("orderId", order.orderId).put("title", order.title)
-                        .put("service", order.service.name).put("quotedPriceVnd", order.quotedPriceVnd)
-                        .put("estimatedCostVnd", order.estimatedCostVnd)
-                        .put("outputSha256", order.outputSha256)
-                        .put("createdAtEpochMs", order.createdAtEpochMs)
-                        .put("exportedAtEpochMs", order.exportedAtEpochMs ?: JSONObject.NULL))
-                }
-            }).put("payments", JSONArray().also { array ->
-                ledger.payments().forEach { payment ->
-                    array.put(JSONObject().put("orderId", payment.orderId)
-                        .put("provider", payment.provider)
-                        .put("providerAccountFingerprint", payment.providerAccountFingerprint)
-                        .put("externalEventId", payment.externalEventId).put("grossVnd", payment.grossVnd)
-                        .put("providerFeeVnd", payment.providerFeeVnd).put("refundVnd", payment.refundVnd)
-                        .put("realizedCostVnd", payment.realizedCostVnd)
-                        .put("verification", payment.verification.name)
-                        .put("evidenceSha256", payment.evidenceSha256 ?: JSONObject.NULL)
-                        .put("settledAtEpochMs", payment.settledAtEpochMs))
-                }
-            })
-        val bytes = root.toString().toByteArray(Charsets.UTF_8)
-        require(bytes.size <= 2 * 1024 * 1024) { "service ledger exceeds storage bound" }
-        val output = ledgerStore.startWrite()
-        try {
-            output.write(bytes)
-            ledgerStore.finishWrite(output)
-        } catch (failure: Exception) {
-            ledgerStore.failWrite(output)
-            throw failure
-        }
     }
 
     private fun readBounded(input: java.io.InputStream, maxBytes: Int): String {
