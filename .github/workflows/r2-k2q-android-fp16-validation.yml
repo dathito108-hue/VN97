@@ -10,6 +10,8 @@ on:
       - "android/app/src/main/java/ai/vn97/app/VN97R2OrtEvidenceActivity.kt"
       - "android/app/src/main/java/ai/vn97/app/VN97MainActivity.kt"
       - "android/app/src/main/AndroidManifest.xml"
+      - "tools/kaggle_r2_k2q_prepare_android_runtime.sh"
+      - "docs/VN97_R2_K2Q_ANDROID_FP16_DEVICE_EVIDENCE.md"
       - ".github/workflows/r2-k2q-android-fp16-validation.yml"
 
 permissions:
@@ -44,6 +46,12 @@ jobs:
           SDKMANAGER="$TOOLS_DIR/cmdline-tools/bin/sdkmanager"
           yes | "$SDKMANAGER" --sdk_root="$ANDROID_SDK_ROOT" --licenses >/dev/null || true
           "$SDKMANAGER"             --sdk_root="$ANDROID_SDK_ROOT"             --channel=3             "platforms;android-37.0"             "build-tools;36.0.0"             "ndk;28.2.13676358"             "cmake;3.22.1"
+
+      - name: Static K2Q transfer validation
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n tools/kaggle_r2_k2q_prepare_android_runtime.sh
 
       - name: Compile Android app
         shell: bash
