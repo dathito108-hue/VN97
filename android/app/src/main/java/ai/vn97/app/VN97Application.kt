@@ -1,5 +1,6 @@
 package ai.vn97.app
 
+import ai.vn97.platform.AndroidExnessCredentialVault
 import ai.vn97.platform.AndroidPlatformRuntime
 import ai.vn97.platform.VN97AssistantContinuationWork
 import ai.vn97.platform.VN97AssistantContinuationWorkProvider
@@ -39,6 +40,12 @@ class VN97Application :
         LazyThreadSafetyMode.SYNCHRONIZED
     ) {
         VN97RevenueCampaignManager(this)
+    }
+
+    val exnessCredentialVault: AndroidExnessCredentialVault by lazy(
+        LazyThreadSafetyMode.SYNCHRONIZED
+    ) {
+        AndroidExnessCredentialVault(applicationContext)
     }
 
     val screenCaptureBroker: VN97ScreenCaptureBroker by lazy(
