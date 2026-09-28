@@ -53,9 +53,14 @@ jobs:
           python -m pip install --disable-pip-version-check             "onnx>=1.17,<2"             "onnxscript>=0.2,<1"
           python -m pip install --disable-pip-version-check --no-deps -e .
           python - <<'PY'
-          import torch
-          print("torch=", torch.__version__)
-          assert torch.__version__.startswith("2.10.0")
+          import onnx, onnxscript, onnxruntime, torch
+          print("torch=", torch.__version__, "cuda=", torch.version.cuda)
+          print("onnx=", onnx.__version__)
+          print("onnxscript=", onnxscript.__version__)
+          print("onnxruntime=", onnxruntime.__version__)
+          assert torch.__version__ == "2.10.0+cu128"
+          assert torch.version.cuda == "12.8"
+          assert onnxruntime.__version__ == "1.26.0"
           PY
           df -h /
 
