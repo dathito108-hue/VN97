@@ -1,0 +1,24 @@
+name: VN97 Native State Foundation
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/vn97-native-state.yml'
+      - 'research/vn97_native/**'
+      - 'docs/vn97-native-architecture-path.md'
+permissions:
+  contents: read
+concurrency:
+  group: vn97-native-state-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+jobs:
+  reference:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Check recurrent and scan semantics
+        run: python -m unittest discover -s research/vn97_native -p 'test_*.py' -v
