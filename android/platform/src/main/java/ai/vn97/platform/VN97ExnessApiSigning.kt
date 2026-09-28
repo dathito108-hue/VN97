@@ -182,10 +182,7 @@ object VN97ExnessApiSigner {
             "$label exceeds byte bound"
         }
         require(
-            value.all {
-                it.code in 0x21..0x7e ||
-                    (label == "Exness idempotency key" && it == ' ')
-            }
+            value.all { it.code in 0x21..0x7e }
         ) {
             "$label must contain printable ASCII only"
         }
