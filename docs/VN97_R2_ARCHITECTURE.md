@@ -19,6 +19,9 @@
 > R2-G0.5 adds one shared-weight recurrent ONNX graph for both decode and
 > parallel SSD prefill via bounded `valid_length`; see
 > `docs/VN97_R2G05_PARALLEL_PREFILL.md`.
+> R2-G0.6 adds the Android four-input Mamba-2 ORT runtime descriptor and
+> executor over the same single recurrent graph; see
+> `docs/VN97_R2G06_ANDROID_MAMBA2_ORT.md`.
 
 
 ## Status
