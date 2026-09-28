@@ -293,7 +293,7 @@ class GptNeoXBpeTokenizer:
         self._cache[token] = word
         return word
 
-    def encode(self, text: str) -> list[int]:
+    def _encode_ordinary(self, text: str) -> list[int]:
         output: list[int] = []
         for piece in gpt_neox_pretokenize(text):
             mapped = "".join(
@@ -307,6 +307,18 @@ class GptNeoXBpeTokenizer:
                         "GPT-NeoX BPE produced token absent from vocabulary"
                     )
                 output.append(token_id)
+        return output
+
+    def encode(self, text: str) -> list[int]:
+        if not text:
+            return []
+        output: list[int] = []
+        parts = text.split(self.eos_token)
+        for index, part in enumerate(parts):
+            if part:
+                output.extend(self._encode_ordinary(part))
+            if index + 1 < len(parts):
+                output.append(self.eos_token_id)
         return output
 
     def decode_bytes(
