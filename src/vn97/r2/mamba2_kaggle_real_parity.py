@@ -161,6 +161,7 @@ class RealParityRunner:
         torch.Tensor,
         torch.Tensor,
         torch.Tensor,
+        tuple[torch.Tensor, ...],
     ]:
         token = torch.tensor(
             [token_id],
@@ -170,6 +171,7 @@ class RealParityRunner:
         hidden = self.model.backbone.embedding(token)
         residual: torch.Tensor | None = None
         layer0_hidden: torch.Tensor | None = None
+        layer_hiddens: list[torch.Tensor] = []
 
         for index, layer in enumerate(self.model.backbone.layers):
             residual_next = hidden if residual is None else hidden + residual
@@ -188,6 +190,7 @@ class RealParityRunner:
             )
             hidden = out.squeeze(1)
             residual = residual_next.float()
+            layer_hiddens.append(hidden)
             if index == 0:
                 layer0_hidden = hidden
 
@@ -200,7 +203,7 @@ class RealParityRunner:
         )
         logits = F.linear(final_hidden, self.model.lm_head.weight)
         first = self.source_states[0]
-        return logits, layer0_hidden, first.conv, first.ssm
+        return logits, layer0_hidden, first.conv, first.ssm, tuple(layer_hiddens)
 
     @torch.inference_mode()
     def vn97_step(
@@ -211,6 +214,7 @@ class RealParityRunner:
         torch.Tensor,
         torch.Tensor,
         torch.Tensor,
+        tuple[torch.Tensor, ...],
     ]:
         token = torch.tensor(
             [token_id],
@@ -223,6 +227,7 @@ class RealParityRunner:
         )
         residual: torch.Tensor | None = None
         layer0_hidden: torch.Tensor | None = None
+        layer_hiddens: list[torch.Tensor] = []
 
         for index, layer in enumerate(self.model.backbone.layers):
             residual_next = hidden if residual is None else hidden + residual
@@ -240,6 +245,7 @@ class RealParityRunner:
             self.vn97_states[index] = state
             hidden = out
             residual = residual_next.float()
+            layer_hiddens.append(hidden)
             if index == 0:
                 layer0_hidden = hidden
 
@@ -254,7 +260,7 @@ class RealParityRunner:
         )
         logits = F.linear(final_hidden, self.model.lm_head.weight)
         first = self.vn97_states[0]
-        return logits, layer0_hidden, first.conv, first.ssm
+        return logits, layer0_hidden, first.conv, first.ssm, tuple(layer_hiddens)
 
 
 def _default_prompts() -> list[str]:
@@ -281,6 +287,7 @@ def run_real_parity(
     max_hidden_error: float,
     max_state_error: float,
     official_kernel_mode: str,
+    compute_dtype: str,
 ) -> dict[str, Any]:
     if not torch.cuda.is_available():
         raise RuntimeError("K1 real parity requires CUDA")
@@ -311,6 +318,13 @@ def run_real_parity(
 
     if official_kernel_mode not in {"optimized", "fallback"}:
         raise ValueError("official kernel mode must be optimized or fallback")
+    dtype_map = {
+        "float16": torch.float16,
+        "float32": torch.float32,
+    }
+    if compute_dtype not in dtype_map:
+        raise ValueError("compute dtype must be float16 or float32")
+    dtype = dtype_map[compute_dtype]
     if official_kernel_mode == "fallback":
         official_mamba2_module.causal_conv1d_update = None
         official_mamba2_module.selective_state_update = None
@@ -320,15 +334,22 @@ def run_real_parity(
         local_files_only=True,
         use_fast=True,
     )
+    torch.cuda.empty_cache()
+    free_bytes, total_bytes = torch.cuda.mem_get_info(device)
+    if compute_dtype == "float32" and free_bytes < 12 * 1024**3:
+        raise RuntimeError(
+            "K1F float32 structural parity requires at least 12 GiB free VRAM"
+        )
+
     model = MambaLMHeadModel.from_pretrained(
         str(source_root),
         device=str(device),
-        dtype=torch.float16,
+        dtype=dtype,
     ).eval()
 
     runner = RealParityRunner(
         model=model,
-        dtype=torch.float16,
+        dtype=dtype,
         device=device,
     )
 
@@ -347,6 +368,7 @@ def run_real_parity(
     total_probe_tokens = 0
     generation_equal = True
     generated_pairs: list[dict[str, object]] = []
+    first_token_layerwise: list[dict[str, object]] | None = None
 
     for prompt in _default_prompts():
         encoded = tokenizer(
@@ -365,6 +387,29 @@ def run_real_parity(
             source = runner.source_step(token_id)
             target = runner.vn97_step(token_id)
             total_probe_tokens += 1
+
+            if first_token_layerwise is None:
+                first_token_layerwise = []
+                for layer_index, (source_hidden, vn97_hidden) in enumerate(
+                    zip(source[4], target[4], strict=True)
+                ):
+                    first_token_layerwise.append(
+                        {
+                            "layer": layer_index,
+                            "hidden_max_abs_error": _max_abs(
+                                source_hidden,
+                                vn97_hidden,
+                            ),
+                            "conv_state_max_abs_error": _max_abs(
+                                runner.source_states[layer_index].conv,
+                                runner.vn97_states[layer_index].conv,
+                            ),
+                            "ssm_state_max_abs_error": _max_abs(
+                                runner.source_states[layer_index].ssm,
+                                runner.vn97_states[layer_index].ssm,
+                            ),
+                        }
+                    )
 
             for name, left, right in (
                 ("logits", source[0], target[0]),
@@ -416,6 +461,29 @@ def run_real_parity(
     if total_probe_tokens <= 0:
         raise RuntimeError("K1 produced no probe tokens")
 
+    assert first_token_layerwise is not None
+    first_layer_over_threshold = next(
+        (
+            int(item["layer"])
+            for item in first_token_layerwise
+            if max(
+                float(item["hidden_max_abs_error"]),
+                float(item["conv_state_max_abs_error"]),
+                float(item["ssm_state_max_abs_error"]),
+            )
+            > max(max_hidden_error, max_state_error)
+        ),
+        None,
+    )
+    worst_first_token_layer = max(
+        first_token_layerwise,
+        key=lambda item: max(
+            float(item["hidden_max_abs_error"]),
+            float(item["conv_state_max_abs_error"]),
+            float(item["ssm_state_max_abs_error"]),
+        ),
+    )
+
     metrics = {
         "max_logits_abs_error": _finite(maxima["logits"], "logits"),
         "mean_logits_abs_error": _finite(
@@ -458,7 +526,9 @@ def run_real_parity(
         "gpu_name": gpu_name,
         "torch_version": torch.__version__,
         "cuda_version": torch.version.cuda,
-        "dtype": "float16",
+        "gpu_total_bytes": total_bytes,
+        "gpu_free_bytes_before_model_load": free_bytes,
+        "dtype": compute_dtype,
         "official_kernel_mode": official_kernel_mode,
         "probe_cases": len(generated_pairs),
         "probe_tokens": total_probe_tokens,
@@ -471,6 +541,9 @@ def run_real_parity(
             "max_state_error": max_state_error,
         },
         "generated_pairs": generated_pairs,
+        "first_token_layerwise": first_token_layerwise,
+        "first_layer_over_threshold": first_layer_over_threshold,
+        "worst_first_token_layer": worst_first_token_layer,
         "source_to_vn97_passed": passed,
         "vn97_to_ort_passed": False,
         "production_activation_authorized": False,
@@ -506,6 +579,11 @@ def main() -> None:
         choices=("optimized", "fallback"),
         default="optimized",
     )
+    parser.add_argument(
+        "--compute-dtype",
+        choices=("float16", "float32"),
+        default="float16",
+    )
     args = parser.parse_args()
 
     receipt = run_real_parity(
@@ -518,6 +596,7 @@ def main() -> None:
         max_hidden_error=args.max_hidden_error,
         max_state_error=args.max_state_error,
         official_kernel_mode=args.official_kernel_mode,
+        compute_dtype=args.compute_dtype,
     )
     print(
         json.dumps(
@@ -530,6 +609,12 @@ def main() -> None:
                 "generation_exact": receipt["generation_exact"],
                 "metrics": receipt["metrics"],
                 "official_kernel_mode": receipt["official_kernel_mode"],
+                "dtype": receipt["dtype"],
+                "first_token_layerwise": receipt["first_token_layerwise"],
+                "first_layer_over_threshold":
+                    receipt["first_layer_over_threshold"],
+                "worst_first_token_layer":
+                    receipt["worst_first_token_layer"],
                 "output": str(args.output),
             },
             sort_keys=True,
