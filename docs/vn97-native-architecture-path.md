@@ -209,3 +209,37 @@ The ZIP is split into 20MiB pieces solely for transport; concatenate in numbered
 order and compare SHA256 with `bundle-sha256.json`. This is not quantization.
 Optimizer/RNG are not saved: later learning may start from these weights but is
 not a bit-exact resume of this optimizer run. Keep production activation false.
+
+## Continued instruction curriculum after the first 10M pilot
+
+The first pilot completed 160 steps but generated 0/8 exact answers. Those eight
+cases are now a retired regression set, never fresh evidence. Its full FP32
+checkpoint is the parent, bound to SHA256
+`84ebd4ef85c080cb4ef4ae37bc38d9e94ec2b4460dc19fd6b320654251f7f83e`.
+`train_curriculum.py` verifies transport and parent weight hashes, then continues
+those weights with a **new** AdamW optimizer. No claim of exact optimizer resume.
+
+The next protocol fixes 2,400 steps or 480 training seconds, seed1097, lr0.0003,
+one example per task per batch, gradient clipping1.0 and answer-only loss averaged
+per example. Averaging per example prevents longer category labels from silently
+receiving more weight than short numeric answers. No test-based checkpoint choice.
+
+`curriculum_data.py` generates 2,048 training records and 128 validation/128 test
+records. Training has four prompt templates per task; validation/test each use
+separate templates. Copy, sum and deduplication cases are disjoint across splits.
+Classification repeats four known keywords/labels and has fewer unique prompts
+than records; the report includes unique-prompt counts. Rules, alphabets and some
+answers are shared, so this remains synthetic instruction practice, not a broad
+language benchmark. One dependency-free regression tests stable splits, budgets
+and deduplication answers.
+
+Only after all parameter updates: evaluate the continued candidate **and parent**
+on the same new test, including eight free-generation examples per task (32 total).
+Also report the retired eight cases separately. Preserve raw answers, split hashes,
+actual step/time counts and both scores, even if the new candidate fails or regresses.
+Do not promote to production based on this small single-seed comparison; no
+architecture-matched ablation, device test, real revenue or AGI evidence follows.
+
+This stage runs only for the `vn97-10m-curriculum` PR branch and downloads the
+previous run's artifacts with read-only Actions permission. A hash mismatch or
+missing parent fails the stage rather than starting again from random weights.

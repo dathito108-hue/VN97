@@ -8,6 +8,7 @@ on:
       - 'docs/vn97-native-architecture-path.md'
 permissions:
   contents: read
+  actions: read
 concurrency:
   group: vn97-native-state-${{ github.event.pull_request.number }}
   cancel-in-progress: true
@@ -22,6 +23,8 @@ jobs:
           python-version: '3.11'
       - name: Check recurrent and scan semantics
         run: python -m unittest discover -s research/vn97_native -p 'test_adaptive_state.py' -v
+      - name: Check curriculum split integrity
+        run: python -m unittest discover -s research/vn97_native -p 'test_curriculum_data.py' -v
   trainable:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -74,6 +77,47 @@ jobs:
         with:
           name: VN97-10M-part01-${{ github.run_id }}
           path: /tmp/vn97-10m-pilot/bundle.part01
+          compression-level: 0
+          retention-days: 7
+          if-no-files-found: error
+      - name: Recover verified parent pilot artifacts
+        if: github.head_ref == 'vn97-10m-curriculum'
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: 36453857564
+          pattern: VN97-10M-*
+          merge-multiple: true
+          path: /tmp/vn97-parent-pilot
+      - name: Continue 10M weights with balanced curriculum
+        if: github.head_ref == 'vn97-10m-curriculum'
+        run: python research/vn97_native/train_curriculum.py --source /tmp/vn97-parent-pilot --output /tmp/vn97-10m-curriculum
+      - name: Preserve curriculum metrics and data identities
+        if: github.head_ref == 'vn97-10m-curriculum'
+        uses: actions/upload-artifact@v4
+        with:
+          name: VN97-curriculum-report-${{ github.run_id }}
+          path: |
+            /tmp/vn97-10m-curriculum/report.json
+            /tmp/vn97-10m-curriculum/dataset.json
+            /tmp/vn97-10m-curriculum/bundle-sha256.json
+          retention-days: 7
+          if-no-files-found: error
+      - name: Preserve curriculum weights part 00
+        if: github.head_ref == 'vn97-10m-curriculum'
+        uses: actions/upload-artifact@v4
+        with:
+          name: VN97-curriculum-part00-${{ github.run_id }}
+          path: /tmp/vn97-10m-curriculum/bundle.part00
+          compression-level: 0
+          retention-days: 7
+          if-no-files-found: error
+      - name: Preserve curriculum weights part 01
+        if: github.head_ref == 'vn97-10m-curriculum'
+        uses: actions/upload-artifact@v4
+        with:
+          name: VN97-curriculum-part01-${{ github.run_id }}
+          path: /tmp/vn97-10m-curriculum/bundle.part01
           compression-level: 0
           retention-days: 7
           if-no-files-found: error
