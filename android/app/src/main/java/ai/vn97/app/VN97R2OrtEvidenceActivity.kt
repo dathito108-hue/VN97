@@ -2,6 +2,7 @@ package ai.vn97.app
 
 import ai.vn97.runtime.Mamba2OrtRuntimePackage
 import ai.vn97.runtime.VN97Mamba2OrtProviderProfiler
+import ai.vn97.runtime.VN97Mamba2K2RDiagnostics
 import android.app.Activity
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -26,6 +27,7 @@ class VN97R2OrtEvidenceActivity : Activity() {
     private lateinit var status: TextView
     private lateinit var importButton: Button
     private lateinit var runButton: Button
+    private lateinit var diagnosticsButton: Button
     private lateinit var copyButton: Button
     private var latestReceipt: String = ""
 
@@ -72,6 +74,12 @@ class VN97R2OrtEvidenceActivity : Activity() {
             setOnClickListener { runProfile() }
         }
         content.addView(runButton)
+
+        diagnosticsButton = Button(this).apply {
+            text = "Run K2R provider diagnostics"
+            setOnClickListener { runK2RDiagnostics() }
+        }
+        content.addView(diagnosticsButton)
 
         copyButton = Button(this).apply {
             text = "Copy evidence JSON"
@@ -345,6 +353,54 @@ class VN97R2OrtEvidenceActivity : Activity() {
         }
     }
 
+    private fun runK2RDiagnostics() {
+        setBusy(true)
+        status.text =
+            "Running K2R Exynos provider diagnostics. " +
+                "This can take several minutes…"
+        latestReceipt = ""
+        copyButton.isEnabled = false
+
+        worker.execute {
+            val result = runCatching {
+                val runtime = Mamba2OrtRuntimePackage.load(runtimeRoot)
+                require(runtime.stateDtype == "float16") {
+                    "K2R requires the verified FP16 runtime"
+                }
+                val report = VN97Mamba2K2RDiagnostics().run(
+                    context = applicationContext,
+                    runtimeRoot = runtimeRoot,
+                )
+                val output = File(
+                    getExternalFilesDir(null) ?: filesDir,
+                    K2R_EVIDENCE_FILENAME,
+                )
+                report.writeAtomic(output)
+                val canonical = output.readText(Charsets.US_ASCII)
+                require(canonical.isNotBlank())
+                canonical
+            }
+            runOnUiThread {
+                setBusy(false)
+                result.fold(
+                    onSuccess = { canonical ->
+                        latestReceipt = canonical
+                        copyButton.isEnabled = true
+                        status.text =
+                            "K2R diagnostics complete.\n" +
+                                canonical
+                    },
+                    onFailure = { error ->
+                        status.text =
+                            "K2R diagnostics failed: " +
+                                (error.message ?:
+                                    error::class.java.simpleName)
+                    },
+                )
+            }
+        }
+    }
+
     private fun copyEvidence() {
         if (latestReceipt.isBlank()) return
         val clipboard =
@@ -398,6 +454,7 @@ class VN97R2OrtEvidenceActivity : Activity() {
     private fun setBusy(busy: Boolean) {
         importButton.isEnabled = !busy
         runButton.isEnabled = !busy
+        diagnosticsButton.isEnabled = !busy
         if (busy) copyButton.isEnabled = false
     }
 
@@ -423,6 +480,8 @@ class VN97R2OrtEvidenceActivity : Activity() {
         private const val BACKUP_DIR = ".vn97-r2-k2q-g06.backup"
         private const val EVIDENCE_FILENAME =
             "vn97-r2-k2q-device-profile.json"
+        private const val K2R_EVIDENCE_FILENAME =
+            "vn97-r2-k2r-provider-diagnostics.json"
         private const val MAX_IMPORT_BYTES =
             8L * 1024L * 1024L * 1024L
         private const val MAX_DATA_PARTS = 64
