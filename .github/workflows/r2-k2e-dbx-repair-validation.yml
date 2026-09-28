@@ -30,7 +30,7 @@ jobs:
         run: |
           set -euo pipefail
           python -m pip install --disable-pip-version-check --upgrade pip
-          python -m pip install --disable-pip-version-check             --index-url https://download.pytorch.org/whl/cpu             "torch>=2.2,<3"
+          python -m pip install --disable-pip-version-check             --index-url https://download.pytorch.org/whl/cpu             "torch==2.10.0"
           python -m pip install --disable-pip-version-check numpy pytest
           python -m pip install --disable-pip-version-check --no-deps -e .
 
