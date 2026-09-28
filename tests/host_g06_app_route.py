@@ -53,6 +53,27 @@ class G06RouteTests(unittest.TestCase):
         self.assertIn("binding.requireCompatible", source)
         self.assertIn("VN97Mamba2CognitionCandidate.open", source)
 
+    def test_main_activity_has_no_legacy_model_activation_route(self):
+        path = "android/app/src/main/java/ai/vn97/app/VN97MainActivity.kt"
+        source = (ROOT / path).read_text()
+        for forbidden in (
+            "app.provisioner", "VN97MI1", "model.vn97cap1",
+            "REQUEST_MODEL_ARCHIVE", "EXTRA_M19J_SPEECH_FRAMES",
+            "VN97SelfImprovementActivity::class.java",
+        ):
+            self.assertNotIn(forbidden, source, (path, forbidden))
+        self.assertIn("app.assistant.openIfActivated()", source)
+        self.assertIn(".collectMobileEvidence(", source)
+
+        evidence_path = (
+            "android/platform/src/main/java/ai/vn97/platform/"
+            "VN97OnDeviceEvidence.kt"
+        )
+        evidence = (ROOT / evidence_path).read_text()
+        self.assertNotIn("speechFrames", evidence)
+        self.assertNotIn("NativePreparedAudio", evidence)
+        self.assertIn('speechPrefill = null', evidence)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
