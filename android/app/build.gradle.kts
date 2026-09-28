@@ -109,6 +109,17 @@ android {
             )
             matchingFallbacks += listOf("debug")
         }
+        create("k2s") {
+            initWith(getByName("debug"))
+            applicationIdSuffix = ".k2s"
+            versionNameSuffix = "-k2s"
+            buildConfigField(
+                "boolean",
+                "VN97_TURNKEY_REQUIRED",
+                "false",
+            )
+            matchingFallbacks += listOf("debug")
+        }
         release {
             buildConfigField(
                 "boolean",

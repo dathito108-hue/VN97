@@ -28,7 +28,10 @@ class VN97R2OrtEvidenceActivity : Activity() {
     private lateinit var importButton: Button
     private lateinit var runButton: Button
     private lateinit var diagnosticsButton: Button
+    private lateinit var k2sButton: Button
+    private lateinit var k2sResetButton: Button
     private lateinit var copyButton: Button
+    private lateinit var k2sController: VN97K2SSafeController
     private var latestReceipt: String = ""
 
     private val runtimeRoot: File
@@ -81,6 +84,16 @@ class VN97R2OrtEvidenceActivity : Activity() {
         }
         content.addView(diagnosticsButton)
 
+        k2sButton = Button(this).apply {
+            text = "Run next K2S isolated step"
+        }
+        content.addView(k2sButton)
+
+        k2sResetButton = Button(this).apply {
+            text = "Reset K2S progress"
+        }
+        content.addView(k2sResetButton)
+
         copyButton = Button(this).apply {
             text = "Copy evidence JSON"
             isEnabled = false
@@ -103,9 +116,40 @@ class VN97R2OrtEvidenceActivity : Activity() {
         val scroll = ScrollView(this)
         scroll.addView(content)
         setContentView(scroll)
+
+        k2sController = VN97K2SSafeController(
+            activity = this,
+            onStatus = { value ->
+                status.text = value
+            },
+            onAggregateReady = { value ->
+                latestReceipt = value
+                copyButton.isEnabled = value.isNotBlank()
+            },
+            onBusyChanged = { busy ->
+                setBusy(busy)
+            },
+        )
+        k2sButton.setOnClickListener {
+            runCatching {
+                Mamba2OrtRuntimePackage.load(runtimeRoot)
+            }.onFailure {
+                status.text =
+                    "Import and verify the G0.6 runtime before K2S."
+            }.onSuccess {
+                k2sController.runNext()
+            }
+        }
+        k2sResetButton.setOnClickListener {
+            k2sController.reset()
+        }
+        k2sController.publishProgress()
     }
 
     override fun onDestroy() {
+        if (::k2sController.isInitialized) {
+            k2sController.close()
+        }
         worker.shutdownNow()
         super.onDestroy()
     }
@@ -455,6 +499,8 @@ class VN97R2OrtEvidenceActivity : Activity() {
         importButton.isEnabled = !busy
         runButton.isEnabled = !busy
         diagnosticsButton.isEnabled = !busy
+        k2sButton.isEnabled = !busy
+        k2sResetButton.isEnabled = !busy
         if (busy) copyButton.isEnabled = false
     }
 
