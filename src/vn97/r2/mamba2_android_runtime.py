@@ -5,10 +5,11 @@ import json
 from pathlib import Path
 from typing import Mapping
 
-from .mamba2_parallel_onnx import (
+from .mamba2_bundle_contract import (
     VN97_MAMBA2_G05_INPUTS,
     VN97_MAMBA2_G05_OUTPUTS,
     verify_g05_bundle,
+    _safe_filename,
 )
 
 
@@ -94,7 +95,7 @@ def compile_g06_runtime_descriptor(
     values: dict[str, int] = {}
     for field in required:
         value = config.get(field)
-        if not isinstance(value, int) or value <= 0:
+        if type(value) is not int or value <= 0:
             raise ValueError(f"G0.6 config {field} must be positive integer")
         values[field] = value
     if (
@@ -118,8 +119,23 @@ def compile_g06_runtime_descriptor(
     state = manifest.get("state_contract")
     if not isinstance(state, Mapping):
         raise ValueError("G0.6 state contract missing")
+    dtype = state.get("dtype")
+    if dtype not in ("float16", "float32"):
+        raise ValueError("G0.6 Android state dtype must be float16 or float32")
+    if type(state.get("batch_size")) is not int or state["batch_size"] != 1:
+        raise ValueError("G0.6 requires state batch_size=1")
     expected_conv = [64, 1, 5376, 4]
     expected_ssm = [64, 1, 80, 64, 128]
+    for field in ("conv_state_shape", "ssm_state_shape"):
+        shape = state.get(field)
+        if not isinstance(shape, list) or any(type(x) is not int for x in shape):
+            raise ValueError("G0.6 state shape must contain integers")
+    expected_bytes = (64 * 5376 * 4 + 64 * 80 * 64 * 128) * (
+        2 if dtype == "float16" else 4
+    )
+    if (type(state.get("total_bytes_per_batch")) is not int
+            or state["total_bytes_per_batch"] != expected_bytes):
+        raise ValueError("G0.6 state byte budget mismatch")
     if state.get("conv_state_shape") != expected_conv:
         raise ValueError("G0.6 conv state geometry mismatch")
     if state.get("ssm_state_shape") != expected_ssm:
@@ -136,8 +152,13 @@ def compile_g06_runtime_descriptor(
     if not isinstance(graph_files, list) or not graph_files:
         raise ValueError("G0.6 graph inventory missing")
     max_chunk = manifest.get("max_chunk_size")
-    if max_chunk not in (8, 16, 32):
+    if type(max_chunk) is not int or max_chunk not in (8, 16, 32):
         raise ValueError("G0.6 max chunk size unsupported")
+    if (type(manifest.get("valid_length_min")) is not int
+            or manifest["valid_length_min"] != 1
+            or type(manifest.get("valid_length_max")) is not int
+            or manifest["valid_length_max"] != max_chunk):
+        raise ValueError("G0.6 valid-length contract mismatch")
     graph_name = f"recurrent-{max_chunk}.onnx"
     normalized_files = []
     seen = set()
@@ -151,14 +172,11 @@ def compile_g06_runtime_descriptor(
             "G0.6 graph file SHA-256",
         )
         if (
-            not isinstance(filename, str)
-            or not filename
-            or "/" in filename
-            or "\\" in filename
+            not _safe_filename(filename)
             or filename in seen
         ):
             raise ValueError("G0.6 graph filename invalid")
-        if not isinstance(size, int) or size <= 0:
+        if type(size) is not int or size <= 0:
             raise ValueError("G0.6 graph file size invalid")
         seen.add(filename)
         normalized_files.append(
@@ -201,7 +219,7 @@ def compile_g06_runtime_descriptor(
         "ssm_state_shape": expected_ssm,
         "token_dtype": "int64",
         "valid_length_dtype": "int64",
-        "state_dtype": str(state.get("dtype")),
+        "state_dtype": dtype,
         "single_weight_graph": True,
         "decode_via_valid_length_one": True,
         "parallel_prefill_ready": True,

@@ -1,0 +1,29 @@
+name: VN97 Mobile Runtime Contract
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/mobile-runtime-contract.yml'
+      - 'src/vn97/r2/mamba2_bundle_contract.py'
+      - 'src/vn97/r2/mamba2_android_runtime.py'
+      - 'src/vn97/r2/mamba2_parallel_onnx.py'
+      - 'tests/host_mamba2_runtime_contract.py'
+      - 'tests/test_r2_mamba2_g06_android.py'
+permissions:
+  contents: read
+concurrency:
+  group: mobile-runtime-contract-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+jobs:
+  package-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Check packaging and export module syntax
+        run: python -m compileall -q src/vn97/r2/mamba2_bundle_contract.py src/vn97/r2/mamba2_android_runtime.py src/vn97/r2/mamba2_parallel_onnx.py
+      - name: Verify real packaging code with tiny inventory fixtures
+        run: python tests/host_mamba2_runtime_contract.py
