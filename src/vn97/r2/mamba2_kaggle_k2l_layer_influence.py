@@ -114,16 +114,16 @@ def _diagnose(
     ):
         return "single_layer_state_interaction_localized"
     if any(
+        item["top1_class"] == "reference"
+        for item in layer_records
+    ):
+        return "component_layer_interaction_localized"
+    if any(
         item["mode"] == "both"
         and item["top1_class"] == "reference"
         for item in group_records
     ):
         return "multi_layer_state_interaction_localized"
-    if any(
-        item["top1_class"] == "reference"
-        for item in layer_records
-    ):
-        return "component_layer_interaction_localized"
     return "distributed_state_runtime_interaction"
 
 
@@ -304,7 +304,10 @@ def run_k2l(
     if py_conv.shape[0] != py_ssm.shape[0]:
         raise ValueError("K2L layer count mismatch")
     layer_count = int(py_conv.shape[0])
-    if layer_count != int(manifest["state_contract"]["shape"]["layers"]):
+    manifest_layers = int(
+        manifest["state_contract"]["conv_state"]["shape"][0]
+    )
+    if layer_count != manifest_layers:
         raise ValueError("K2L state/manifest layer count mismatch")
 
     session, provider2 = _ort_session(bundle_dir / "step.onnx")
