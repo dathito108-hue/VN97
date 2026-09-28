@@ -1,0 +1,92 @@
+name: VN97 R2-K2R Safe Diagnostics
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "android/runtime/src/main/java/ai/vn97/runtime/Mamba2OrtK2RDiagnostics.kt"
+      - "android/app/src/main/java/ai/vn97/app/VN97R2OrtEvidenceActivity.kt"
+      - "android/app/build.gradle.kts"
+      - "android/app/src/k2rsafe/AndroidManifest.xml"
+      - ".github/workflows/r2-k2r-safe-diagnostics.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "9.6.0"
+
+      - name: Install Android packages
+        shell: bash
+        env:
+          ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+        run: |
+          set -euo pipefail
+          TOOLS_ZIP="$RUNNER_TEMP/android-cmdline-tools.zip"
+          TOOLS_DIR="$RUNNER_TEMP/android-cmdline-tools"
+          curl -fsSL "https://dl.google.com/android/repository/commandlinetools-linux-12266719_latest.zip" -o "$TOOLS_ZIP"
+          rm -rf "$TOOLS_DIR"
+          mkdir -p "$TOOLS_DIR"
+          unzip -q "$TOOLS_ZIP" -d "$TOOLS_DIR"
+          SDKMANAGER="$TOOLS_DIR/cmdline-tools/bin/sdkmanager"
+          yes | "$SDKMANAGER" --sdk_root="$ANDROID_SDK_ROOT" --licenses >/dev/null || true
+          "$SDKMANAGER" --sdk_root="$ANDROID_SDK_ROOT" --channel=3 \
+            "platforms;android-37.0" \
+            "build-tools;36.0.0" \
+            "ndk;28.2.13676358" \
+            "cmake;3.22.1"
+
+      - name: Static K2R safe checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -F 'fun runSingleCpu(' android/runtime/src/main/java/ai/vn97/runtime/Mamba2OrtK2RDiagnostics.kt
+          grep -F 'Run K2R CPU ' android/app/src/main/java/ai/vn97/app/VN97R2OrtEvidenceActivity.kt
+          if grep -F 'Run K2R provider diagnostics' android/app/src/main/java/ai/vn97/app/VN97R2OrtEvidenceActivity.kt; then
+            echo "full provider sweep must not be exposed in safe APK" >&2
+            exit 1
+          fi
+
+      - name: Build K2R safe APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle -p android --no-daemon --stacktrace :app:assembleK2rsafe
+
+      - name: Verify package and zero permissions
+        shell: bash
+        env:
+          ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+        run: |
+          set -euo pipefail
+          APK="android/app/build/outputs/apk/k2rsafe/app-k2rsafe.apk"
+          AAPT="$ANDROID_SDK_ROOT/build-tools/36.0.0/aapt"
+          test -s "$APK"
+          "$AAPT" dump badging "$APK" | tee "$RUNNER_TEMP/badging.txt"
+          grep -F "package: name='ai.vn97.app.k2rsafe'" "$RUNNER_TEMP/badging.txt"
+          grep -F "application-label:'VN97 K2R Safe Diagnostics'" "$RUNNER_TEMP/badging.txt"
+          "$AAPT" dump permissions "$APK" | tee "$RUNNER_TEMP/permissions.txt"
+          if grep -E "uses-permission|permission:" "$RUNNER_TEMP/permissions.txt"; then
+            echo "K2R safe APK must request zero Android permissions" >&2
+            exit 1
+          fi
+          sha256sum "$APK"
+
+      - name: Upload K2R safe APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: VN97-R2-K2R-safe-isolated
+          path: android/app/build/outputs/apk/k2rsafe/app-k2rsafe.apk
+          if-no-files-found: error
+          retention-days: 7
