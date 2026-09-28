@@ -28,6 +28,9 @@
 > R2-G0.8 preserves the pinned GPT-NeoX byte-level BPE token-ID semantics,
 > special-token identity and padded-logit mask on Android; see
 > `docs/VN97_R2G08_GPT_NEOX_TOKENIZER.md`.
+> R2-G0.9 composes runtime + device tuning + GPT-NeoX tokenizer into an
+> identity-bound candidate-only cognition path; see
+> `docs/VN97_R2G09_MAMBA2_COGNITION_CANDIDATE.md`.
 
 
 ## Status
