@@ -35,6 +35,12 @@ class VN97Application :
         VN97PaperTradingSessionManager(this)
     }
 
+    val revenueCampaign: VN97RevenueCampaignManager by lazy(
+        LazyThreadSafetyMode.SYNCHRONIZED
+    ) {
+        VN97RevenueCampaignManager(this)
+    }
+
     val screenCaptureBroker: VN97ScreenCaptureBroker by lazy(
         LazyThreadSafetyMode.SYNCHRONIZED
     ) {

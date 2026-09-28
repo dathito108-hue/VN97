@@ -69,3 +69,15 @@ java -jar "$WORK/m13a-autonomous-goal-store-test.jar"
     -d "$WORK/m20a-revenue-qualification-test.jar"
 
 java -jar "$WORK/m20a-revenue-qualification-test.jar"
+
+
+"$KOTLINC" \
+    "$ROOT/android/app/src/main/java/ai/vn97/app/VN97RevenueQualification.kt" \
+    "$ROOT/android/app/src/main/java/ai/vn97/app/VN97RevenueCampaign.kt" \
+    "$HERE/M20ARevenueEvidenceStub.kt" \
+    "$HERE/M20BRevenueCampaignTest.kt" \
+    -Werror \
+    -include-runtime \
+    -d "$WORK/m20b-revenue-campaign-test.jar"
+
+java -jar "$WORK/m20b-revenue-campaign-test.jar"

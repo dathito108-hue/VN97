@@ -197,6 +197,7 @@ class VN97PaperTradingSessionManager(
             store.save(stopped)
             scheduler.cancel(jobId)
             appendTerminalMemoryBestEffort(stopped)
+            notifyRevenueCampaignTerminal(stopped)
             stopped
         }
 
@@ -208,6 +209,11 @@ class VN97PaperTradingSessionManager(
 
     fun performanceEvidence(): VN97PaperPerformanceAggregate =
         performanceStore.aggregate()
+
+    fun performanceEvidence(
+        sessionIds: Set<String>,
+    ): VN97PaperPerformanceAggregate =
+        performanceStore.aggregate(sessionIds)
 
     fun reconcileAfterSystemRestart(): List<VN97PaperTradingSessionRecord> =
         application.withSovereignExecution {
@@ -365,6 +371,8 @@ class VN97PaperTradingSessionManager(
         stopped: AtomicBoolean,
     ) {
         var record = running
+        var revenueTerminal:
+            VN97PaperTradingSessionRecord? = null
         val nowMs = System.currentTimeMillis()
         val nowNs = wallNowNs(nowMs)
         try {
@@ -536,10 +544,14 @@ class VN97PaperTradingSessionManager(
                                 record = next,
                                 nowNs = nowNs,
                             )
+                            revenueTerminal = next
                         } else if (!stopped.get()) {
                             schedule(next)
                         }
                     }
+            }
+            revenueTerminal?.let {
+                notifyRevenueCampaignTerminal(it)
             }
         } catch (exc: Throwable) {
             if (isModelIdentityFailure(exc)) {
@@ -665,7 +677,21 @@ class VN97PaperTradingSessionManager(
         store.save(terminal)
         scheduler.cancel(record.jobId)
         appendTerminalMemoryBestEffort(terminal)
+        notifyRevenueCampaignTerminal(terminal)
         return terminal
+    }
+
+    private fun notifyRevenueCampaignTerminal(
+        record: VN97PaperTradingSessionRecord,
+    ) {
+        if (!record.terminal) return
+        runCatching {
+            application.revenueCampaign
+                .onPaperSessionTerminal(
+                    sessionId = record.sessionId,
+                    state = record.state,
+                )
+        }
     }
 
     private fun appendPerformanceMemory(
