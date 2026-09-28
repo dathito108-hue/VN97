@@ -273,11 +273,14 @@ class VN97Mamba2OnnxLayer(nn.Module):
             cfg.n_heads,
             cfg.head_dim,
         )
+        # Preserve the official Mamba-2 fallback activation precision
+        # for dBx. dA remains float32 through A_log, while dt/B/x multiply
+        # in the inherited activation dtype before the recurrent add.
         d_b_x = torch.einsum(
             "bh,bn,bhp->bhpn",
-            dt_value.float(),
-            b_value.float(),
-            x_heads.float(),
+            dt_value,
+            b_value,
+            x_heads,
         )
         next_ssm = (
             ssm_state.float()
