@@ -1,0 +1,226 @@
+name: VN97 R2-K2Q GitHub Runtime Recovery
+
+on:
+  push:
+    branches: [r2-k2q-github-recovery]
+    paths:
+      - ".github/workflows/r2-k2q-github-recovery.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/r2-k2q-github-recovery.yml"
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: vn97-r2-k2q-github-recovery
+  cancel-in-progress: true
+
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout VN97
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Reclaim runner disk
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo rm -rf /usr/local/lib/android || true
+          sudo rm -rf /usr/share/dotnet || true
+          sudo rm -rf /opt/ghc || true
+          sudo rm -rf /usr/local/share/boost || true
+          sudo rm -rf /opt/hostedtoolcache/CodeQL || true
+          df -h /
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install exact export toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --upgrade pip
+          python -m pip install --disable-pip-version-check             --index-url https://download.pytorch.org/whl/cu128             "torch==2.10.0"
+          python -m pip install --disable-pip-version-check             "onnx==1.22.0"             "onnxscript==0.7.2"             "onnx-ir==0.2.1"             "onnxruntime-gpu==1.26.0"
+          python -m pip install --disable-pip-version-check --no-deps -e .
+          python - <<'PY'
+          import onnx, onnx_ir, onnxscript, onnxruntime, torch
+          print("torch=", torch.__version__, "cuda=", torch.version.cuda)
+          print("onnx=", onnx.__version__)
+          print("onnxscript=", onnxscript.__version__)
+          print("onnx_ir=", onnx_ir.__version__)
+          print("onnxruntime=", onnxruntime.__version__)
+          assert torch.__version__ == "2.10.0+cu128"
+          assert torch.version.cuda == "12.8"
+          assert onnx.__version__ == "1.22.0"
+          assert onnxscript.__version__ == "0.7.2"
+          assert onnx_ir.__version__ == "0.2.1"
+          assert onnxruntime.__version__ == "1.26.0"
+          PY
+          df -h /
+
+      - name: Download surviving pinned G0.3 capsule artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: VN97-R2-G03-Mamba2-2.7B-7a2e931de9d48e0f230037796accc40d32fa16cc-36367075535
+          path: ${{ runner.temp }}/g03-capsule
+          repository: dathito108-hue/VN97
+          run-id: 36367075535
+          github-token: ${{ github.token }}
+
+      - name: Verify recovered G0.3 identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          CAPSULE="${RUNNER_TEMP}/g03-capsule"
+          test -s "$CAPSULE/capsule.vn97m2g03.json"
+          test -s "$CAPSULE/weights/pytorch_model.bin"
+          python -m vn97.r2.mamba2_g03_capsule_cli inspect             --capsule-root "$CAPSULE"             | tee "${RUNNER_TEMP}/g03-inspect.json"
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          p = Path(os.environ["RUNNER_TEMP"]) / "g03-inspect.json"
+          r = json.loads(p.read_text().strip().splitlines()[-1])
+          assert r["capsule_id"] == "8e1aff6c6b6d2947cb25111e48febae6850100fd782a2f112adcab2e047f674e"
+          assert r["source_weight_sha256"] == "254d89bfef6dd9f44c8e3f54e0730af3f10c482969117cb37fb33486348b00be"
+          print("G0.3 identity OK")
+          PY
+          df -h /
+
+      - name: Recover exact Kaggle G0.5 exporter serialization
+        shell: bash
+        run: |
+          set -euo pipefail
+          CAPSULE="${RUNNER_TEMP}/g03-capsule"
+          OUT="${RUNNER_TEMP}/g05-recurrent-8"
+          TARGET_MANIFEST="ae782f452368b77b0c17dd7f9a2fd284b98bc0b24bc58e4c8e7d82fba046d2ce"
+          TARGET_ONNX_BYTES="45773335"
+          : > "${RUNNER_TEMP}/g05-candidate-results.txt"
+
+          # K2P ran in Kaggle v170. That image carried ONNX 1.22.0.
+          # The remaining serialization-sensitive variables are the already
+          # installed ONNXScript/ONNX-IR pair. Test only plausible v170-era
+          # pairs; stop immediately on the historical manifest identity.
+          CANDIDATES=(
+            "0.7.2 0.2.1"
+            "0.7.1 0.2.1"
+            "0.7.0 0.2.1"
+            "0.7.2 0.2.0"
+          )
+
+          for CANDIDATE in "${CANDIDATES[@]}"; do
+            read -r ONNXSCRIPT_VERSION ONNX_IR_VERSION <<< "$CANDIDATE"
+            echo "Trying onnx=1.22.0 onnxscript=$ONNXSCRIPT_VERSION onnx_ir=$ONNX_IR_VERSION"
+            rm -rf "$OUT"
+            python -m pip install --disable-pip-version-check -q --force-reinstall --no-deps               "onnxscript==$ONNXSCRIPT_VERSION"               "onnx-ir==$ONNX_IR_VERSION"
+
+            python -c 'import importlib.metadata as m, onnx, onnxscript; print("candidate onnx=", onnx.__version__, "onnxscript=", onnxscript.__version__, "onnx_ir=", m.version("onnx-ir"))'
+
+            if ! python -m vn97.r2.mamba2_parallel_onnx_cli export               --capsule-root "$CAPSULE"               --output-dir "$OUT"               --chunk-size 8; then
+              echo "$ONNXSCRIPT_VERSION/$ONNX_IR_VERSION export_failed" | tee -a "${RUNNER_TEMP}/g05-candidate-results.txt"
+              continue
+            fi
+
+            python -m vn97.r2.mamba2_parallel_onnx_cli verify               --bundle-dir "$OUT"
+
+            MANIFEST_ID="$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["manifest_id"])' "$OUT/manifest.vn97m2g05.json")"
+            ONNX_BYTES="$(stat -c %s "$OUT/recurrent-8.onnx")"
+            DATA_BYTES="$(stat -c %s "$OUT/recurrent-8.onnx.data")"
+            echo "$ONNXSCRIPT_VERSION/$ONNX_IR_VERSION manifest=$MANIFEST_ID onnx_bytes=$ONNX_BYTES data_bytes=$DATA_BYTES"               | tee -a "${RUNNER_TEMP}/g05-candidate-results.txt"
+            sha256sum "$OUT/recurrent-8.onnx" "$OUT/recurrent-8.onnx.data"
+
+            if [[ "$MANIFEST_ID" == "$TARGET_MANIFEST" ]]; then
+              echo "$ONNXSCRIPT_VERSION $ONNX_IR_VERSION" > "${RUNNER_TEMP}/matched-exporter.txt"
+              echo "Exact K2P G0.5 serialization recovered."
+              break
+            fi
+
+            if [[ "$ONNX_BYTES" == "$TARGET_ONNX_BYTES" ]]; then
+              echo "Candidate reached the historical ONNX byte size but identity still differs."
+            fi
+          done
+
+          cat "${RUNNER_TEMP}/g05-candidate-results.txt"
+          test -s "${RUNNER_TEMP}/matched-exporter.txt"
+          echo "matched_exporter=$(cat "${RUNNER_TEMP}/matched-exporter.txt")"
+          df -h /
+
+      - name: Build and lock Android G0.6 descriptor
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT="${RUNNER_TEMP}/g05-recurrent-8"
+          python -m vn97.r2.mamba2_android_runtime_cli             --bundle-dir "$OUT"
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          root = Path(os.environ["RUNNER_TEMP"]) / "g05-recurrent-8"
+          g05 = json.loads((root / "manifest.vn97m2g05.json").read_text())
+          g06 = json.loads((root / "runtime.vn97m2g06.json").read_text())
+
+          assert g05["manifest_id"] == "ae782f452368b77b0c17dd7f9a2fd284b98bc0b24bc58e4c8e7d82fba046d2ce"
+          assert g05["capsule_id"] == "8e1aff6c6b6d2947cb25111e48febae6850100fd782a2f112adcab2e047f674e"
+          assert g05["source_weight_sha256"] == "254d89bfef6dd9f44c8e3f54e0730af3f10c482969117cb37fb33486348b00be"
+          assert g05["max_chunk_size"] == 8
+          assert g05["state_contract"]["dtype"] == "float16"
+
+          assert g06["runtime_id"] == "a00feb6b05be1e9219fc9d6bdd6c6ecd9a14fc930202e9689d8c416c6d153762"
+          assert g06["g05_manifest_id"] == g05["manifest_id"]
+          assert g06["state_dtype"] == "float16"
+          assert g06["graph_filename"] == "recurrent-8.onnx"
+          assert g06["production_activation_authorized"] is False
+
+          print("K2Q GitHub recovery identity PASS")
+          print("g05_manifest_id=", g05["manifest_id"])
+          print("g06_runtime_id=", g06["runtime_id"])
+          PY
+
+      - name: Assemble exact three-file Android transfer
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT="${RUNNER_TEMP}/g05-recurrent-8"
+          TRANSFER="${RUNNER_TEMP}/VN97-K2Q-RECOVERED"
+          mkdir -p "$TRANSFER"
+          cp "$OUT/runtime.vn97m2g06.json" "$TRANSFER/"
+          ln "$OUT/recurrent-8.onnx" "$TRANSFER/recurrent-8.onnx"
+          ln "$OUT/recurrent-8.onnx.data" "$TRANSFER/recurrent-8.onnx.data"
+
+          test -s "$TRANSFER/runtime.vn97m2g06.json"
+          test -s "$TRANSFER/recurrent-8.onnx"
+          test -s "$TRANSFER/recurrent-8.onnx.data"
+
+          sha256sum             "$TRANSFER/runtime.vn97m2g06.json"             "$TRANSFER/recurrent-8.onnx"             "$TRANSFER/recurrent-8.onnx.data"             | tee "${RUNNER_TEMP}/K2Q_RECOVERED_SHA256SUMS"
+
+          rm -rf "${RUNNER_TEMP}/g03-capsule"
+          rm -rf "${RUNNER_TEMP}/g05-recurrent-8"
+          sync
+          echo "Recovered files:"
+          ls -lh "$TRANSFER"
+          df -h /
+
+      - name: Upload three recovered Android files
+        uses: actions/upload-artifact@v4
+        with:
+          name: VN97-R2-K2Q-RECOVERED-ANDROID-RUNTIME
+          path: ${{ runner.temp }}/VN97-K2Q-RECOVERED
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload recovery checksums
+        uses: actions/upload-artifact@v4
+        with:
+          name: VN97-R2-K2Q-RECOVERED-SHA256
+          path: ${{ runner.temp }}/K2Q_RECOVERED_SHA256SUMS
+          if-no-files-found: error
+          retention-days: 14
