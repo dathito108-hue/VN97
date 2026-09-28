@@ -2420,6 +2420,7 @@ class VN97MainActivity : Activity() {
             VN97AppPhase.MODEL_REQUIRED -> AssistantMode.SLEEPING
             VN97AppPhase.READY -> AssistantMode.IDLE
             VN97AppPhase.RUNNING -> AssistantMode.THINKING
+            VN97AppPhase.YIELDED -> AssistantMode.IDLE
             VN97AppPhase.WAITING_APPROVAL -> AssistantMode.WAITING_APPROVAL
             VN97AppPhase.ERROR -> AssistantMode.ERROR
         }
