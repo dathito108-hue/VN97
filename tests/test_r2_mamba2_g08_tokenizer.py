@@ -122,6 +122,9 @@ def test_gpt_neox_bpe_roundtrip_and_space_sensitive_tokens(
     assert tokenizer.decode(hello_space) == " Hello"
     assert tokenizer.decode(tokenizer.encode("Hello world")) == "Hello world"
     assert tokenizer.decode(tokenizer.encode("xin chào")) == "xin chào"
+    special = tokenizer.eos_token
+    assert tokenizer.encode(special) == [tokenizer.eos_token_id]
+    assert tokenizer.decode([tokenizer.eos_token_id]) == special
 
 
 def test_g08_descriptor_binds_assets_and_padded_sampling_mask(
