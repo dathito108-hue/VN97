@@ -104,3 +104,13 @@ java -jar "$WORK/m20c-live-revenue-readiness-test.jar"
     -d "$WORK/m20d-exness-signing-test.jar"
 
 java -jar "$WORK/m20d-exness-signing-test.jar"
+
+
+"$KOTLINC" \
+    "$ROOT/android/platform/src/main/java/ai/vn97/platform/VN97ExnessCredentialPayload.kt" \
+    "$HERE/M20EExnessCredentialPayloadTest.kt" \
+    -Werror \
+    -include-runtime \
+    -d "$WORK/m20e-exness-credential-payload-test.jar"
+
+java -jar "$WORK/m20e-exness-credential-payload-test.jar"
