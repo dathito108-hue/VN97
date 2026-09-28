@@ -1,5 +1,6 @@
 package ai.vn97.app
 
+import ai.vn97.platform.VN97PlannerServiceDraftStore
 import android.app.Activity
 import android.content.Intent
 import android.os.Bundle
@@ -94,6 +95,10 @@ class VN97DigitalServicesActivity : Activity() {
             setOnClickListener { produce() }
         }
         root.addView(produceButton)
+        root.addView(Button(this).apply {
+            text = "Nạp bản nháp gần nhất do VN97 chuẩn bị"
+            setOnClickListener { loadPlannerDraft() }
+        })
         statusView = TextView(this).apply { text = "Chưa có sản phẩm. Chưa có thanh toán xác minh." }
         root.addView(statusView)
         previewView = TextView(this).apply { setTextIsSelectable(true) }
@@ -224,6 +229,52 @@ class VN97DigitalServicesActivity : Activity() {
             "Chưa có thanh toán xác minh. Hãy kiểm tra sản phẩm trước khi bàn giao."
         previewView.text = delivery.content.take(8_000) +
             if (delivery.content.length > 8_000) "\n… Bản xem trước rút gọn; tệp xuất chứa đầy đủ." else ""
+    }
+
+    private fun loadPlannerDraft() {
+        produceButton.isEnabled = false
+        exportButton.isEnabled = false
+        worker.execute {
+            val result = runCatching {
+                requireNotNull(VN97PlannerServiceDraftStore(this).loadOrNull()) {
+                    "Chưa có bản nháp nào do VN97 chuẩn bị."
+                }
+            }
+            runOnUiThread {
+                if (!isDestroyed) {
+                    produceButton.isEnabled = true
+                    result.fold(
+                        onSuccess = { draft ->
+                            val service = VN97DigitalService.valueOf(draft.service.name)
+                            serviceView.setSelection(service.ordinal)
+                            titleView.setText("VN97 draft ${draft.delivery.outputSha256.take(12)}")
+                            inputView.setText(draft.source)
+                            priceView.setText("0")
+                            costView.setText("0")
+                            currentOrderId = null
+                            latest = VN97DigitalDelivery(
+                                draft.delivery.fileName,
+                                draft.delivery.content,
+                                draft.delivery.report,
+                                draft.delivery.sourceSha256,
+                                draft.delivery.outputSha256,
+                            )
+                            previewView.text = draft.delivery.content.take(8_000) +
+                                if (draft.delivery.content.length > 8_000) {
+                                    "\n… Bản xem trước rút gọn."
+                                } else ""
+                            statusView.text = "Đã nạp bản nháp VN97 để kiểm tra. " +
+                                "Bản nháp chưa phải đơn, chưa được bàn giao và chưa có thanh toán. " +
+                                "Sửa tên/giá nếu cần rồi bấm Tạo sản phẩm và lưu việc."
+                            exportButton.isEnabled = false
+                        },
+                        onFailure = {
+                            statusView.text = it.message ?: "Không đọc được bản nháp VN97."
+                        },
+                    )
+                }
+            }
+        }
     }
 
     private fun restoreLatest() {
