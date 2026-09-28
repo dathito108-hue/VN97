@@ -62,7 +62,7 @@ class VN97R2OrtEvidenceActivity : Activity() {
         )
 
         importButton = Button(this).apply {
-            text = "Import verified G0.6 runtime files"
+            text = "Import G0.6 runtime / split data parts"
             setOnClickListener { chooseRuntimeFiles() }
         }
         content.addView(importButton)
@@ -173,43 +173,99 @@ class VN97R2OrtEvidenceActivity : Activity() {
         }
 
         var totalBytes = 0L
+        val named = uris.map { uri ->
+            displayName(uri) to uri
+        }
         val seen = HashSet<String>()
+        named.forEach { (name, _) ->
+            require(SAFE_NAME.matches(name)) {
+                "unsafe runtime filename: " + name
+            }
+            require(seen.add(name)) {
+                "duplicate runtime filename: " + name
+            }
+        }
+
+        val parts = named.mapNotNull { (name, uri) ->
+            val match = DATA_PART_REGEX.matchEntire(name)
+                ?: return@mapNotNull null
+            Triple(
+                match.groupValues[1].toInt(),
+                name,
+                uri,
+            )
+        }.sortedBy { it.first }
+
+        val fullDataSelected = named.any {
+            it.first == DATA_FILENAME
+        }
+        require(!(fullDataSelected && parts.isNotEmpty())) {
+            "select either recurrent-8.onnx.data or split parts, not both"
+        }
+
+        if (parts.isNotEmpty()) {
+            require(parts.size <= MAX_DATA_PARTS) {
+                "too many recurrent data parts"
+            }
+            parts.forEachIndexed { expected, part ->
+                require(part.first == expected) {
+                    "split data parts must be contiguous from part000"
+                }
+            }
+        }
+
+        fun streamUri(
+            uri: Uri,
+            output: FileOutputStream,
+            label: String,
+        ) {
+            contentResolver.openInputStream(uri).use { input ->
+                requireNotNull(input) {
+                    "cannot open selected runtime file: " + label
+                }
+                val buffer = ByteArray(1024 * 1024)
+                while (true) {
+                    val count = input.read(buffer)
+                    if (count < 0) break
+                    check(count > 0) {
+                        "runtime import made no progress"
+                    }
+                    totalBytes = Math.addExact(
+                        totalBytes,
+                        count.toLong(),
+                    )
+                    check(totalBytes <= MAX_IMPORT_BYTES) {
+                        "runtime import exceeds 8 GiB safety bound"
+                    }
+                    output.write(buffer, 0, count)
+                }
+            }
+        }
+
         try {
-            for (uri in uris) {
-                val name = displayName(uri)
-                require(SAFE_NAME.matches(name)) {
-                    "unsafe runtime filename: " + name
-                }
-                require(seen.add(name)) {
-                    "duplicate runtime filename: " + name
-                }
+            val partNames = parts.map { it.second }.toHashSet()
+            for ((name, uri) in named) {
+                if (name in partNames) continue
                 val target = File(staging, name)
-                contentResolver.openInputStream(uri).use { input ->
-                    requireNotNull(input) {
-                        "cannot open selected runtime file: " + name
-                    }
-                    FileOutputStream(target).use { output ->
-                        val buffer = ByteArray(1024 * 1024)
-                        while (true) {
-                            val count = input.read(buffer)
-                            if (count < 0) break
-                            check(count > 0) {
-                                "runtime import made no progress"
-                            }
-                            totalBytes = Math.addExact(
-                                totalBytes,
-                                count.toLong(),
-                            )
-                            check(totalBytes <= MAX_IMPORT_BYTES) {
-                                "runtime import exceeds 8 GiB safety bound"
-                            }
-                            output.write(buffer, 0, count)
-                        }
-                        output.fd.sync()
-                    }
+                FileOutputStream(target).use { output ->
+                    streamUri(uri, output, name)
+                    output.fd.sync()
                 }
                 check(target.isFile && target.length() > 0L) {
                     "runtime file copied empty: " + name
+                }
+            }
+
+            if (parts.isNotEmpty()) {
+                val target = File(staging, DATA_FILENAME)
+                FileOutputStream(target).use { output ->
+                    for ((_, name, uri) in parts) {
+                        streamUri(uri, output, name)
+                    }
+                    output.fd.sync()
+                }
+                check(target.isFile && target.length() > 0L) {
+                    "assembled recurrent data file is empty"
                 }
             }
 
@@ -369,6 +425,10 @@ class VN97R2OrtEvidenceActivity : Activity() {
             "vn97-r2-k2q-device-profile.json"
         private const val MAX_IMPORT_BYTES =
             8L * 1024L * 1024L * 1024L
+        private const val MAX_DATA_PARTS = 64
+        private const val DATA_FILENAME = "recurrent-8.onnx.data"
+        private val DATA_PART_REGEX =
+            Regex("^recurrent-8\\.onnx\\.data\\.part([0-9]{3})$")
         private val SAFE_NAME =
             Regex("^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
     }
