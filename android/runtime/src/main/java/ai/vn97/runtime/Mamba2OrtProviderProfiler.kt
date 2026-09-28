@@ -7,7 +7,6 @@ import android.content.Context
 import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
-import java.nio.FloatBuffer
 import java.nio.LongBuffer
 import java.security.MessageDigest
 import org.json.JSONArray
@@ -314,20 +313,67 @@ private class Mamba2ProfileBuffers(
     private val inputBuffer =
         directLongBufferG07Profile(runtime.maxChunkSize)
     private val validLengthBuffer = directLongBufferG07Profile(1)
-    private val convInputBuffer =
-        directFloatBufferG07Profile(runtime.convStateElements)
-    private val ssmInputBuffer =
-        directFloatBufferG07Profile(runtime.ssmStateElements)
-    private val convOutputBuffer =
-        directFloatBufferG07Profile(runtime.convStateElements)
-    private val ssmOutputBuffer =
-        directFloatBufferG07Profile(runtime.ssmStateElements)
-    private val logitsBuffer = directFloatBufferG07Profile(
+    private val valueDtype =
+        Mamba2OrtValueDtype.fromRuntime(runtime.stateDtype)
+    private val convInput = Mamba2OrtTensorStorage.create(
+        environment,
+        valueDtype,
+        longArrayOf(
+            runtime.nLayers.toLong(),
+            1L,
+            runtime.convDim.toLong(),
+            runtime.dConv.toLong(),
+        ),
+        runtime.convStateElements,
+    )
+    private val ssmInput = Mamba2OrtTensorStorage.create(
+        environment,
+        valueDtype,
+        longArrayOf(
+            runtime.nLayers.toLong(),
+            1L,
+            runtime.nHeads.toLong(),
+            runtime.headDim.toLong(),
+            runtime.dState.toLong(),
+        ),
+        runtime.ssmStateElements,
+    )
+    private val convOutput = Mamba2OrtTensorStorage.create(
+        environment,
+        valueDtype,
+        longArrayOf(
+            runtime.nLayers.toLong(),
+            1L,
+            runtime.convDim.toLong(),
+            runtime.dConv.toLong(),
+        ),
+        runtime.convStateElements,
+    )
+    private val ssmOutput = Mamba2OrtTensorStorage.create(
+        environment,
+        valueDtype,
+        longArrayOf(
+            runtime.nLayers.toLong(),
+            1L,
+            runtime.nHeads.toLong(),
+            runtime.headDim.toLong(),
+            runtime.dState.toLong(),
+        ),
+        runtime.ssmStateElements,
+    )
+    private val logits = Mamba2OrtTensorStorage.create(
+        environment,
+        valueDtype,
+        longArrayOf(
+            1L,
+            runtime.maxChunkSize.toLong(),
+            runtime.vocabSize.toLong(),
+        ),
         checkedG07ProfileCount(
             "G0.7 logits",
             runtime.maxChunkSize.toLong(),
             runtime.vocabSize.toLong(),
-        )
+        ),
     )
 
     private val inputTensor = OnnxTensor.createTensor(
@@ -340,73 +386,21 @@ private class Mamba2ProfileBuffers(
         validLengthBuffer,
         longArrayOf(1L),
     )
-    private val convInputTensor = OnnxTensor.createTensor(
-        environment,
-        convInputBuffer,
-        longArrayOf(
-            runtime.nLayers.toLong(),
-            1L,
-            runtime.convDim.toLong(),
-            runtime.dConv.toLong(),
-        ),
-    )
-    private val ssmInputTensor = OnnxTensor.createTensor(
-        environment,
-        ssmInputBuffer,
-        longArrayOf(
-            runtime.nLayers.toLong(),
-            1L,
-            runtime.nHeads.toLong(),
-            runtime.headDim.toLong(),
-            runtime.dState.toLong(),
-        ),
-    )
-    private val convOutputTensor = OnnxTensor.createTensor(
-        environment,
-        convOutputBuffer,
-        longArrayOf(
-            runtime.nLayers.toLong(),
-            1L,
-            runtime.convDim.toLong(),
-            runtime.dConv.toLong(),
-        ),
-    )
-    private val ssmOutputTensor = OnnxTensor.createTensor(
-        environment,
-        ssmOutputBuffer,
-        longArrayOf(
-            runtime.nLayers.toLong(),
-            1L,
-            runtime.nHeads.toLong(),
-            runtime.headDim.toLong(),
-            runtime.dState.toLong(),
-        ),
-    )
-    private val logitsTensor = OnnxTensor.createTensor(
-        environment,
-        logitsBuffer,
-        longArrayOf(
-            1L,
-            runtime.maxChunkSize.toLong(),
-            runtime.vocabSize.toLong(),
-        ),
-    )
-
     private val inputs = linkedMapOf(
         "input_ids" to inputTensor,
         "valid_length" to validLengthTensor,
-        "conv_state" to convInputTensor,
-        "ssm_state" to ssmInputTensor,
+        "conv_state" to convInput.tensor,
+        "ssm_state" to ssmInput.tensor,
     )
     private val outputs = linkedMapOf(
-        "logits" to logitsTensor,
-        "next_conv_state" to convOutputTensor,
-        "next_ssm_state" to ssmOutputTensor,
+        "logits" to logits.tensor,
+        "next_conv_state" to convOutput.tensor,
+        "next_ssm_state" to ssmOutput.tensor,
     )
 
     init {
-        zero(convInputBuffer)
-        zero(ssmInputBuffer)
+        convInput.zero()
+        ssmInput.zero()
     }
 
     fun prepare(validLength: Int) {
@@ -421,22 +415,19 @@ private class Mamba2ProfileBuffers(
         session.run(inputs, outputs).use {
             // Outputs are pinned and deliberately not fed into the next run.
         }
-    }
-
-    private fun zero(buffer: FloatBuffer) {
-        for (index in 0 until buffer.capacity()) {
-            buffer.put(index, 0.0f)
+        check(logits.allFinite()) {
+            "G0.7 provider produced non-finite logits"
         }
     }
 
     override fun close() {
         inputTensor.close()
         validLengthTensor.close()
-        convInputTensor.close()
-        ssmInputTensor.close()
-        convOutputTensor.close()
-        ssmOutputTensor.close()
-        logitsTensor.close()
+        convInput.close()
+        ssmInput.close()
+        convOutput.close()
+        ssmOutput.close()
+        logits.close()
     }
 }
 
@@ -498,14 +489,6 @@ private fun percentileG07Profile(
 
 private fun elapsedG07Profile(start: Long): Long =
     (System.nanoTime() - start).coerceAtLeast(1L)
-
-private fun directFloatBufferG07Profile(count: Int): FloatBuffer {
-    require(count > 0)
-    require(count <= Int.MAX_VALUE / Float.SIZE_BYTES)
-    return ByteBuffer.allocateDirect(
-        count * Float.SIZE_BYTES
-    ).order(ByteOrder.nativeOrder()).asFloatBuffer()
-}
 
 private fun directLongBufferG07Profile(count: Int): LongBuffer {
     require(count > 0)

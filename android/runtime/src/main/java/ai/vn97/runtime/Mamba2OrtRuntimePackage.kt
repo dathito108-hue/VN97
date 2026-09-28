@@ -40,6 +40,7 @@ data class Mamba2OrtRuntimePackage(
     val dState: Int,
     val dConv: Int,
     val convDim: Int,
+    val stateDtype: String,
 ) {
     init {
         requireMamba2Sha256(runtimeId, "G0.6 runtime ID")
@@ -65,6 +66,9 @@ data class Mamba2OrtRuntimePackage(
         require(convDim == 5376)
         require(graphFilename == "recurrent-" + maxChunkSize + ".onnx")
         require(graphFiles.containsKey(graphFilename))
+        require(stateDtype in setOf("float16", "float32")) {
+            "G0.6 state dtype must be float16 or float32"
+        }
     }
 
     val graphFile: File
@@ -191,7 +195,10 @@ data class Mamba2OrtRuntimePackage(
             )
             require(json.getString("token_dtype") == "int64")
             require(json.getString("valid_length_dtype") == "int64")
-            require(json.getString("state_dtype") == "float32")
+            val stateDtype = json.getString("state_dtype")
+            require(stateDtype in setOf("float16", "float32")) {
+                "G0.6 state dtype must be float16 or float32"
+            }
             require(json.getBoolean("single_weight_graph"))
             require(json.getBoolean("decode_via_valid_length_one"))
             require(json.getBoolean("parallel_prefill_ready"))
@@ -280,6 +287,7 @@ data class Mamba2OrtRuntimePackage(
                 dState = dState,
                 dConv = dConv,
                 convDim = convDim,
+                stateDtype = stateDtype,
             )
         }
     }
