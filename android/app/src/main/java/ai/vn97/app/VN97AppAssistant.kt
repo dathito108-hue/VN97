@@ -39,6 +39,7 @@ class VN97AppAssistant(
     private var model: NativeActivatedModel? = null
     private var resources: VN97ProductionAssistantResources? = null
     private var pendingResult: VN97AppTurnResult? = null
+    private var yieldedResult: VN97AppTurnResult? = null
     private var knowledgeAcquisition:
         VN97KnowledgeAcquisitionSession? = null
 
@@ -52,6 +53,30 @@ class VN97AppAssistant(
             model != null &&
                 resources != null
         }
+
+    fun hasYieldedTurn(): Boolean = synchronized(lock) { yieldedResult != null }
+
+    fun continueYieldedTurn(maxAdvances: Int = 8): VN97AppTurnResult = exclusive {
+        require(maxAdvances > 0) { "maxAdvances must be positive" }
+        val current = checkNotNull(yieldedResult) { "no yielded assistant turn is pending" }
+        check(pendingResult == null) { "resolve the pending M6 approval first" }
+        // Resource denial must retain the resumable turn for a later attempt.
+        val decision = application.runtimeResources.requireRunnable(VN97RuntimeExecutionClass.INTERACTIVE)
+        val session = checkNotNull(resources) { "trusted VN97 model is not active" }.session
+        try {
+            val continued = session.continueTurn(
+                turn = current.update.turn,
+                nowNs = SystemClock.elapsedRealtimeNanos(),
+            )
+            rememberPending(VN97AppTurnResult(
+                userMessage = current.userMessage,
+                update = advanceYielded(session, continued, minOf(maxAdvances, decision.maxInteractiveAdvances)),
+            ))
+        } catch (failure: Throwable) {
+            if (!session.hasActiveTurn) yieldedResult = null
+            throw failure
+        }
+    }
 
     fun proposeKnowledgeAcquisition(
         goal: String,
@@ -226,13 +251,12 @@ class VN97AppAssistant(
         )
     }
 
-    fun hasProductionVoice(): Boolean = synchronized(lock) {
-        model?.info?.hasAudioProjection == true
-    }
+    // Legacy projection metadata is not evidence of an executable R2 ONNX adapter.
+    // Keep availability aligned with runVoiceTurn/perceiveVision below until those
+    // entry points have validated, identity-bound graphs and real implementations.
+    fun hasProductionVoice(): Boolean = false
 
-    fun hasProductionVision(): Boolean = synchronized(lock) {
-        model?.info?.hasVisionProjection == true
-    }
+    fun hasProductionVision(): Boolean = false
 
     fun perceiveVision(
         preparedVision: NativePreparedVision,
@@ -428,22 +452,18 @@ class VN97AppAssistant(
         initial: VN97AssistantTurnUpdate,
         maxAdvances: Int,
     ): VN97AssistantTurnUpdate {
-        var update = initial
-        var advances = 1
-        while (
-            update.state == VN97AssistantTurnState.YIELDED &&
-            advances < maxAdvances
-        ) {
-            update = session.continueTurn(
-                turn = update.turn,
-                nowNs = SystemClock.elapsedRealtimeNanos(),
-            )
-            advances += 1
-        }
-        return update
+        return advanceVN97BoundedTurn(
+            initial = initial,
+            maxAdvances = maxAdvances,
+            isYielded = { it.state == VN97AssistantTurnState.YIELDED },
+            advance = {
+                session.continueTurn(turn = it.turn, nowNs = SystemClock.elapsedRealtimeNanos())
+            },
+        )
     }
 
     private fun rememberPending(result: VN97AppTurnResult): VN97AppTurnResult {
+        yieldedResult = result.takeIf { it.update.state == VN97AssistantTurnState.YIELDED }
         if (result.update.state == VN97AssistantTurnState.APPROVAL_REQUIRED) {
             checkNotNull(result.update.approval) {
                 "APPROVAL_REQUIRED update lacks approval"
@@ -530,6 +550,7 @@ class VN97AppAssistant(
     }
 
     private fun closeLocked() {
+        yieldedResult = null
         knowledgeAcquisition = null
         var failure: Throwable? = null
         try {

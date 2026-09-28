@@ -577,7 +577,9 @@ class VN97MainActivity : Activity() {
 
         sendButton = Button(this).apply {
             text = "Send"
-            setOnClickListener { submitTurn() }
+            setOnClickListener {
+                if (state.phase == VN97AppPhase.YIELDED) resumeYieldedTurn() else submitTurn()
+            }
         }
         inputRow.addView(
             sendButton,
@@ -1417,6 +1419,9 @@ class VN97MainActivity : Activity() {
                                     .ApprovalRequired,
                             )
                         }
+                        if (next.phase == VN97AppPhase.READY && app.assistant.hasYieldedTurn()) {
+                            next = VN97AppReducer.reduce(next, VN97AppEvent.TurnYielded)
+                        }
                         render(next)
                         refreshVisualButtons()
                         provisioningView.text =
@@ -2247,6 +2252,27 @@ class VN97MainActivity : Activity() {
         }
     }
 
+    private fun resumeYieldedTurn() {
+        if (state.phase != VN97AppPhase.YIELDED || autonomousApprovalActive) return
+        render(VN97AppReducer.reduce(state, VN97AppEvent.TurnResumed))
+        worker.execute {
+            try {
+                val result = app.assistant.continueYieldedTurn()
+                runOnUiThread { if (!isDestroyed) applyTurnResult(result) }
+            } catch (failure: Throwable) {
+                runOnUiThread {
+                    if (!isDestroyed) {
+                        if (app.assistant.hasYieldedTurn()) {
+                            render(VN97AppReducer.reduce(state, VN97AppEvent.TurnYielded))
+                            statusView.text = "Chưa thể tiếp tục: " + failure::class.java.simpleName +
+                                ". Lượt đang dở vẫn được giữ; có thể thử lại."
+                        } else renderFailure("VN97 continuation failed: " + failure::class.java.simpleName)
+                    }
+                }
+            }
+        }
+    }
+
     private fun submitTurn() {
         if (autonomousApprovalActive) {
             statusView.text =
@@ -2312,6 +2338,10 @@ class VN97MainActivity : Activity() {
 
     private fun applyTurnResult(result: VN97AppTurnResult) {
         when (result.update.state) {
+            VN97AssistantTurnState.YIELDED -> render(
+                VN97AppReducer.reduce(state, VN97AppEvent.TurnYielded)
+            )
+
             VN97AssistantTurnState.COMPLETED -> render(
                 VN97AppReducer.reduce(
                     state,
@@ -2355,8 +2385,9 @@ class VN97MainActivity : Activity() {
         state = next
         statusView.text = state.status
         inputView.isEnabled = state.inputEnabled
+        sendButton.text = if (state.phase == VN97AppPhase.YIELDED) "Tiếp tục" else "Send"
         sendButton.isEnabled =
-            state.inputEnabled &&
+            (state.inputEnabled || state.phase == VN97AppPhase.YIELDED) &&
                 !autonomousApprovalActive
         autonomousButton.isEnabled =
             state.phase == VN97AppPhase.READY &&
@@ -2389,6 +2420,7 @@ class VN97MainActivity : Activity() {
             VN97AppPhase.MODEL_REQUIRED -> AssistantMode.SLEEPING
             VN97AppPhase.READY -> AssistantMode.IDLE
             VN97AppPhase.RUNNING -> AssistantMode.THINKING
+            VN97AppPhase.YIELDED -> AssistantMode.IDLE
             VN97AppPhase.WAITING_APPROVAL -> AssistantMode.WAITING_APPROVAL
             VN97AppPhase.ERROR -> AssistantMode.ERROR
         }
