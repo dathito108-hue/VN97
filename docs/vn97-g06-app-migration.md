@@ -34,7 +34,9 @@ Signed APK assets `vn97-g06/` contain:
 
 The APK distributor is the bootstrap trust root. Hashes alone are not publisher
 authentication. No arbitrary ZIP or historical CAP is treated as a trusted G06
-deployment. The installer validates staging before replacement and preserves
+deployment. Within one process the installer avoids recopying immutable APK assets when
+reopening a model; the model loader still verifies package bytes. A new process
+or APK gets a fresh installer. The installer validates staging before replacement and preserves
 the previous installation on copy/layout/semantic validation failure. The 8 GiB
 copy ceiling is not evidence that an APK of that size can be distributed or
 installed; full-size G06 model delivery and physical qualification remain gates.

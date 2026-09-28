@@ -18,6 +18,7 @@ class VN97G06BundledRuntime(
     private val validateDeployment: (File) -> Unit,
 ) {
     private val lock = Any()
+    private var installedAssetId: String? = null
 
     fun installIfPresent(required: Boolean): Boolean =
         synchronized(lock) {
@@ -35,6 +36,14 @@ class VN97G06BundledRuntime(
 
             val target =
                 File(application.noBackupFilesDir, TARGET_DIR)
+            // APK assets are immutable for this process. Runtime opening still verifies
+            // every declared file; this only avoids a multi-GB staging copy on reopen.
+            val cached = installedAssetId
+            if (cached != null && File(target, IDENTITY_FILE).takeIf { it.isFile }
+                    ?.readText(Charsets.US_ASCII)?.trim() == cached &&
+                runCatching { requireRequiredLayout(target) }.isSuccess) {
+                return@synchronized false
+            }
             val staging =
                 File(application.noBackupFilesDir, STAGING_DIR)
             val backup =
@@ -77,7 +86,12 @@ class VN97G06BundledRuntime(
                         .takeIf { it.isFile }
                         ?.readText(Charsets.US_ASCII)
                         ?.trim()
-                if (existingId == treeId) {
+                if (existingId == treeId && runCatching {
+                        requireRequiredLayout(target)
+                        validateDeployment(target)
+                    }.isSuccess) {
+                    // Do not trust a stale marker over corrupt/missing installed bytes.
+                    installedAssetId = treeId
                     deleteRecursivelySafe(staging)
                     return@synchronized false
                 }
@@ -99,6 +113,7 @@ class VN97G06BundledRuntime(
                     }
                     throw error
                 }
+                installedAssetId = treeId
                 true
             } catch (error: Throwable) {
                 deleteRecursivelySafe(staging)

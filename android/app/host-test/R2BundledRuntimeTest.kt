@@ -16,9 +16,10 @@ fun main() {
         val assets = File(temp, "assets").apply { mkdirs() }
         val privateRoot = File(temp, "private").apply { mkdirs() }
         val manager = AssetManager(assets)
-        val installer = VN97G06BundledRuntime(VN97Application(privateRoot, manager)) { staging ->
+        fun newInstaller() = VN97G06BundledRuntime(VN97Application(privateRoot, manager)) { staging ->
             check(!File(staging, "binding.vn97m2g09.json").readText().contains("reject"))
         }
+        var installer = newInstaller()
         check(!installer.installIfPresent(required = false))
         check(runCatching { installer.installIfPresent(required = true) }.isFailure)
 
@@ -39,6 +40,13 @@ fun main() {
         check(File(target, ".apk-assets.sha256").readText() == identity)
         check(!File(privateRoot, ".vn97-g06.staging").exists())
 
+        // Reopening in the same process must not recopy immutable APK bytes.
+        manager.failOpenPath = "vn97-g06/runtime/recurrent-8.onnx"
+        check(!installer.installIfPresent(required = true))
+        manager.failOpenPath = null
+
+        // A new APK/process has a new installer; its assets may differ.
+        installer = newInstaller()
         // Partial new staging data must never replace the working installation.
         writeFixture(assets, "binding.vn97m2g09.json", "fixture:v2")
         manager.failOpenPath = "vn97-g06/runtime/recurrent-8.onnx"
@@ -54,6 +62,7 @@ fun main() {
         check(secondIdentity != identity)
         check(!File(privateRoot, ".vn97-g06.backup").exists())
 
+        installer = newInstaller()
         // Semantic rejection happens before replacing the validated installation.
         writeFixture(assets, "binding.vn97m2g09.json", "reject")
         check(runCatching { installer.installIfPresent(required = true) }.isFailure)
