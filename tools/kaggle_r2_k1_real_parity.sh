@@ -29,9 +29,17 @@ PY
 echo "VN97 K1: checking storage"
 df -h /kaggle/working || true
 AVAILABLE_KB="$(df -Pk /kaggle/working | awk 'NR==2 {print $4}')"
-REQUIRED_KB="$((16 * 1024 * 1024))"
+if [[ -f "$SOURCE_ROOT/pytorch_model.bin" ]]; then
+  REQUIRED_GIB=3
+  STORAGE_MODE="reuse-existing-source"
+else
+  REQUIRED_GIB=10
+  STORAGE_MODE="fresh-source-download"
+fi
+REQUIRED_KB="$((REQUIRED_GIB * 1024 * 1024))"
+echo "storage_mode=$STORAGE_MODE required_gib=$REQUIRED_GIB"
 if [[ -z "$AVAILABLE_KB" || "$AVAILABLE_KB" -lt "$REQUIRED_KB" ]]; then
-  echo "K1 needs at least 16 GiB free in /kaggle/working." >&2
+  echo "K1 needs at least $REQUIRED_GIB GiB free in /kaggle/working for $STORAGE_MODE." >&2
   exit 2
 fi
 
