@@ -24,6 +24,7 @@ class VN97PaperTradingActivity : Activity() {
     private lateinit var jobIdView: EditText
     private lateinit var statusView: TextView
     private lateinit var startButton: Button
+    private lateinit var revenueCampaignButton: Button
     private lateinit var pauseButton: Button
     private lateinit var resumeButton: Button
     private lateinit var stopButton: Button
@@ -147,6 +148,12 @@ class VN97PaperTradingActivity : Activity() {
         }
         root.addView(startButton, fullWidth())
 
+        revenueCampaignButton = Button(this).apply {
+            text = "Start revenue qualification campaign"
+            setOnClickListener { startRevenueCampaign() }
+        }
+        root.addView(revenueCampaignButton, fullWidth())
+
         jobIdView = EditText(this).apply {
             hint = "Paper session Job ID"
             maxLines = 1
@@ -260,6 +267,66 @@ class VN97PaperTradingActivity : Activity() {
         }
     }
 
+    private fun startRevenueCampaign() {
+        val spec = try {
+            VN97PaperTradingControlSurface.parse(
+                endpointText = endpointView.text.toString(),
+                sourceIdText = sourceView.text.toString(),
+                symbolsText = symbolsView.text.toString(),
+                userGoalText = goalView.text.toString(),
+                intervalSecondsText = "120",
+                maxEpisodesText = "43",
+                requiresBatteryNotLow =
+                    batteryNotLowCheck.isChecked,
+                requiresCharging = chargingCheck.isChecked,
+            )
+        } catch (exc: Throwable) {
+            statusView.text =
+                "Revenue campaign rejected: " +
+                    (exc.message ?: exc::class.java.simpleName)
+            return
+        }
+
+        setControlsEnabled(false)
+        statusView.text =
+            "Starting sequential paper-only revenue campaign…"
+        worker.execute {
+            try {
+                val campaign =
+                    app.revenueCampaign.start(
+                        VN97RevenueCampaignRequest(
+                            endpoint = spec.endpoint,
+                            sourceId = spec.sourceId,
+                            symbols = spec.symbols,
+                            userGoal = spec.userGoal,
+                            requiresBatteryNotLow =
+                                spec.requiresBatteryNotLow,
+                            requiresCharging =
+                                spec.requiresCharging,
+                        )
+                    )
+                runOnUiThread {
+                    campaign.currentJobId?.let {
+                        jobIdView.setText(it.toString())
+                    }
+                    statusView.text =
+                        "Revenue campaign started: " +
+                            campaign.campaignId.take(12) +
+                            "…; paper evidence only, no live-money authority."
+                    setControlsEnabled(true)
+                    refreshStatus()
+                }
+            } catch (exc: Throwable) {
+                runOnUiThread {
+                    statusView.text =
+                        "Revenue campaign start failed: " +
+                            (exc.message ?: exc::class.java.simpleName)
+                    setControlsEnabled(true)
+                }
+            }
+        }
+    }
+
     private fun controlSession(action: String) {
         val jobId = try {
             VN97PaperTradingControlSurface.parseJobId(
@@ -308,13 +375,15 @@ class VN97PaperTradingActivity : Activity() {
         refreshButton.isEnabled = false
         worker.execute {
             val result = runCatching {
-                Pair(
+                Triple(
                     app.paperTrading.listReports(),
                     app.paperTrading.performanceEvidence(),
+                    app.revenueCampaign.current(),
                 )
             }
             runOnUiThread {
-                val (reports, performance) = result.getOrElse { exc ->
+                val (reports, performance, campaign) =
+                    result.getOrElse { exc ->
                     statusView.text =
                         "Status unavailable: " +
                             (exc.message ?: exc::class.java.simpleName)
@@ -342,7 +411,8 @@ class VN97PaperTradingActivity : Activity() {
                 statusView.text =
                     sessionText +
                         formatPerformanceEvidence(performance) +
-                        formatRevenueQualification(performance)
+                        formatRevenueQualification(performance) +
+                        formatRevenueCampaign(campaign)
                 if (
                     jobIdView.text.isNullOrBlank() &&
                     reports.isNotEmpty()
@@ -434,8 +504,43 @@ class VN97PaperTradingActivity : Activity() {
         }
     }
 
+    private fun formatRevenueCampaign(
+        campaign: VN97RevenueCampaignSnapshot?,
+    ): String {
+        if (campaign == null) {
+            return "\n\nRevenue campaign: none."
+        }
+        return buildString {
+            append("\n\nRevenue campaign:")
+            append("\nid=")
+            append(campaign.campaignId.take(16))
+            append(" state=")
+            append(campaign.state.name)
+            append("\nsessions_started=")
+            append(campaign.sessionsStarted)
+            append(" completed=")
+            append(campaign.sessionsCompleted)
+            campaign.currentJobId?.let {
+                append(" current_job=")
+                append(it)
+            }
+            campaign.qualification?.let { q ->
+                append("\nqualification=")
+                append(q.stage.name)
+                append(" evidence=")
+                append(q.evidenceConsidered)
+                append(" median_return_bps=")
+                append(q.medianReturnBasisPoints ?: "n/a")
+                append(" max_drawdown_bps=")
+                append(q.worstDrawdownBasisPoints ?: "n/a")
+            }
+            append("\nproduction_money_movement_authorized=false")
+        }
+    }
+
     private fun setControlsEnabled(enabled: Boolean) {
         startButton.isEnabled = enabled
+        revenueCampaignButton.isEnabled = enabled
         pauseButton.isEnabled = enabled
         resumeButton.isEnabled = enabled
         stopButton.isEnabled = enabled
