@@ -54,6 +54,11 @@ class VN97AppAssistant(
                 resources != null
         }
 
+    fun hasPausedTurn(): Boolean = synchronized(lock) {
+        yieldedResult?.update?.state == VN97AssistantTurnState.PAUSED
+    }
+
+    // Kept for callers: both resumable boundaries retain the canonical turn.
     fun hasYieldedTurn(): Boolean = synchronized(lock) { yieldedResult != null }
 
     fun continueYieldedTurn(maxAdvances: Int = 8): VN97AppTurnResult = exclusive {
@@ -64,7 +69,12 @@ class VN97AppAssistant(
         val decision = application.runtimeResources.requireRunnable(VN97RuntimeExecutionClass.INTERACTIVE)
         val session = checkNotNull(resources) { "trusted VN97 model is not active" }.session
         try {
-            val continued = session.continueTurn(
+            val continued = if (current.update.state == VN97AssistantTurnState.PAUSED) {
+                session.resumePausedTurn(
+                    turn = current.update.turn,
+                    nowNs = SystemClock.elapsedRealtimeNanos(),
+                )
+            } else session.continueTurn(
                 turn = current.update.turn,
                 nowNs = SystemClock.elapsedRealtimeNanos(),
             )
@@ -463,7 +473,7 @@ class VN97AppAssistant(
     }
 
     private fun rememberPending(result: VN97AppTurnResult): VN97AppTurnResult {
-        yieldedResult = result.takeIf { it.update.state == VN97AssistantTurnState.YIELDED }
+        yieldedResult = result.takeIf { it.update.state in setOf(VN97AssistantTurnState.YIELDED, VN97AssistantTurnState.PAUSED) }
         if (result.update.state == VN97AssistantTurnState.APPROVAL_REQUIRED) {
             checkNotNull(result.update.approval) {
                 "APPROVAL_REQUIRED update lacks approval"

@@ -59,6 +59,11 @@ jobs:
         run: |
           gradle -p android --no-daemon --stacktrace :app:assembleDebug
 
+      - name: Verify canonical assistant session lifecycle
+        shell: bash
+        run: |
+          gradle -p android --no-daemon --stacktrace :platform:testDebugUnitTest
+
       - name: Run host contracts
         shell: bash
         run: |
