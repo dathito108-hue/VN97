@@ -412,7 +412,8 @@ class VN97PaperTradingActivity : Activity() {
                     sessionText +
                         formatPerformanceEvidence(performance) +
                         formatRevenueQualification(performance) +
-                        formatRevenueCampaign(campaign)
+                        formatRevenueCampaign(campaign) +
+                        formatLiveRevenueReadiness(campaign)
                 if (
                     jobIdView.text.isNullOrBlank() &&
                     reports.isNotEmpty()
@@ -535,6 +536,45 @@ class VN97PaperTradingActivity : Activity() {
                 append(q.worstDrawdownBasisPoints ?: "n/a")
             }
             append("\nproduction_money_movement_authorized=false")
+        }
+    }
+
+    private fun formatLiveRevenueReadiness(
+        campaign: VN97RevenueCampaignSnapshot?,
+    ): String {
+        if (campaign == null) {
+            return "\n\nLive revenue: LOCKED; no qualified campaign."
+        }
+        val readiness =
+            VN97RevenueLiveReadinessGate.evaluate(
+                promotion =
+                    VN97RevenuePromotionEvidence(
+                        campaignId = campaign.campaignId,
+                        campaignState = campaign.state,
+                        qualification = campaign.qualification,
+                    ),
+                channel =
+                    VN97RevenueChannelEvidence(
+                        providerId = "unconfigured",
+                        configured = false,
+                        credentialBackedByKeystore = false,
+                        authenticated = false,
+                        dryRunValidated = false,
+                        orderSubmissionAvailable = false,
+                    ),
+                authority = null,
+                nowWallTimeMillis =
+                    System.currentTimeMillis(),
+            )
+        return buildString {
+            append("\n\nLive revenue readiness=")
+            append(readiness.state.name)
+            append("\nblockers=")
+            append(readiness.blockers.joinToString(","))
+            append("\nproduction_money_movement_authorized=")
+            append(
+                readiness.productionMoneyMovementAuthorized
+            )
         }
     }
 
