@@ -1,0 +1,39 @@
+name: VN97 R2-K2Q Android FP16 Validation
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "android/runtime/src/main/java/ai/vn97/runtime/Mamba2OrtRuntimePackage.kt"
+      - "android/runtime/src/main/java/ai/vn97/runtime/Mamba2OrtTensorStorage.kt"
+      - "android/runtime/src/main/java/ai/vn97/runtime/Mamba2OrtProviderProfiler.kt"
+      - ".github/workflows/r2-k2q-android-fp16-validation.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  android-runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: android-actions/setup-android@v3
+
+      - name: Compile Android runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle -p android --no-daemon --stacktrace :runtime:assembleDebug
+
+      - name: Verify FP16 contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -F 'stateDtype in setOf("float16", "float32")'             android/runtime/src/main/java/ai/vn97/runtime/Mamba2OrtRuntimePackage.kt
+          grep -F 'OnnxJavaType.FLOAT16'             android/runtime/src/main/java/ai/vn97/runtime/Mamba2OrtTensorStorage.kt
+          grep -F 'Mamba2OrtValueDtype.fromRuntime(runtime.stateDtype)'             android/runtime/src/main/java/ai/vn97/runtime/Mamba2OrtProviderProfiler.kt
