@@ -21,6 +21,7 @@ class VN97PaperTradingActivity : Activity() {
     private lateinit var exnessSecretView: EditText
     private lateinit var saveExnessCredentialsButton: Button
     private lateinit var clearExnessCredentialsButton: Button
+    private lateinit var validateExnessButton: Button
     private lateinit var endpointView: EditText
     private lateinit var sourceView: EditText
     private lateinit var symbolsView: EditText
@@ -156,6 +157,14 @@ class VN97PaperTradingActivity : Activity() {
             weighted(),
         )
         root.addView(credentialButtons, fullWidth())
+
+        validateExnessButton = Button(this).apply {
+            text = "Validate Exness read-only"
+            setOnClickListener {
+                validateExnessReadOnly()
+            }
+        }
+        root.addView(validateExnessButton, fullWidth())
 
         endpointView = EditText(this).apply {
             hint = "HTTPS VN97MKTFEED1 endpoint"
@@ -311,6 +320,7 @@ class VN97PaperTradingActivity : Activity() {
                     baseUrl = baseUrl,
                     privateKeySecret = secretBytes,
                 )
+                app.exnessConnection.invalidate()
                 runOnUiThread {
                     exnessApiKeyView.text.clear()
                     statusView.text =
@@ -338,6 +348,7 @@ class VN97PaperTradingActivity : Activity() {
             val result =
                 runCatching {
                     app.exnessCredentialVault.clear()
+                    app.exnessConnection.invalidate()
                 }
             runOnUiThread {
                 exnessApiKeyView.text.clear()
@@ -353,6 +364,37 @@ class VN97PaperTradingActivity : Activity() {
                                 (exc.message ?: exc::class.java.simpleName)
                         },
                     )
+                setControlsEnabled(true)
+                refreshStatus()
+            }
+        }
+    }
+
+    private fun validateExnessReadOnly() {
+        setControlsEnabled(false)
+        statusView.text =
+            "Validating signed Exness connection with read-only requests…"
+        worker.execute {
+            val result =
+                app.exnessConnection
+                    .validateReadOnly()
+            runOnUiThread {
+                statusView.text =
+                    if (
+                        result.evidence.authenticated &&
+                        result.evidence.dryRunValidated
+                    ) {
+                        "Exness read-only validation PASS; " +
+                            "instruments=" +
+                            result.instrumentCount +
+                            ", access_point=" +
+                            result.accessPointBaseUrl +
+                            ". Live order submission remains disabled."
+                    } else {
+                        "Exness read-only validation LOCKED; error_class=" +
+                            (result.errorClass ?: "unknown") +
+                            ". No live order was sent."
+                    }
                 setControlsEnabled(true)
                 refreshStatus()
             }
@@ -705,16 +747,8 @@ class VN97PaperTradingActivity : Activity() {
                         qualification = campaign.qualification,
                     ),
                 channel =
-                    VN97RevenueChannelEvidence(
-                        providerId = "exness",
-                        configured =
-                            app.exnessCredentialVault.hasCredentials(),
-                        credentialBackedByKeystore =
-                            app.exnessCredentialVault.hasCredentials(),
-                        authenticated = false,
-                        dryRunValidated = false,
-                        orderSubmissionAvailable = false,
-                    ),
+                    app.exnessConnection
+                        .currentEvidence(),
                 authority = null,
                 nowWallTimeMillis =
                     System.currentTimeMillis(),
@@ -734,6 +768,7 @@ class VN97PaperTradingActivity : Activity() {
     private fun setControlsEnabled(enabled: Boolean) {
         saveExnessCredentialsButton.isEnabled = enabled
         clearExnessCredentialsButton.isEnabled = enabled
+        validateExnessButton.isEnabled = enabled
         startButton.isEnabled = enabled
         revenueCampaignButton.isEnabled = enabled
         pauseButton.isEnabled = enabled
