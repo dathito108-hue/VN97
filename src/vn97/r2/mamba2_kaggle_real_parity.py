@@ -191,7 +191,6 @@ class RealParityRunner:
             hidden = out.squeeze(1)
             residual = residual_next.float()
             layer_hiddens.append(hidden)
-            layer_hiddens.append(hidden)
             if index == 0:
                 layer0_hidden = hidden
 
@@ -246,6 +245,7 @@ class RealParityRunner:
             self.vn97_states[index] = state
             hidden = out
             residual = residual_next.float()
+            layer_hiddens.append(hidden)
             if index == 0:
                 layer0_hidden = hidden
 
