@@ -89,7 +89,7 @@ def _verify_k2o_receipt(path: Path) -> dict[str, Any]:
     body = dict(receipt)
     body.pop("receipt_id", None)
     expected = hashlib.sha256(
-        K2O_SCHEMA.encode("ascii") + b"\\0" + _canonical_json(body)
+        K2O_SCHEMA.encode("ascii") + b"\0" + _canonical_json(body)
     ).hexdigest()
     if receipt_id != expected:
         raise ValueError("K2P K2O receipt identity mismatch")
