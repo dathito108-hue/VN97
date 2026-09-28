@@ -1,0 +1,54 @@
+name: VN97 R2-K2B Provider Split Validation
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/vn97/r2/mamba2_kaggle_k2b_provider_split.py"
+      - "tools/kaggle_r2_k2b_provider_split.sh"
+      - "tests/test_r2_mamba2_k2b_provider_split.py"
+      - "docs/VN97_R2_K2B_PROVIDER_SPLIT.md"
+      - ".github/workflows/r2-k2b-provider-split-validation.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install CPU test dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --upgrade pip
+          python -m pip install --disable-pip-version-check             --index-url https://download.pytorch.org/whl/cpu             "torch>=2.2,<3"
+          python -m pip install --disable-pip-version-check numpy pytest
+          python -m pip install --disable-pip-version-check --no-deps -e .
+
+      - name: Static syntax validation
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n tools/kaggle_r2_k2b_provider_split.sh
+          python -m py_compile src/vn97/r2/mamba2_kaggle_k2b_provider_split.py
+
+      - name: K2B comparison tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          pytest -q tests/test_r2_mamba2_k2b_provider_split.py
+
+      - name: Verify measurement-only boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -F '"acceptance_threshold_defined": False'             src/vn97/r2/mamba2_kaggle_k2b_provider_split.py
+          grep -F '"production_activation_authorized": False'             src/vn97/r2/mamba2_kaggle_k2b_provider_split.py
