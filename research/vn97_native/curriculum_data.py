@@ -25,6 +25,10 @@ def digest(value):
 def build_splits():
     rng = random.Random(1097)
     used = {task:set() for task in TASKS}
+    # Exclude earlier pilot cases from the new numeric pools as well.
+    used['copy'].update(str(x) for a,b in ((100,228),(500,516),(900,916)) for x in range(a,b))
+    used['sum'].update(str(sorted((i%40+1,i%11+1))) for i in range(128))
+    used['sum'].update(str(sorted((41+i,12+i))) for i in range(16))
     result = {}
     for split, count in (('train',512), ('validation',32), ('test',32)):
         rows=[]

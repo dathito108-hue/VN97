@@ -226,7 +226,7 @@ receiving more weight than short numeric answers. No test-based checkpoint choic
 
 `curriculum_data.py` generates 2,048 training records and 128 validation/128 test
 records. Training has four prompt templates per task; validation/test each use
-separate templates. Copy, sum and deduplication cases are disjoint across splits.
+separate templates. Copy, sum and deduplication cases are disjoint across splits. Copy/sum pools also exclude the earlier pilot cases.
 Classification repeats four known keywords/labels and has fewer unique prompts
 than records; the report includes unique-prompt counts. Rules, alphabets and some
 answers are shared, so this remains synthetic instruction practice, not a broad
@@ -234,7 +234,7 @@ language benchmark. One dependency-free regression tests stable splits, budgets
 and deduplication answers.
 
 Only after all parameter updates: evaluate the continued candidate **and parent**
-on the same new test, including eight free-generation examples per task (32 total).
+on the same new test, including up to eight unique prompts per task (28 total: four category prompts).
 Also report the retired eight cases separately. Preserve raw answers, split hashes,
 actual step/time counts and both scores, even if the new candidate fails or regresses.
 Do not promote to production based on this small single-seed comparison; no

@@ -18,6 +18,8 @@ class CurriculumTests(unittest.TestCase):
                 for r in selected:
                     self.assertLessEqual(len((r['prompt']+r['answer']).encode())-1,128)
                     self.assertTrue(r['answer'].endswith('\n'))
+                    if task=='copy':
+                        self.assertFalse(any(a<=int(r['case'])<b for a,b in ((100,228),(500,516),(900,916))))
                     if task=='deduplicate':
                         values=r['case'].split(',')
                         self.assertEqual(r['answer'].strip(),','.join(dict.fromkeys(values)))

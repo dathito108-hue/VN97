@@ -84,7 +84,10 @@ def run(source,output):
         torch.testing.assert_close(model(x)[0],restored(x)[0],rtol=0,atol=0)
     del restored
     final={k:evaluate(model,rows) for k,rows in splits.items() if k!='train'}
-    selected=[r for task in TASKS for r in [x for x in splits['test'] if x['task']==task][:8]]
+    selected=[]
+    for task in TASKS:
+        unique={r['prompt']:r for r in splits['test'] if r['task']==task}
+        selected.extend(list(unique.values())[:8])
     candidate_generation=generate(model,selected)
     # First evaluation of new test happens after all updates; no checkpoint selection.
     parent=load_candidate(output/'parent-checkpoint')
