@@ -159,3 +159,17 @@ K1F requires at least 12 GiB free T4 VRAM before loading the 2.7B model.
 The receipt now records the first-token error for all 64 layers and reports the
 first layer crossing the locked tolerance plus the worst layer. Thresholds are
 not widened.
+
+### T4 VRAM note
+
+A full 2.7B float32 model does not fit safely in Kaggle T4 VRAM once loader,
+recurrent state and working buffers are included. K1F therefore fails fast on
+GPUs below 20 GiB total VRAM instead of allowing a late CUDA OOM.
+
+On Kaggle T4 use the fallback FP16 64-layer first-divergence trace:
+
+    %env VN97_K1_OFFICIAL_KERNEL_MODE=fallback
+    %env VN97_K1_DTYPE=float16
+    !bash tools/kaggle_r2_k1_real_parity.sh
+
+This keeps the real transferred weights and locked parity thresholds unchanged.
