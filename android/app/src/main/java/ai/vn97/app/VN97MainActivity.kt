@@ -49,6 +49,7 @@ class VN97MainActivity : Activity() {
     private lateinit var gameAgentStartButton: Button
     private lateinit var gameAgentStopButton: Button
     private lateinit var mobileEvidenceButton: Button
+    private lateinit var r2OrtEvidenceButton: Button
     private lateinit var paperTradingButton: Button
     private lateinit var capabilityAcquisitionButton: Button
     private lateinit var selfImprovementButton: Button
@@ -306,6 +307,27 @@ class VN97MainActivity : Activity() {
         }
         root.addView(
             mobileEvidenceButton,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ),
+        )
+
+        r2OrtEvidenceButton = Button(this).apply {
+            text = "R2 Android ORT evidence"
+            visibility =
+                if (BuildConfig.VN97_TURNKEY_REQUIRED) View.GONE else View.VISIBLE
+            setOnClickListener {
+                startActivity(
+                    Intent(
+                        this@VN97MainActivity,
+                        VN97R2OrtEvidenceActivity::class.java,
+                    )
+                )
+            }
+        }
+        root.addView(
+            r2OrtEvidenceButton,
             LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT,
