@@ -82,8 +82,11 @@ data class VN97RevenueLiveReadiness(
         )
     }
 
-    val productionMoneyMovementAuthorized: Boolean
+    val readyForM6Execution: Boolean
         get() = state == VN97RevenueLiveReadinessState.READY
+
+    val productionMoneyMovementAuthorized: Boolean
+        get() = false
 }
 
 object VN97RevenueLiveReadinessGate {
