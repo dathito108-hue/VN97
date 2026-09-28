@@ -191,9 +191,9 @@ def _official_step_oracle(
         state.ssm.float() * d_a[:, :, None, None]
         + torch.einsum(
             "bh,bn,bhp->bhpn",
-            dt_value.float(),
-            b_value.float(),
-            x_heads.float(),
+            dt_value,
+            b_value,
+            x_heads,
         )
     )
     y = torch.einsum(
