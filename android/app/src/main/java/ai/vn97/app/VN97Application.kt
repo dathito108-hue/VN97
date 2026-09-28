@@ -95,10 +95,12 @@ class VN97Application :
         VN97BundledBootstrap(this, provisioner)
     }
 
-    val r2BundledRuntime: VN97R2BundledRuntime by lazy(
+    val g06BundledRuntime: VN97G06BundledRuntime by lazy(
         LazyThreadSafetyMode.SYNCHRONIZED
     ) {
-        VN97R2BundledRuntime(this)
+        VN97G06BundledRuntime(this) { staging ->
+            checkNotNull(ai.vn97.runtime.VN97G06Model.openOrNull(staging, this)).close()
+        }
     }
 
     override fun onCreate() {

@@ -1,10 +1,10 @@
 package ai.vn97.platform
 
-import ai.vn97.runtime.NativeActivatedModel
+import ai.vn97.runtime.VN97G06Model
 import ai.vn97.runtime.VN97AcquisitionProvenanceLedger
 import ai.vn97.runtime.VN97AcquisitionProvenanceRecord
 import ai.vn97.runtime.NativeCognitionInference
-import ai.vn97.runtime.VN97R2CognitionInference
+import ai.vn97.runtime.VN97G06CognitionInference
 import ai.vn97.runtime.NativeCognitionLimits
 import ai.vn97.runtime.NativeCognitionRuntimeConfig
 import ai.vn97.runtime.NativeMemoryKind
@@ -84,7 +84,7 @@ class AndroidPlatformRuntime(
     )
 
     fun collectProductionMobileEvidence(
-        model: NativeActivatedModel,
+        model: VN97G06Model,
         config: VN97MobileEvidenceConfig = VN97MobileEvidenceConfig(),
     ): VN97MobileEvidenceRecord =
         VN97OnDeviceEvidenceCollector(appContext).collect(
@@ -182,7 +182,7 @@ class AndroidPlatformRuntime(
      * No generic inference/backend parameter is accepted here.
      */
     fun createProductionAssistantSession(
-        model: NativeActivatedModel,
+        model: VN97G06Model,
         grants: List<M6PolicyGrant>,
         cognitionRuntimeConfig: NativeCognitionRuntimeConfig = NativeCognitionRuntimeConfig(),
         cognitionLimits: NativeCognitionLimits = NativeCognitionLimits(),
@@ -205,7 +205,7 @@ class AndroidPlatformRuntime(
      * assistant session for the complete turn lifecycle.
      */
     fun createProductionMemoryBackedAssistant(
-        model: NativeActivatedModel,
+        model: VN97G06Model,
         grants: List<M6PolicyGrant>,
         cognitionRuntimeConfig: NativeCognitionRuntimeConfig = NativeCognitionRuntimeConfig(),
         cognitionLimits: NativeCognitionLimits = NativeCognitionLimits(),
@@ -241,7 +241,7 @@ class AndroidPlatformRuntime(
         val turnMemoryRecovery = try {
             VN97TurnMemoryRecovery(
                 writer = turnMemoryWriter,
-                root = File(appContext.noBackupFilesDir, "vn97-memory"),
+                root = File(appContext.noBackupFilesDir, "vn97-memory-g06/" + model.binding.tokenizerId),
                 fileName = turnMemoryRecoveryFileName,
             )
         } catch (exc: Throwable) {
@@ -297,7 +297,7 @@ class AndroidPlatformRuntime(
      */
     fun resumeProductionAssistantContinuation(
         context: VN97AssistantContinuationContext,
-        model: NativeActivatedModel,
+        model: VN97G06Model,
         grants: List<M6PolicyGrant>,
         cognitionRuntimeConfig: NativeCognitionRuntimeConfig =
             NativeCognitionRuntimeConfig(),
@@ -327,7 +327,7 @@ class AndroidPlatformRuntime(
     }
 
     private fun assembleProductionAssistantSession(
-        model: NativeActivatedModel,
+        model: VN97G06Model,
         grants: List<M6PolicyGrant>,
         cognitionRuntimeConfig: NativeCognitionRuntimeConfig,
         cognitionLimits: NativeCognitionLimits,
@@ -337,7 +337,7 @@ class AndroidPlatformRuntime(
         turnMemoryWriter: VN97TurnMemoryWriter?,
         turnMemoryRecovery: VN97TurnMemoryRecovery?,
     ): VN97AssistantSession {
-        val inference = VN97R2CognitionInference.open(
+        val inference = VN97G06CognitionInference.open(
             context = appContext,
             model = model,
             config = cognitionRuntimeConfig,
@@ -363,7 +363,7 @@ class AndroidPlatformRuntime(
      * VN97MEM1 store and activated VN97 cognition embedder.
      */
     fun createProductionTurnMemoryWriter(
-        model: NativeActivatedModel,
+        model: VN97G06Model,
         memory: NativeMemoryStore,
         cognitionRuntimeConfig: NativeCognitionRuntimeConfig = NativeCognitionRuntimeConfig(),
         journalFileName: String = "turn-memory.vn97twj1",
@@ -374,11 +374,11 @@ class AndroidPlatformRuntime(
         require(memory.vectorDim == model.info.dModel) {
             "VN97MEM1 vector dimension does not match activated model dModel"
         }
-        val root = File(appContext.noBackupFilesDir, "vn97-memory")
+        val root = File(appContext.noBackupFilesDir, "vn97-memory-g06/" + model.binding.tokenizerId)
         return VN97TurnMemoryWriter(
             backend = NativeVN97TurnMemoryBackend(memory),
             embedder = VN97TurnMemoryEmbedder { text, vectorDim ->
-                VN97R2CognitionInference.embedTokenizerFeatures(
+                VN97G06CognitionInference.embedTokenizerFeatures(
                     model = model,
                     text = text,
                     vectorDim = vectorDim,
@@ -398,7 +398,7 @@ class AndroidPlatformRuntime(
      * this factory creates no broker or live-money route.
      */
     fun createProductionPaperTradingAgent(
-        model: NativeActivatedModel,
+        model: VN97G06Model,
         account: VN97PaperTradingAccount,
         memory: NativeMemoryRetriever? = null,
         cognitionRuntimeConfig: NativeCognitionRuntimeConfig =
@@ -407,7 +407,7 @@ class AndroidPlatformRuntime(
             VN97PaperTradingAgentLimits(),
     ): VN97PaperTradingAgent =
         VN97PaperTradingAgent.production(
-            inference = VN97R2CognitionInference.open(
+            inference = VN97G06CognitionInference.open(
                 context = appContext,
                 model = model,
                 config = cognitionRuntimeConfig,
@@ -453,7 +453,7 @@ class AndroidPlatformRuntime(
      * replay the prior snapshot.
      */
     fun createProductionPaperTradingEpisodeRunner(
-        model: NativeActivatedModel,
+        model: VN97G06Model,
         account: VN97PaperTradingAccount,
         userGoal: String,
         marketDataSource: VN97MarketDataSource,
@@ -548,7 +548,7 @@ class AndroidPlatformRuntime(
      * proposal. It cannot fetch, trust, activate or write memory.
      */
     fun createProductionKnowledgeAcquisitionProposalEngine(
-        model: NativeActivatedModel,
+        model: VN97G06Model,
         memory: NativeMemoryStore,
         cognitionRuntimeConfig: NativeCognitionRuntimeConfig =
             NativeCognitionRuntimeConfig(),
@@ -559,7 +559,7 @@ class AndroidPlatformRuntime(
         return VN97KnowledgeAcquisitionProposalEngine(
             recall = { goal ->
                 val vector =
-                    VN97R2CognitionInference.embedTokenizerFeatures(
+                    VN97G06CognitionInference.embedTokenizerFeatures(
                         model = model,
                         text =
                             "VN97 knowledge gap evidence for: $goal",
@@ -593,7 +593,7 @@ class AndroidPlatformRuntime(
                 }
             },
             generator = { prompt ->
-                VN97R2CognitionInference.open(
+                VN97G06CognitionInference.open(
                     context = appContext,
                     model = model,
                     config = cognitionRuntimeConfig,
@@ -616,7 +616,7 @@ class AndroidPlatformRuntime(
      * created here.
      */
     fun createProductionKnowledgeAcquisitionSession(
-        model: NativeActivatedModel,
+        model: VN97G06Model,
         memory: NativeMemoryStore,
         cognitionRuntimeConfig: NativeCognitionRuntimeConfig =
             NativeCognitionRuntimeConfig(),
@@ -645,7 +645,7 @@ class AndroidPlatformRuntime(
                     text: String,
                     vectorDim: Int,
                 ): FloatArray =
-                    VN97R2CognitionInference.embedTokenizerFeatures(
+                    VN97G06CognitionInference.embedTokenizerFeatures(
                         model = model,
                         text = text,
                         vectorDim = vectorDim,
@@ -656,14 +656,14 @@ class AndroidPlatformRuntime(
 
     /** Open the canonical native VN97MEM1 store from app-private no-backup storage. */
     fun openOrCreateProductionMemory(
-        model: NativeActivatedModel,
+        model: VN97G06Model,
         fileName: String = "memory.vn97mem1",
         recoverTornTail: Boolean = true,
     ): NativeMemoryStore {
         require(isSafeMemoryFileName(fileName)) {
             "memory fileName must be one bounded app-private file component"
         }
-        val root = File(appContext.noBackupFilesDir, "vn97-memory")
+        val root = File(appContext.noBackupFilesDir, "vn97-memory-g06/" + model.binding.tokenizerId)
         if (root.exists()) {
             require(root.isDirectory && !Files.isSymbolicLink(root.toPath())) {
                 "VN97 memory root must be a non-symlink directory"

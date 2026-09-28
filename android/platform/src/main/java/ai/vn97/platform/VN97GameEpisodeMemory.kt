@@ -1,6 +1,6 @@
 package ai.vn97.platform
 
-import ai.vn97.runtime.VN97R2CognitionInference
+import ai.vn97.runtime.VN97G06CognitionInference
 import ai.vn97.runtime.NativeMemoryContextItem
 import ai.vn97.runtime.NativeMemoryKind
 import ai.vn97.runtime.NativeMemoryQuery
@@ -483,7 +483,7 @@ class VN97GameEpisodeMemory internal constructor(
 
     companion object {
         fun production(
-            engine: VN97R2CognitionInference,
+            engine: VN97G06CognitionInference,
             memory: NativeMemoryStore,
             packageName: String,
             userGoal: String,

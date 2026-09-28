@@ -11,7 +11,7 @@ import ai.vn97.platform.VN97AssistantTurnState
 import ai.vn97.platform.VN97ForegroundAssistantContinuationSession
 import ai.vn97.platform.createVN97AutonomousReplanSeed
 import ai.vn97.platform.openVN97ForegroundAssistantContinuation
-import ai.vn97.runtime.NativeActivatedInventoryModelLoader
+import ai.vn97.runtime.VN97G06Model
 import ai.vn97.runtime.NativeBackend
 import ai.vn97.runtime.NativePlan
 import ai.vn97.runtime.NativePlanStatus
@@ -159,7 +159,7 @@ class VN97AutonomousWorkManager(
             scheduler.cancel(waiting.jobId)
             val reopen =
                 application.assistant.releaseForBackgroundContinuation()
-            var model: ai.vn97.runtime.NativeActivatedModel? = null
+            var model: ai.vn97.runtime.VN97G06Model? = null
             try {
                 val openedModel = openActivatedModel()
                 model = openedModel
@@ -745,7 +745,7 @@ class VN97AutonomousWorkManager(
     private fun maybeStartReplanGeneration(
         current: VN97AutonomousGoalRecord,
         terminalPlan: NativePlan,
-        model: ai.vn97.runtime.NativeActivatedModel,
+        model: ai.vn97.runtime.VN97G06Model,
         terminalState: VN97AutonomousGoalState,
         reason: String,
     ): VN97AutonomousGoalRecord? {
@@ -1192,7 +1192,7 @@ class VN97AutonomousWorkManager(
     }
 
     private fun runtimeConfigFor(
-        model: ai.vn97.runtime.NativeActivatedModel,
+        model: ai.vn97.runtime.VN97G06Model,
     ): NativeRuntimeConfig =
         NativeRuntimeConfig(
             layers = model.info.layers,
@@ -1292,10 +1292,9 @@ class VN97AutonomousWorkManager(
 
     private fun openActivatedModel() =
         checkNotNull(
-            NativeActivatedInventoryModelLoader.openOrNull(
-                File(
+            VN97G06Model.openOrNull(context = application, root = File(
                     application.noBackupFilesDir,
-                    "vn97-capabilities",
+                    "vn97-g06",
                 )
             )
         ) {

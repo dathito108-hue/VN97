@@ -1,6 +1,6 @@
 package ai.vn97.platform
 
-import ai.vn97.runtime.NativeActivatedModel
+import ai.vn97.runtime.VN97G06Model
 import ai.vn97.runtime.NativeAudioModality
 import ai.vn97.runtime.NativeBackend
 import ai.vn97.runtime.NativePreparedAudio
@@ -143,36 +143,16 @@ class VN97OnDeviceEvidenceCollector(
         appContext.getSystemService(Context.BATTERY_SERVICE) as BatteryManager
 
     fun collect(
-        model: NativeActivatedModel,
+        model: VN97G06Model,
         config: VN97MobileEvidenceConfig = VN97MobileEvidenceConfig(),
     ): VN97MobileEvidenceRecord {
         require(model.info.hasTokenizer) {
-            "mobile evidence requires tokenizer-bearing VN97MI1"
+            "mobile evidence requires G06 tokenizer"
         }
 
-        val promptIds = model.encodeUtf8(
-            config.prompt,
-            addBos = true,
-            addText = true,
-            addEos = false,
-        )
-        require(promptIds.isNotEmpty()) {
-            "mobile evidence prompt encoded to no tokens"
-        }
-
-        val preparedSpeech = if (model.info.hasAudioProjection) {
-            val sampleCount = Math.multiplyExact(
-                model.info.audioFrameSize,
-                config.speechFrames,
-            )
-            NativeAudioModality.preparePcm16(
-                ShortArray(sampleCount) { index ->
-                    (((index % 97) - 48) * 128).toShort()
-                }
-            )
-        } else {
-            null
-        }
+        val promptIds = model.tokenizer.encode(config.prompt)
+        require(promptIds.isNotEmpty())
+        val preparedSpeech: NativePreparedAudio? = null
 
         repeat(config.warmupRuns) {
             measureOne(
@@ -234,55 +214,31 @@ class VN97OnDeviceEvidenceCollector(
     }
 
     private fun measureOne(
-        model: NativeActivatedModel,
+        model: VN97G06Model,
         promptIds: IntArray,
         preparedSpeech: NativePreparedAudio?,
         decodeTokens: Int,
     ): Observation {
-        val runtimeConfig = NativeRuntimeConfig(
-            layers = model.info.layers,
-            batch = 1,
-            dModel = model.info.dModel,
-            dState = model.info.dState,
-            recurrentBackend = NativeBackend.AUTO,
-            packedBackend = NativeBackend.AUTO,
+        check(preparedSpeech == null) { "G06 speech graph is not installed" }
+        model.requireOpen()
+        val textSession = ai.vn97.runtime.VN97Mamba2OrtExecutor.open(
+            context = appContext,
+            runtimeRoot = java.io.File(model.root, "runtime"),
+            tuningFile = java.io.File(model.root, ai.vn97.runtime.VN97G06Model.TUNING_FILE),
+            maxCachedSessions = 1,
         )
-
-        val textSession = NativeRuntimeSession.create(runtimeConfig)
-        try {
-            textSession.activate()
+        return textSession.use {
             val prefillStart = SystemClock.elapsedRealtimeNanos()
-            var logits = textSession.prefill(model, promptIds)
+            var logits = it.prefill(promptIds).logits
             val prefillEnd = SystemClock.elapsedRealtimeNanos()
-
             val decodeStart = SystemClock.elapsedRealtimeNanos()
-            repeat(decodeTokens) {
-                val token = argmax(logits)
-                logits = textSession.inferStep(model, intArrayOf(token))
+            repeat(decodeTokens) { _ ->
+                model.tokenizer.maskInvalidPaddedLogits(logits)
+                logits = it.step(argmax(logits)).logits
             }
             val decodeEnd = SystemClock.elapsedRealtimeNanos()
-
-            val speechMs = preparedSpeech?.let { prepared ->
-                val speechSession = NativeRuntimeSession.create(runtimeConfig)
-                try {
-                    speechSession.activate()
-                    val start = SystemClock.elapsedRealtimeNanos()
-                    speechSession.prefillAudio(model, prepared)
-                    val end = SystemClock.elapsedRealtimeNanos()
-                    nanosToMs(end - start)
-                } finally {
-                    speechSession.close()
-                }
-            }
-
-            return Observation(
-                textPrefillMs = nanosToMs(prefillEnd - prefillStart),
-                textDecodeMsPerToken =
-                    nanosToMs(decodeEnd - decodeStart) / decodeTokens.toDouble(),
-                speechPrefillMs = speechMs,
-            )
-        } finally {
-            textSession.close()
+            Observation(nanosToMs(prefillEnd - prefillStart),
+                nanosToMs(decodeEnd - decodeStart) / decodeTokens.toDouble(), null)
         }
     }
 

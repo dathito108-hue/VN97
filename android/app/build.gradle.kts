@@ -532,34 +532,29 @@ val writeTurnkeyReleaseManifest by tasks.registering {
     }
 }
 
-tasks.matching {
-    it.name == "mergeReleaseAssets"
-}.configureEach {
-    dependsOn(
-        writeTurnkeyReleaseManifest
-    )
-}
-
-val verifyR2TurnkeyRuntime by tasks.registering {
+val verifyG06TurnkeyRuntime by tasks.registering {
     group = "verification"
     description =
-        "Require the self-contained VN97 R2 ONNX runtime assets for release APKs."
+        "Require the self-contained VN97 G06 ONNX runtime assets for release APKs."
 
     doLast {
         val root =
             externalReleaseAssetRoot
-                ?.resolve("vn97-r2")
+                ?.resolve("vn97-g06")
                 ?: layout.projectDirectory
-                    .dir("src/main/assets/vn97-r2")
+                    .dir("src/main/assets/vn97-g06")
                     .asFile
         check(root.isDirectory) {
-            "VN97 R2 release runtime directory is missing."
+            "VN97 G06 release runtime directory is missing."
         }
         val required = listOf(
-            root.resolve("binding.vn97r2f2.json"),
-            root.resolve("tuning.vn97r2e4.json"),
-            root.resolve("runtime/runtime.vn97ort1.json"),
-            root.resolve("runtime/step.onnx"),
+            root.resolve("binding.vn97m2g09.json"),
+            root.resolve("tuning.vn97m2g07.json"),
+            root.resolve("runtime/runtime.vn97m2g06.json"),
+            root.resolve("promotion.vn97m2g10.json"),
+            root.resolve("tokenizer/tokenizer.vn97m2g08.json"),
+            root.resolve("tokenizer/vocab.json"),
+            root.resolve("tokenizer/merges.txt"),
         )
         required.forEach { file ->
             check(
@@ -567,7 +562,7 @@ val verifyR2TurnkeyRuntime by tasks.registering {
                     !Files.isSymbolicLink(file.toPath()) &&
                     file.length() > 0L
             ) {
-                "VN97 R2 required release asset is missing/unsafe: " +
+                "VN97 G06 required release asset is missing/unsafe: " +
                     file.name
             }
         }
@@ -577,13 +572,13 @@ val verifyR2TurnkeyRuntime by tasks.registering {
                 ?.filter {
                     it.isFile &&
                         !Files.isSymbolicLink(it.toPath()) &&
-                        Regex("^chunk-[1-9][0-9]*\\.onnx$")
+                        Regex("^recurrent-(8|16|32)\\.onnx$")
                             .matches(it.name) &&
                         it.length() > 0L
                 }
                 .orEmpty()
         check(chunks.isNotEmpty()) {
-            "VN97 R2 release requires at least one chunk ONNX graph."
+            "VN97 G06 release requires at least one chunk ONNX graph."
         }
     }
 }
@@ -593,8 +588,7 @@ tasks.matching {
 }.configureEach {
     dependsOn(
         verifyExternalReleaseAssetRoot,
-        verifyTurnkeyBootstrap,
-        verifyR2TurnkeyRuntime,
+        verifyG06TurnkeyRuntime,
         verifyReleaseSigning,
         verifyReleaseVersion,
     )

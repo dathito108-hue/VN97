@@ -115,7 +115,7 @@ class VN97TurnkeyAcceptanceReceiver : BroadcastReceiver() {
                         "active turnkey package identity mismatch"
                     }
 
-                    app.r2BundledRuntime
+                    app.g06BundledRuntime
                         .installIfPresent(
                             required = true
                         )

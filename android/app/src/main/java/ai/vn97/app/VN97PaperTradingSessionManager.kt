@@ -3,8 +3,8 @@ package ai.vn97.app
 import ai.vn97.platform.VN97MarketDataPolicy
 import ai.vn97.platform.VN97PaperPerformanceEvaluator
 import ai.vn97.platform.VN97PaperTradingDecisionKind
-import ai.vn97.runtime.NativeActivatedInventoryModelLoader
-import ai.vn97.runtime.VN97R2CognitionInference
+import ai.vn97.runtime.VN97G06Model
+import ai.vn97.runtime.VN97G06CognitionInference
 import ai.vn97.runtime.NativeMemoryKind
 import android.app.job.JobInfo
 import android.app.job.JobScheduler
@@ -695,7 +695,7 @@ class VN97PaperTradingSessionManager(
     }
 
     private fun appendPerformanceMemory(
-        model: ai.vn97.runtime.NativeActivatedModel,
+        model: ai.vn97.runtime.VN97G06Model,
         memory: ai.vn97.runtime.NativeMemoryStore,
         record: VN97PaperTradingSessionRecord,
         evidence: VN97PaperPerformanceEvidence,
@@ -731,7 +731,7 @@ class VN97PaperTradingSessionManager(
             source = PAPER_PERFORMANCE_MEMORY_SOURCE,
             content = content,
             vector =
-                VN97R2CognitionInference.embedTokenizerFeatures(
+                VN97G06CognitionInference.embedTokenizerFeatures(
                     model = model,
                     text = content,
                     vectorDim = memory.vectorDim,
@@ -742,7 +742,7 @@ class VN97PaperTradingSessionManager(
     }
 
     private fun appendEpisodeMemory(
-        model: ai.vn97.runtime.NativeActivatedModel,
+        model: ai.vn97.runtime.VN97G06Model,
         memory: ai.vn97.runtime.NativeMemoryStore,
         record: VN97PaperTradingSessionRecord,
         planId: String,
@@ -778,7 +778,7 @@ class VN97PaperTradingSessionManager(
             source = PAPER_EPISODE_MEMORY_SOURCE,
             content = content,
             vector =
-                VN97R2CognitionInference.embedTokenizerFeatures(
+                VN97G06CognitionInference.embedTokenizerFeatures(
                     model = model,
                     text = content,
                     vectorDim = memory.vectorDim,
@@ -789,7 +789,7 @@ class VN97PaperTradingSessionManager(
     }
 
     private fun appendTerminalMemory(
-        model: ai.vn97.runtime.NativeActivatedModel,
+        model: ai.vn97.runtime.VN97G06Model,
         memory: ai.vn97.runtime.NativeMemoryStore,
         record: VN97PaperTradingSessionRecord,
         nowNs: Long,
@@ -818,7 +818,7 @@ class VN97PaperTradingSessionManager(
             source = PAPER_TERMINAL_MEMORY_SOURCE,
             content = content,
             vector =
-                VN97R2CognitionInference.embedTokenizerFeatures(
+                VN97G06CognitionInference.embedTokenizerFeatures(
                     model = model,
                     text = content,
                     vectorDim = memory.vectorDim,
@@ -892,10 +892,9 @@ class VN97PaperTradingSessionManager(
 
     private fun openActivatedModel() =
         checkNotNull(
-            NativeActivatedInventoryModelLoader.openOrNull(
-                File(
+            VN97G06Model.openOrNull(context = application, root = File(
                     application.noBackupFilesDir,
-                    "vn97-capabilities",
+                    "vn97-g06",
                 )
             )
         ) {
