@@ -123,3 +123,12 @@ bash "$HERE/run-digital-services.sh"
 bash "$HERE/run-service-revenue-ledger.sh"
 
 bash "$HERE/run-vn97-native-execution-plan.sh"
+
+"$KOTLINC" \
+    "$ROOT/android/runtime/src/main/java/ai/vn97/runtime/Mamba2ExactPrefixCache.kt" \
+    "$ROOT/android/runtime/host-test/Mamba2ExactPrefixCacheTest.kt" \
+    -Werror \
+    -include-runtime \
+    -d "$WORK/mamba2-exact-prefix-cache-test.jar"
+
+java -jar "$WORK/mamba2-exact-prefix-cache-test.jar"
