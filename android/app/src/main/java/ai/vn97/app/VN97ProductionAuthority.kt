@@ -3,6 +3,7 @@ package ai.vn97.app
 import ai.vn97.platform.M6AndroidProductionCapabilities
 import ai.vn97.platform.M6PolicyGrant
 import ai.vn97.platform.VN97GameControlPolicy
+import ai.vn97.platform.VN97LocalDigitalService
 import android.content.Context
 import android.content.Intent
 
@@ -16,6 +17,14 @@ internal object VN97ProductionAuthority {
                 principal
             )
         )
+        VN97LocalDigitalService.values().forEach { service ->
+            add(
+                M6AndroidProductionCapabilities.userApprovedDigitalServiceGrant(
+                    principal,
+                    service,
+                )
+            )
+        }
         VN97GameControlPolicy(context)
             .activeSessionOrNull()
             ?.let { session ->

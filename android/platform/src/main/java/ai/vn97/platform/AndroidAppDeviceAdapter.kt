@@ -119,6 +119,22 @@ internal class AndroidAppDeviceAdapter(
     ): String =
         capabilityArtifacts.fetch(url).wireResult()
 
+    override fun prepareDigitalService(
+        service: VN97LocalDigitalService,
+        source: String,
+    ): String {
+        val delivery = VN97DigitalServiceCore.produce(service, source)
+        VN97PlannerServiceDraftStore(appContext).save(
+            VN97PlannerServiceDraft(
+                service = service,
+                source = source,
+                delivery = delivery,
+                createdAtEpochMs = System.currentTimeMillis(),
+            )
+        )
+        return "service:draft:${service.name}:${delivery.outputSha256}"
+    }
+
     internal fun requireFetchedCapabilityArtifact(
         packageSha256: String,
     ): File =

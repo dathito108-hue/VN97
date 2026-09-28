@@ -25,6 +25,10 @@ internal interface M6AndroidActionPort {
     ): String
     fun gameBack(packageName: String): String
     fun fetchCapabilityArtifact(url: String): String
+    fun prepareDigitalService(
+        service: VN97LocalDigitalService,
+        source: String,
+    ): String
 }
 
 class M6AndroidProductionCapabilities internal constructor(
@@ -96,6 +100,15 @@ class M6AndroidProductionCapabilities internal constructor(
             maxPayloadUtf8Bytes = 2,
             payloadSchemaJson = "{}",
             maxLeaseNs = CAPABILITY_ARTIFACT_LEASE_NS,
+            maxLeaseUses = 1,
+        ),
+        M6CapabilityDescriptor(
+            capabilityId = DIGITAL_SERVICE_PREPARE,
+            requiredScopeKeys = setOf(DIGITAL_SERVICE_SCOPE),
+            approvalRequired = true,
+            maxPayloadUtf8Bytes = MAX_DIGITAL_SERVICE_PAYLOAD_UTF8_BYTES,
+            payloadSchemaJson = "{\"source\":\"string\"}",
+            maxLeaseNs = 60_000_000_000L,
             maxLeaseUses = 1,
         ),
     )
@@ -227,6 +240,20 @@ class M6AndroidProductionCapabilities internal constructor(
                 M6PayloadValidator(
                     ::validateCapabilityArtifactFetch
                 ),
+            )
+            registry.register(
+                descriptors[7],
+                M6CapabilityHandler { action ->
+                    val request = validateDigitalServiceRequest(action.request)
+                    M6ActionOutcome(
+                        success = true,
+                        result = actions.prepareDigitalService(
+                            request.first,
+                            request.second,
+                        ),
+                    )
+                },
+                M6PayloadValidator(::validateDigitalServiceRequest),
             )
             registry.seal()
         }
@@ -507,6 +534,29 @@ class M6AndroidProductionCapabilities internal constructor(
         return text
     }
 
+    private fun validateDigitalServiceRequest(
+        request: M6ExternalActionRequest,
+    ): Pair<VN97LocalDigitalService, String> {
+        require(request.capabilityId == DIGITAL_SERVICE_PREPARE) {
+            "digital service handler received wrong capability"
+        }
+        val scope = request.scope.asMap()
+        require(scope.keys == setOf(DIGITAL_SERVICE_SCOPE)) {
+            "digital service scope must contain only service"
+        }
+        val service = VN97LocalDigitalService.valueOf(
+            checkNotNull(scope[DIGITAL_SERVICE_SCOPE])
+        )
+        val source = parseCanonicalSingleStringPayload(
+            request.payloadJson,
+            "source",
+        )
+        require(source.toByteArray(StandardCharsets.UTF_8).size <= MAX_PLANNER_SERVICE_SOURCE_BYTES) {
+            "planner digital service source exceeds byte bound"
+        }
+        return service to source
+    }
+
     companion object {
         fun userApprovedAppLaunchGrant(
             principal: String,
@@ -594,6 +644,23 @@ class M6AndroidProductionCapabilities internal constructor(
             )
         }
 
+        fun userApprovedDigitalServiceGrant(
+            principal: String,
+            service: VN97LocalDigitalService,
+        ): M6PolicyGrant {
+            val scope = M6CapabilityScope.fromMap(
+                mapOf(DIGITAL_SERVICE_SCOPE to service.name)
+            )
+            return M6PolicyGrant(
+                principal = principal,
+                capabilityId = DIGITAL_SERVICE_PREPARE,
+                scopeDigest = scope.digest,
+                approvalRequired = true,
+                maxLeaseNs = 60_000_000_000L,
+                maxLeaseUses = 1,
+            )
+        }
+
         const val APP_LAUNCH_CAPABILITY = "app.launch"
         const val CLIPBOARD_WRITE_CAPABILITY = "device.clipboard.write"
         const val GAME_TAP_CAPABILITY = "device.game.tap"
@@ -602,13 +669,17 @@ class M6AndroidProductionCapabilities internal constructor(
         const val GAME_BACK_CAPABILITY = "device.game.back"
         const val CAPABILITY_ARTIFACT_FETCH =
             "capability.artifact.fetch"
+        const val DIGITAL_SERVICE_PREPARE = "service.digital.prepare"
         const val APP_PACKAGE_SCOPE = "package"
         const val CAPABILITY_URL_SCOPE = "url"
         const val CLIPBOARD_CHANNEL_SCOPE = "channel"
         const val CLIPBOARD_CHANNEL_VALUE = "system-clipboard"
+        const val DIGITAL_SERVICE_SCOPE = "service"
 
         private const val MAX_CLIPBOARD_TEXT_UTF8_BYTES = 16 * 1024
         private const val MAX_CLIPBOARD_PAYLOAD_UTF8_BYTES = 64 * 1024
+        private const val MAX_DIGITAL_SERVICE_PAYLOAD_UTF8_BYTES = 64 * 1024
+        private const val MAX_PLANNER_SERVICE_SOURCE_BYTES = 48 * 1024
         private const val BASIS_POINTS = 10_000
         private const val MIN_TAP_MILLIS = 20L
         private const val MAX_TAP_MILLIS = 1_500L
@@ -634,26 +705,32 @@ class M6AndroidProductionCapabilities internal constructor(
             value.isNotEmpty() && value.all { it.code <= 0x7f } && PACKAGE_RE.matches(value)
 
         private fun parseCanonicalTextPayload(payload: String): String {
-            val prefix = "{\"text\":"
-            require(payload.startsWith(prefix) && payload.endsWith('}')) {
-                "clipboard payload must contain exactly text"
-            }
-            val parser = CanonicalJsonStringParser(payload, prefix.length)
-            val text = parser.parse()
-            require(parser.position == payload.length - 1) {
-                "clipboard payload must contain exactly text"
-            }
-            val canonical = buildString {
-                append(prefix)
-                appendCanonicalJsonString(text)
-                append('}')
-            }
-            require(canonical == payload) {
-                "clipboard payload must be canonical JSON"
-            }
-            return text
+            return parseCanonicalSingleStringPayload(payload, "text")
         }
     }
+}
+
+private fun parseCanonicalSingleStringPayload(
+    payload: String,
+    field: String,
+): String {
+    require(field.isNotEmpty() && field.all { it in 'a'..'z' || it == '_' })
+    val prefix = "{\"$field\":"
+    require(payload.startsWith(prefix) && payload.endsWith('}')) {
+        "payload must contain exactly $field"
+    }
+    val parser = CanonicalJsonStringParser(payload, prefix.length)
+    val value = parser.parse()
+    require(parser.position == payload.length - 1) {
+        "payload must contain exactly $field"
+    }
+    val canonical = buildString {
+        append(prefix)
+        appendCanonicalJsonString(value)
+        append('}')
+    }
+    require(canonical == payload) { "payload must be canonical JSON" }
+    return value
 }
 
 private class CanonicalJsonStringParser(
