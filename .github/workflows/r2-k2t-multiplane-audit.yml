@@ -1,0 +1,41 @@
+name: VN97 R2-K2T Multiplane Audit Validation
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/vn97/r2/mamba2_kaggle_k2t_multiplane_ternary.py"
+      - "tools/kaggle_r2_k2t_multiplane_ternary_audit.sh"
+      - "tests/test_r2_mamba2_k2t_multiplane.py"
+      - ".github/workflows/r2-k2t-multiplane-audit.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install test dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check -q             "torch==2.10.0"             pytest
+          python -m pip install --disable-pip-version-check -q --no-deps -e .
+      - name: Static shell validation
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n tools/kaggle_r2_k2t_multiplane_ternary_audit.sh
+          grep -F 'production_activation_authorized": False'             src/vn97/r2/mamba2_kaggle_k2t_multiplane_ternary.py
+          grep -F 'behavior_gate_required": True'             src/vn97/r2/mamba2_kaggle_k2t_multiplane_ternary.py
+      - name: Run K2T helper tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          pytest -q tests/test_r2_mamba2_k2t_multiplane.py
