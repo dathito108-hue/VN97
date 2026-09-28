@@ -279,28 +279,25 @@ class VN97Mamba2CognitionCandidate private constructor(
 
         executor.resetRecurrentState()
         var run = executor.prefill(promptIds)
-        val generated = ArrayList<Int>(maxNewTokens)
         val random = Random(sampler.seed)
-        var stop = NativeGenerationStopReason.TOKEN_LIMIT
-
-        for (index in 0 until maxNewTokens) {
-            val logits = run.logits
-            tokenizer.maskInvalidPaddedLogits(logits)
-            val token = sampleG09(
-                logits = logits,
-                tokenIdSpace = binding.tokenIdSpace,
-                config = sampler,
-                random = random,
-            )
-            if (token == binding.eosTokenId) {
-                stop = NativeGenerationStopReason.EOS
-                break
-            }
-            generated += token
-            run = executor.step(token)
-        }
-
-        val ids = generated.toIntArray()
+        val generated = decodeG06Tokens(
+            maxNewTokens = maxNewTokens,
+            eosTokenId = binding.eosTokenId,
+            sampleNext = {
+                val logits = run.logits
+                tokenizer.maskInvalidPaddedLogits(logits)
+                sampleG09(
+                    logits = logits,
+                    tokenIdSpace = binding.tokenIdSpace,
+                    config = sampler,
+                    random = random,
+                )
+            },
+            consumeToken = { token -> run = executor.step(token) },
+        )
+        val stop = if (generated.stoppedAtEos) NativeGenerationStopReason.EOS
+            else NativeGenerationStopReason.TOKEN_LIMIT
+        val ids = generated.tokenIds
         val bytes = tokenizer.decodeBytes(
             ids,
             skipEos = true,
