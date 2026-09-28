@@ -4,16 +4,14 @@ data class VN97RevenueCampaignPolicy(
     val episodesPerSession: Int = 43,
     val targetSessions: Int = 3,
     val maxSessions: Int = 5,
-    val intervalMillis: Long = 120_000L,
+    val intervalMillis: Long = 90_000L,
 ) {
     init {
         require(episodesPerSession in 32..256)
         require(targetSessions in 3..8)
         require(maxSessions in targetSessions..8)
         require(
-            intervalMillis in
-                VN97PaperTradingSessionRecord.MIN_INTERVAL_MILLIS..
-                    VN97PaperTradingSessionRecord.MAX_INTERVAL_MILLIS
+            intervalMillis in 15_000L..21_600_000L
         )
         require(
             Math.multiplyExact(
