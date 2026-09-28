@@ -25,6 +25,9 @@
 > R2-G0.7 adds valid_length-aware Android provider profiling and device-bound
 > autotuning for the single Mamba-2 recurrent graph; see
 > `docs/VN97_R2G07_MAMBA2_AUTOTUNING.md`.
+> R2-G0.8 preserves the pinned GPT-NeoX byte-level BPE token-ID semantics,
+> special-token identity and padded-logit mask on Android; see
+> `docs/VN97_R2G08_GPT_NEOX_TOKENIZER.md`.
 
 
 ## Status
