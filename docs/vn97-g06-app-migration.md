@@ -87,3 +87,15 @@ evidence. Need a qualified full deployment to test chat/tool decisions and real
 process death/reboot on-device. No training is started by this migration. The
 user's requested order remains cleanup → demonstrated working app → evolution
 loop → controlled training, with the latter stages pending this qualification.
+
+## Decode work bound
+
+Prefill produces logits for the first generated token. At a token-limit stop,
+generation now consumes only the first N-1 emitted tokens through recurrent
+decode, avoiding the previously unused final ONNX step. EOS behavior and sampled
+token order are unchanged. `sequencePosition` remains the number of tokens
+actually consumed by the executor, not the number of tokens emitted; the final
+token at a token-limit stop has not entered recurrent state. Each independent
+cognition operation still resets state. Diagnostic `measurePrefillDecode` keeps
+its explicit requested number of measured decode calls. Host tests cover a
+one-token response, multiple tokens, immediate/late EOS and step failure.

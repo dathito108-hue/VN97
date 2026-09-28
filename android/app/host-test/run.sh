@@ -132,3 +132,10 @@ bash "$HERE/run-vn97-native-execution-plan.sh"
     -d "$WORK/mamba2-exact-prefix-cache-test.jar"
 
 java -jar "$WORK/mamba2-exact-prefix-cache-test.jar"
+
+"$KOTLINC" \
+    "$ROOT/android/runtime/src/main/java/ai/vn97/runtime/G06DecodeLoop.kt" \
+    "$ROOT/android/runtime/host-test/G06DecodeLoopTest.kt" \
+    -Werror -include-runtime -d "$WORK/g06-decode-loop-test.jar"
+
+java -jar "$WORK/g06-decode-loop-test.jar"
