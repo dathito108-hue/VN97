@@ -222,6 +222,59 @@ def test_explicit_state_step_matches_native_reference() -> None:
     )
 
 
+
+def test_explicit_state_step_fp16_matches_native_reference() -> None:
+    config, ref_config = _configs()
+    source = {
+        name: value.half()
+        for name, value in _source_state(config).items()
+    }
+    model = VN97Mamba2StepOnnx(
+        config,
+        _logical_state(source),
+    ).eval()
+
+    conv, ssm = model.initial_state(1)
+    generator = torch.Generator().manual_seed(9743)
+    conv = (
+        torch.randn(conv.shape, generator=generator) * 0.01
+    ).half()
+    ssm = (
+        torch.randn(ssm.shape, generator=generator) * 0.01
+    ).half()
+    tokens = torch.tensor([5], dtype=torch.long)
+
+    logits, next_conv, next_ssm = model(tokens, conv, ssm)
+    ref_logits, ref_states = mamba2_model_step_ref(
+        tokens,
+        _reference_states(config, conv, ssm),
+        source,
+        config=ref_config,
+        n_layers=config.n_layers,
+    )
+    ref_conv = torch.stack([state.conv for state in ref_states], dim=0)
+    ref_ssm = torch.stack([state.ssm for state in ref_states], dim=0)
+
+    torch.testing.assert_close(
+        logits.float(),
+        ref_logits.float(),
+        atol=2.0e-3,
+        rtol=2.0e-3,
+    )
+    torch.testing.assert_close(
+        next_conv.float(),
+        ref_conv.float(),
+        atol=2.0e-3,
+        rtol=2.0e-3,
+    )
+    torch.testing.assert_close(
+        next_ssm.float(),
+        ref_ssm.float(),
+        atol=2.0e-3,
+        rtol=2.0e-3,
+    )
+
+
 def _onnx_runtime() -> None:
     pytest.importorskip("onnx")
     pytest.importorskip("onnxruntime")
