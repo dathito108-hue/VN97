@@ -266,11 +266,15 @@ def mamba2_mixer_step_ref(
     )
     b_group = b_value.reshape(batch, config.d_state)
     c_group = c_value.reshape(batch, config.d_state)
+    # Match the official unfused Mamba2.step precision semantics:
+    # dt/B/x stay in the activation dtype for dBx. Only dA is promoted by
+    # the float32 A branch before the recurrent update is written back to
+    # the state dtype.
     d_b_x = torch.einsum(
         "bh,bn,bhp->bhpn",
-        dt_value.float(),
-        b_group.float(),
-        x_heads.float(),
+        dt_value,
+        b_group,
+        x_heads,
     )
     next_ssm = (
         state.ssm.float()
