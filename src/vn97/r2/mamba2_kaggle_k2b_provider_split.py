@@ -10,7 +10,6 @@ from typing import Any
 import numpy as np
 import torch
 
-from .mamba2_g03_capsule import load_g03_capsule
 from .mamba2_kaggle_k2a_ort import (
     _canonical_json,
     _load_json,
@@ -269,13 +268,12 @@ def run_k2b(
     ):
         raise ValueError("K2B source-weight/K2A mismatch")
 
-    capsule = load_g03_capsule(
-        capsule_root,
-        verify_large_weight_sha256=False,
+    capsule_manifest = _load_json(
+        capsule_root / "capsule.vn97m2g03.json",
+        "G0.3 capsule manifest",
     )
-    if capsule.capsule_id != k2a.get("capsule_id"):
+    if capsule_manifest.get("capsule_id") != k2a.get("capsule_id"):
         raise ValueError("K2B loaded capsule identity mismatch")
-    del capsule
 
     from transformers import AutoTokenizer
 
