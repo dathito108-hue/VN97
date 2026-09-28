@@ -1,6 +1,10 @@
 name: VN97 R2-K2Q GitHub Runtime Recovery
 
 on:
+  push:
+    branches: [r2-k2q-github-recovery]
+    paths:
+      - ".github/workflows/r2-k2q-github-recovery.yml"
   pull_request:
     branches: [main]
     paths:
