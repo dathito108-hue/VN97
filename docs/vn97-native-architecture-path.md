@@ -99,3 +99,35 @@ without waiting for architecture research to finish. No prediction of an
 8-hour trained-model completion or guaranteed revenue follows from this work.
 
 Run: `python -m unittest discover -s research/vn97_native -p 'test_*.py' -v`.
+
+## Trainable-cell checkpoint
+
+`research/vn97_native/trainable_state.py` adds a differentiable tensor candidate:
+input projection produces drive, bounded duration and read/write gates; softplus
+parameterization learns ordered positive scalar fast/slow rates. The initial
+rates have a small numerical floor. Per-channel rates, residual/norm integration
+and language-model training remain later work.
+
+The tensor paths support batched token execution, sequential execution and the
+same tree-depth affine scan. State continuation retains gradients across chunks;
+truncated training must explicitly call `state.detach()`. FP32/FP64 are supported
+for this research implementation; FP16 lowering is not validated. Python finite
+checks and O(T log T) scan workspace are unsuitable as a claimed mobile kernel.
+
+Seven tensor tests cover an independent scalar oracle, scan/serial parameter
+and input gradients, numerical gradcheck of every parameter, chunked gradients,
+checkpoint tensor round-trip/token continuation, invalid inputs/state, and 120
+optimizer steps on one fixed synthetic smoothing batch. The optimizer test is
+not held-out evaluation, model training completion or language proficiency.
+
+Run only the dependency-free reference tests with:
+`python -m unittest discover -s research/vn97_native -p 'test_adaptive_state.py' -v`.
+After installing CPU Torch, run tensor tests with:
+`python -m unittest discover -s research/vn97_native -p 'test_trainable_state.py' -v`.
+CI pins Torch 2.5.1 for reproducible CPU testing; no model weights or GPU required.
+
+The state architecture tag covers input width and configuration, not parameter
+values. Standard `state_dict` round-trip is a research test, not an authenticated
+checkpoint format: never reuse live state after a weight update, and do not
+connect this candidate to production loaders until checkpoint/version binding
+and controlled promotion are implemented. The current mobile APK is unchanged.

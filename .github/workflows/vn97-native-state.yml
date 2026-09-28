@@ -21,4 +21,16 @@ jobs:
         with:
           python-version: '3.11'
       - name: Check recurrent and scan semantics
-        run: python -m unittest discover -s research/vn97_native -p 'test_*.py' -v
+        run: python -m unittest discover -s research/vn97_native -p 'test_adaptive_state.py' -v
+  trainable:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install CPU-only training test dependency
+        run: python -m pip install torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu
+      - name: Verify oracle, gradients, checkpoints and synthetic optimization
+        run: python -m unittest discover -s research/vn97_native -p 'test_trainable_state.py' -v
