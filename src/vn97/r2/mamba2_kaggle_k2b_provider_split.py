@@ -260,7 +260,7 @@ def run_k2b(
     k2a_body = dict(k2a)
     k2a_body.pop("receipt_id", None)
     expected_k2a_id = hashlib.sha256(
-        b"VN97M2K2AORT1\\0" + _canonical_json(k2a_body)
+        b"VN97M2K2AORT1\0" + _canonical_json(k2a_body)
     ).hexdigest()
     if k2a_receipt_id != expected_k2a_id:
         raise ValueError("K2B K2A receipt identity mismatch")
