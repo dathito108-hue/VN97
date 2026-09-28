@@ -8,6 +8,8 @@ import java.nio.ByteOrder
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
 import kotlin.math.sin
+import kotlin.math.cos
+import kotlin.math.PI
 
 internal class AvatarRenderer(
     private val stateBridge: AvatarStateBridge,
@@ -16,6 +18,7 @@ internal class AvatarRenderer(
     private var vertexBuffer = 0
     private var mvpLocation = -1
     private var colorLocation = -1
+    private var modelLocation = -1
     private val projection = FloatArray(16)
     private val view = FloatArray(16)
     private val model = FloatArray(16)
@@ -29,22 +32,23 @@ internal class AvatarRenderer(
         program = linkProgram(VERTEX_SHADER, FRAGMENT_SHADER)
         mvpLocation = GLES30.glGetUniformLocation(program, "uMvp")
         colorLocation = GLES30.glGetUniformLocation(program, "uColor")
-        check(mvpLocation >= 0 && colorLocation >= 0) { "avatar shader uniforms unavailable" }
+        modelLocation = GLES30.glGetUniformLocation(program, "uModel")
+        check(mvpLocation >= 0 && colorLocation >= 0 && modelLocation >= 0) { "avatar shader uniforms unavailable" }
 
         val buffers = IntArray(1)
         GLES30.glGenBuffers(1, buffers, 0)
         vertexBuffer = buffers[0]
         check(vertexBuffer != 0) { "avatar vertex buffer allocation failed" }
 
-        val data = ByteBuffer.allocateDirect(CUBE_VERTICES.size * Float.SIZE_BYTES)
+        val data = ByteBuffer.allocateDirect(ROUNDED_VERTICES.size * Float.SIZE_BYTES)
             .order(ByteOrder.nativeOrder())
             .asFloatBuffer()
-            .put(CUBE_VERTICES)
+            .put(ROUNDED_VERTICES)
         data.position(0)
         GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, vertexBuffer)
         GLES30.glBufferData(
             GLES30.GL_ARRAY_BUFFER,
-            CUBE_VERTICES.size * Float.SIZE_BYTES,
+            ROUNDED_VERTICES.size * Float.SIZE_BYTES,
             data,
             GLES30.GL_STATIC_DRAW,
         )
@@ -155,8 +159,9 @@ internal class AvatarRenderer(
         Matrix.multiplyMM(viewModel, 0, view, 0, model, 0)
         Matrix.multiplyMM(mvp, 0, projection, 0, viewModel, 0)
         GLES30.glUniformMatrix4fv(mvpLocation, 1, false, mvp, 0)
+        GLES30.glUniformMatrix4fv(modelLocation, 1, false, model, 0)
         GLES30.glUniform3f(colorLocation, color[0], color[1], color[2])
-        GLES30.glDrawArrays(GLES30.GL_TRIANGLES, 0, CUBE_VERTICES.size / 3)
+        GLES30.glDrawArrays(GLES30.GL_TRIANGLES, 0, ROUNDED_VERTICES.size / 3)
     }
 
     private fun accentColor(mode: AssistantMode): FloatArray = when (mode) {
@@ -208,33 +213,46 @@ internal class AvatarRenderer(
         private const val VERTEX_SHADER = """#version 300 es
             layout(location = 0) in vec3 aPosition;
             uniform mat4 uMvp;
+            uniform mat4 uModel;
+            out vec3 vNormal;
             void main() {
                 gl_Position = uMvp * vec4(aPosition, 1.0);
+                vNormal = transpose(inverse(mat3(uModel))) * normalize(aPosition);
             }
         """
 
         private const val FRAGMENT_SHADER = """#version 300 es
             precision mediump float;
             uniform vec3 uColor;
+            in vec3 vNormal;
             out vec4 outColor;
             void main() {
-                outColor = vec4(uColor, 1.0);
+                vec3 normal = normalize(vNormal);
+                float diffuse = max(dot(normal, normalize(vec3(-0.4, 0.8, 1.0))), 0.0);
+                float rim = pow(1.0 - abs(normal.z), 3.0);
+                outColor = vec4(uColor * (0.55 + 0.45 * diffuse) + vec3(0.07, 0.13, 0.16) * rim, 1.0);
             }
         """
 
-        private val CUBE_VERTICES = floatArrayOf(
-            -0.5f,-0.5f, 0.5f,  0.5f,-0.5f, 0.5f,  0.5f, 0.5f, 0.5f,
-            -0.5f,-0.5f, 0.5f,  0.5f, 0.5f, 0.5f, -0.5f, 0.5f, 0.5f,
-             0.5f,-0.5f,-0.5f, -0.5f,-0.5f,-0.5f, -0.5f, 0.5f,-0.5f,
-             0.5f,-0.5f,-0.5f, -0.5f, 0.5f,-0.5f,  0.5f, 0.5f,-0.5f,
-            -0.5f,-0.5f,-0.5f, -0.5f,-0.5f, 0.5f, -0.5f, 0.5f, 0.5f,
-            -0.5f,-0.5f,-0.5f, -0.5f, 0.5f, 0.5f, -0.5f, 0.5f,-0.5f,
-             0.5f,-0.5f, 0.5f,  0.5f,-0.5f,-0.5f,  0.5f, 0.5f,-0.5f,
-             0.5f,-0.5f, 0.5f,  0.5f, 0.5f,-0.5f,  0.5f, 0.5f, 0.5f,
-            -0.5f, 0.5f, 0.5f,  0.5f, 0.5f, 0.5f,  0.5f, 0.5f,-0.5f,
-            -0.5f, 0.5f, 0.5f,  0.5f, 0.5f,-0.5f, -0.5f, 0.5f,-0.5f,
-            -0.5f,-0.5f,-0.5f,  0.5f,-0.5f,-0.5f,  0.5f,-0.5f, 0.5f,
-            -0.5f,-0.5f,-0.5f,  0.5f,-0.5f, 0.5f, -0.5f,-0.5f, 0.5f,
-        )
+        // Shared low-poly ellipsoid mesh: generated once, uploaded once, no frame allocations.
+        private val ROUNDED_VERTICES: FloatArray = buildList<Float> {
+            val rings = 12
+            val segments = 20
+            fun vertex(ring: Int, segment: Int) {
+                val latitude = PI * ring / rings
+                val longitude = 2.0 * PI * segment / segments
+                add((0.5 * sin(latitude) * cos(longitude)).toFloat())
+                add((0.5 * cos(latitude)).toFloat())
+                add((0.5 * sin(latitude) * sin(longitude)).toFloat())
+            }
+            for (ring in 0 until rings) for (segment in 0 until segments) {
+                vertex(ring, segment)
+                vertex(ring + 1, segment)
+                vertex(ring + 1, segment + 1)
+                vertex(ring, segment)
+                vertex(ring + 1, segment + 1)
+                vertex(ring, segment + 1)
+            }
+        }.toFloatArray()
     }
 }

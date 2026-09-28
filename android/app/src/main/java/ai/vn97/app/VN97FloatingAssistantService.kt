@@ -403,8 +403,8 @@ class VN97FloatingAssistantService : Service() {
         private const val PREF_Y = "y"
         private const val NOTIFICATION_CHANNEL = "vn97-floating-assistant"
         private const val NOTIFICATION_ID = 9703
-        private const val OVERLAY_WIDTH_DP = 180f
-        private const val OVERLAY_HEIGHT_DP = 220f
+        private const val OVERLAY_WIDTH_DP = 72f
+        private const val OVERLAY_HEIGHT_DP = 88f
         private const val DRAG_THRESHOLD_PX = 8f
 
         fun isEnabled(context: Context): Boolean =
