@@ -321,15 +321,22 @@ class VN97OrtSessionFactory(
         provider: OrtProviderKind,
         xnnpackThreads: Int,
         device: OrtDeviceCapabilities,
+        allowCpuFallback: Boolean = false,
+        cpuThreads: Int = 1,
     ): OrtSessionHandle {
         require(modelBytes.isNotEmpty()) { "ONNX model must not be empty" }
         require(xnnpackThreads > 0) {
             "xnnpackThreads must be positive"
         }
+        require(cpuThreads > 0) {
+            "cpuThreads must be positive"
+        }
         val options = sessionOptionsFor(
             provider = provider,
             xnnpackThreads = xnnpackThreads,
             device = device,
+            allowCpuFallback = allowCpuFallback,
+            cpuThreads = cpuThreads,
         )
         try {
             val session = environment.createSession(
@@ -352,6 +359,8 @@ class VN97OrtSessionFactory(
         provider: OrtProviderKind,
         xnnpackThreads: Int,
         device: OrtDeviceCapabilities,
+        allowCpuFallback: Boolean = false,
+        cpuThreads: Int = 1,
     ): OrtSessionHandle {
         require(modelPath.isNotBlank()) {
             "ONNX model path must not be blank"
@@ -359,10 +368,15 @@ class VN97OrtSessionFactory(
         require(xnnpackThreads > 0) {
             "xnnpackThreads must be positive"
         }
+        require(cpuThreads > 0) {
+            "cpuThreads must be positive"
+        }
         val options = sessionOptionsFor(
             provider = provider,
             xnnpackThreads = xnnpackThreads,
             device = device,
+            allowCpuFallback = allowCpuFallback,
+            cpuThreads = cpuThreads,
         )
         try {
             val session = environment.createSession(
@@ -384,18 +398,23 @@ class VN97OrtSessionFactory(
         provider: OrtProviderKind,
         xnnpackThreads: Int,
         device: OrtDeviceCapabilities,
+        allowCpuFallback: Boolean,
+        cpuThreads: Int,
     ): OrtSession.SessionOptions {
         val options = OrtSession.SessionOptions()
         try {
             options.setOptimizationLevel(
                 OrtSession.SessionOptions.OptLevel.ALL_OPT,
             )
-            options.setIntraOpNumThreads(1)
+            options.setIntraOpNumThreads(cpuThreads)
             options.addConfigEntry(
                 "session.intra_op.allow_spinning",
                 "0",
             )
-            if (provider != OrtProviderKind.CPU) {
+            if (
+                provider != OrtProviderKind.CPU &&
+                !allowCpuFallback
+            ) {
                 options.addConfigEntry(
                     "session.disable_cpu_ep_fallback",
                     "1",
@@ -423,7 +442,11 @@ class VN97OrtSessionFactory(
                         "NNAPI is not available on this device"
                     }
                     options.addNnapi(
-                        EnumSet.of(NNAPIFlags.CPU_DISABLED)
+                        if (allowCpuFallback) {
+                            EnumSet.noneOf(NNAPIFlags::class.java)
+                        } else {
+                            EnumSet.of(NNAPIFlags.CPU_DISABLED)
+                        }
                     )
                 }
                 OrtProviderKind.XNNPACK -> {
