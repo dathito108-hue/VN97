@@ -174,6 +174,51 @@ class VN97Mamba2K2RDiagnostics(
     private val sessionFactory: VN97OrtSessionFactory =
         VN97OrtSessionFactory(environment),
 ) {
+    fun runSingleCpu(
+        context: Context,
+        runtimeRoot: File,
+        cpuThreads: Int,
+    ): Mamba2K2RReport {
+        val app = context.applicationContext
+        val runtime = Mamba2OrtRuntimePackage.load(runtimeRoot)
+        require(runtime.stateDtype == "float16") {
+            "K2R diagnostics require the verified FP16 G0.5 runtime"
+        }
+        val device = OrtDeviceProbe.inspect(app)
+        require(cpuThreads in setOf(1, 2, 4, 8))
+        require(cpuThreads <= device.logicalCores) {
+            "requested CPU threads exceed logical core count"
+        }
+
+        val attempt = Mamba2ProfileBuffers(
+            environment,
+            runtime,
+        ).use { buffers ->
+            runSpec(
+                context = app,
+                runtime = runtime,
+                device = device,
+                buffers = buffers,
+                spec = K2RSpec(
+                    mode = "CPU_" + cpuThreads,
+                    provider = OrtProviderKind.CPU,
+                    cpuFallbackAllowed = false,
+                    cpuThreads = cpuThreads,
+                    xnnpackThreads = 1,
+                    warmups = 1,
+                    steadyRuns = 3,
+                ),
+            )
+        }
+
+        return Mamba2K2RReport(
+            runtimeId = runtime.runtimeId,
+            g05ManifestId = runtime.g05ManifestId,
+            device = device,
+            attempts = listOf(attempt),
+        )
+    }
+
     fun run(
         context: Context,
         runtimeRoot: File,
