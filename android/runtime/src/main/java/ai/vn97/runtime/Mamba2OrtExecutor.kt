@@ -159,6 +159,7 @@ class VN97Mamba2OrtExecutor private constructor(
     private val qnnBackendPath: String?,
     private val environment: OrtEnvironment,
     private val sessionFactory: VN97OrtSessionFactory,
+    private val tuningProfile: Mamba2OrtTuningProfile?,
     maxCachedSessions: Int,
 ) : AutoCloseable {
     private val initialDevice = OrtDeviceProbe.inspect(
@@ -197,10 +198,22 @@ class VN97Mamba2OrtExecutor private constructor(
             context: Context,
             runtimeRoot: File,
             qnnBackendPath: String? = null,
+            tuningFile: File? = null,
             maxCachedSessions: Int = 2,
         ): VN97Mamba2OrtExecutor {
             val app = context.applicationContext
             val runtime = Mamba2OrtRuntimePackage.load(runtimeRoot)
+            val device = OrtDeviceProbe.inspect(
+                app,
+                qnnBackendPath,
+            )
+            val tuning = tuningFile?.let {
+                Mamba2OrtTuningProfile.load(
+                    file = it,
+                    expectedRuntimeId = runtime.runtimeId,
+                    currentDevice = device,
+                )
+            }
             val environment = OrtEnvironment.getEnvironment()
             return VN97Mamba2OrtExecutor(
                 context = app,
@@ -208,6 +221,7 @@ class VN97Mamba2OrtExecutor private constructor(
                 qnnBackendPath = qnnBackendPath,
                 environment = environment,
                 sessionFactory = VN97OrtSessionFactory(environment),
+                tuningProfile = tuning,
                 maxCachedSessions = maxCachedSessions,
             )
         }
@@ -217,6 +231,12 @@ class VN97Mamba2OrtExecutor private constructor(
     fun currentSequencePosition(): Long {
         requireOpen()
         return sequencePosition
+    }
+
+    @Synchronized
+    fun hasDeviceMeasuredTuning(): Boolean {
+        requireOpen()
+        return tuningProfile != null
     }
 
     @Synchronized
@@ -296,17 +316,28 @@ class VN97Mamba2OrtExecutor private constructor(
             context,
             qnnBackendPath,
         )
-        val decision = OrtAdaptiveScheduler.decide(
-            device = device,
-            workload = OrtAdaptiveWorkload(
-                sequenceLength = tokens.size,
-                deadlineMs = deadlineMs,
-                realtime = realtime,
-                stateDependency = if (realtime) 1.0 else 0.2,
-                preferAccelerator = true,
-            ),
+        val tunedDecision = tuningProfile?.decide(
+            validLength = tokens.size,
+            currentDevice = device,
         )
-        val providers = decision.providers
+        val conservativeDecision = if (tunedDecision == null) {
+            OrtAdaptiveScheduler.decide(
+                device = device,
+                workload = OrtAdaptiveWorkload(
+                    sequenceLength = tokens.size,
+                    deadlineMs = deadlineMs,
+                    realtime = realtime,
+                    stateDependency = if (realtime) 1.0 else 0.2,
+                    preferAccelerator = true,
+                ),
+            )
+        } else {
+            null
+        }
+        val providers = tunedDecision?.providers
+            ?: requireNotNull(conservativeDecision).providers
+        val xnnpackThreads = tunedDecision?.xnnpackThreads
+            ?: requireNotNull(conservativeDecision).xnnpackThreads
         require(providers.isNotEmpty())
         require(providers.last() == OrtProviderKind.CPU)
 
@@ -331,7 +362,7 @@ class VN97Mamba2OrtExecutor private constructor(
         for (provider in providers) {
             val key = Mamba2SessionKey(
                 provider = provider,
-                xnnpackThreads = decision.xnnpackThreads,
+                xnnpackThreads = xnnpackThreads,
             )
             val attemptStart = System.nanoTime()
             try {
@@ -339,7 +370,7 @@ class VN97Mamba2OrtExecutor private constructor(
                     val opened = sessionFactory.createForProvider(
                         modelPath = runtimePackage.graphFile.absolutePath,
                         provider = provider,
-                        xnnpackThreads = decision.xnnpackThreads,
+                        xnnpackThreads = xnnpackThreads,
                         device = initialDevice,
                     )
                     try {
