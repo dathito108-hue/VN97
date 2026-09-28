@@ -170,6 +170,12 @@ def run_stage_trace(
     )
 
     mixer = layer.mixer
+    same_input_in_proj_official = mixer.in_proj(official_block_norm)
+    same_input_in_proj_reference = F.linear(
+        official_block_norm,
+        mixer.in_proj.weight,
+    )
+
     source_state = states[trace_layer]
     source_conv_initial = source_state.conv.clone()
     source_ssm_initial = source_state.ssm.clone()
@@ -247,6 +253,10 @@ def run_stage_trace(
         "block_norm_same_input": _max_abs(
             official_block_norm,
             reference_block_norm,
+        ),
+        "in_proj_same_input": _max_abs(
+            same_input_in_proj_official,
+            same_input_in_proj_reference,
         ),
         "mixer_out_same_input": _max_abs(
             official_out,
