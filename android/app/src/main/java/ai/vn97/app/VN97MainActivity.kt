@@ -23,7 +23,6 @@ import android.view.ViewGroup
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
-import android.widget.ScrollView
 import android.widget.TextView
 import java.io.File
 import java.io.FileInputStream
@@ -94,31 +93,8 @@ class VN97MainActivity : Activity() {
 
         app.platformRuntime
 
-        val density = resources.displayMetrics.density
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(
-                (16 * density).toInt(),
-                (16 * density).toInt(),
-                (16 * density).toInt(),
-                (16 * density).toInt(),
-            )
-        }
-
-        val title = TextView(this).apply {
-            text = "VN97"
-            textSize = 24f
-            gravity = Gravity.CENTER_HORIZONTAL
-        }
-        root.addView(
-            title,
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            ),
-        )
-
         avatar = VN97AvatarView(this).apply {
+            enableTransparentOverlaySurface()
             publish(
                 AvatarCommand(
                     sourceSequence = avatarSequence++,
@@ -132,189 +108,66 @@ class VN97MainActivity : Activity() {
                     "Avatar interaction: ${interaction.type.name.lowercase()}"
             }
         }
-        root.addView(
-            avatar,
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                (260 * density).toInt(),
-            ),
-        )
 
         statusView = TextView(this)
-        root.addView(
-            statusView,
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            ),
-        )
 
         floatingAssistantButton = Button(this).apply {
             setOnClickListener { toggleFloatingAssistant() }
         }
-        root.addView(
-            floatingAssistantButton,
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            ),
-        )
 
         voicePermissionButton = Button(this).apply {
             setOnClickListener { requestMicrophonePermissionIfNeeded() }
         }
-        root.addView(
-            voicePermissionButton,
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            ),
-        )
 
         screenShareButton = Button(this).apply {
             setOnClickListener { toggleScreenPerception() }
         }
-        root.addView(
-            screenShareButton,
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            ),
-        )
 
         screenAnalyzeButton = Button(this).apply {
-            text = "Analyze shared screen"
+            text = "Phân tích màn hình"
             setOnClickListener { analyzeScreenPerception() }
         }
-        root.addView(
-            screenAnalyzeButton,
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            ),
-        )
 
         cameraAnalyzeButton = Button(this).apply {
-            text = "Analyze camera"
+            text = "Phân tích camera"
             setOnClickListener { analyzeCameraPerception() }
         }
-        root.addView(
-            cameraAnalyzeButton,
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            ),
-        )
 
         gameControlStatusView = TextView(this).apply {
             setTextIsSelectable(true)
         }
-        root.addView(
-            gameControlStatusView,
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            ),
-        )
 
-        val gameControlRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-        }
         gameAccessibilityButton = Button(this).apply {
             text = "Game accessibility"
             setOnClickListener { openGameAccessibilitySettings() }
         }
         gameAuthorizeButton = Button(this).apply {
-            text = "Authorize last app"
+            text = "Cho phép ứng dụng gần nhất"
             setOnClickListener { authorizeLastGamePackage() }
         }
         gameRevokeButton = Button(this).apply {
-            text = "Stop game control"
+            text = "Dừng điều khiển"
             setOnClickListener { revokeGameControl() }
         }
-        gameControlRow.addView(
-            gameAccessibilityButton,
-            LinearLayout.LayoutParams(
-                0,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                1f,
-            ),
-        )
-        gameControlRow.addView(
-            gameAuthorizeButton,
-            LinearLayout.LayoutParams(
-                0,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                1f,
-            ),
-        )
-        gameControlRow.addView(
-            gameRevokeButton,
-            LinearLayout.LayoutParams(
-                0,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                1f,
-            ),
-        )
-        root.addView(
-            gameControlRow,
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            ),
-        )
 
-        val gameAgentRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-        }
         gameAgentStartButton = Button(this).apply {
-            text = "Start game agent"
+            text = "Bắt đầu chơi"
             setOnClickListener { startGameAgent() }
         }
         gameAgentStopButton = Button(this).apply {
-            text = "Stop game agent"
+            text = "Dừng chơi"
             setOnClickListener { stopGameAgent() }
         }
-        gameAgentRow.addView(
-            gameAgentStartButton,
-            LinearLayout.LayoutParams(
-                0,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                1f,
-            ),
-        )
-        gameAgentRow.addView(
-            gameAgentStopButton,
-            LinearLayout.LayoutParams(
-                0,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                1f,
-            ),
-        )
-        root.addView(
-            gameAgentRow,
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            ),
-        )
 
         mobileEvidenceButton = Button(this).apply {
-            text = "Collect VN97 mobile evidence"
+            text = "Kiểm tra thiết bị"
             visibility =
                 if (BuildConfig.VN97_TURNKEY_REQUIRED) View.GONE else View.VISIBLE
             setOnClickListener { collectMobileEvidence() }
         }
-        root.addView(
-            mobileEvidenceButton,
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            ),
-        )
 
         r2OrtEvidenceButton = Button(this).apply {
-            text = "R2 Android ORT evidence"
+            text = "Đo hiệu năng mô hình"
             visibility =
                 if (BuildConfig.VN97_TURNKEY_REQUIRED) View.GONE else View.VISIBLE
             setOnClickListener {
@@ -326,26 +179,16 @@ class VN97MainActivity : Activity() {
                 )
             }
         }
-        root.addView(
-            r2OrtEvidenceButton,
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            ),
-        )
 
-        root.addView(Button(this).apply {
+        val digitalServicesButton = Button(this).apply {
             text = "Dịch vụ số"
             setOnClickListener {
                 startActivity(Intent(this@VN97MainActivity, VN97DigitalServicesActivity::class.java))
             }
-        }, LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT,
-            ViewGroup.LayoutParams.WRAP_CONTENT,
-        ))
+        }
 
         paperTradingButton = Button(this).apply {
-            text = "Paper trading"
+            text = "Mở giao dịch mô phỏng"
             setOnClickListener {
                 startActivity(
                     Intent(
@@ -355,16 +198,9 @@ class VN97MainActivity : Activity() {
                 )
             }
         }
-        root.addView(
-            paperTradingButton,
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            ),
-        )
 
         capabilityAcquisitionButton = Button(this).apply {
-            text = "Capability acquisition"
+            text = "Quản lý năng lực"
             setOnClickListener {
                 startActivity(
                     Intent(
@@ -374,16 +210,9 @@ class VN97MainActivity : Activity() {
                 )
             }
         }
-        root.addView(
-            capabilityAcquisitionButton,
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            ),
-        )
 
         selfImprovementButton = Button(this).apply {
-            text = "Controlled self-improvement"
+            text = "Cải tiến có kiểm soát"
             setOnClickListener {
                 startActivity(
                     Intent(
@@ -393,49 +222,22 @@ class VN97MainActivity : Activity() {
                 )
             }
         }
-        root.addView(
-            selfImprovementButton,
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            ),
-        )
 
         approvalView = TextView(this).apply {
             visibility = View.GONE
             setTextIsSelectable(true)
         }
-        root.addView(
-            approvalView,
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            ),
-        )
 
-        val approvalRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.END
-        }
         rejectButton = Button(this).apply {
-            text = "Reject"
+            text = "Từ chối"
             visibility = View.GONE
             setOnClickListener { resolveApproval(false) }
         }
         approveButton = Button(this).apply {
-            text = "Approve"
+            text = "Phê duyệt"
             visibility = View.GONE
             setOnClickListener { resolveApproval(true) }
         }
-        approvalRow.addView(rejectButton)
-        approvalRow.addView(approveButton)
-        root.addView(
-            approvalRow,
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            ),
-        )
 
         provisioningView = TextView(this).apply {
             text = if (BuildConfig.VN97_TURNKEY_REQUIRED) {
@@ -445,16 +247,9 @@ class VN97MainActivity : Activity() {
             }
             setTextIsSelectable(true)
         }
-        root.addView(
-            provisioningView,
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            ),
-        )
 
         importModelButton = Button(this).apply {
-            text = "IMPORT VN97 MODEL"
+            text = "Nhập mô hình VN97"
             visibility =
                 if (BuildConfig.VN97_TURNKEY_REQUIRED) View.GONE else View.VISIBLE
             setOnClickListener {
@@ -469,13 +264,6 @@ class VN97MainActivity : Activity() {
                     }
             }
         }
-        root.addView(
-            importModelButton,
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            ),
-        )
 
         advancedProvisioningContainer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -486,15 +274,15 @@ class VN97MainActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
         }
         choosePackageButton = Button(this).apply {
-            text = "Package"
+            text = "Chọn gói mô hình"
             setOnClickListener { openDocument(REQUEST_PACKAGE) }
         }
         chooseSignatureButton = Button(this).apply {
-            text = "Signature"
+            text = "Chọn chữ ký"
             setOnClickListener { openDocument(REQUEST_SIGNATURE) }
         }
         choosePublisherKeyButton = Button(this).apply {
-            text = "Publisher Key"
+            text = "Chọn khóa nhà phát hành"
             setOnClickListener { openDocument(REQUEST_PUBLISHER_KEY) }
         }
         provisioningRow.addView(choosePackageButton)
@@ -513,11 +301,11 @@ class VN97MainActivity : Activity() {
             gravity = Gravity.END
         }
         reviewModelButton = Button(this).apply {
-            text = "Review"
+            text = "Kiểm tra gói"
             setOnClickListener { reviewProvisioning() }
         }
         activateModelButton = Button(this).apply {
-            text = "Trust & Activate"
+            text = "Tin cậy và kích hoạt"
             isEnabled = false
             setOnClickListener { activateReviewedModel() }
         }
@@ -530,40 +318,16 @@ class VN97MainActivity : Activity() {
                 ViewGroup.LayoutParams.WRAP_CONTENT,
             ),
         )
-        root.addView(
-            advancedProvisioningContainer,
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            ),
-        )
 
         transcriptView = TextView(this).apply {
             textSize = 16f
         }
-        val transcriptScroll = ScrollView(this).apply {
-            addView(
-                transcriptView,
-                ViewGroup.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT,
-                ),
-            )
-        }
-        root.addView(
-            transcriptScroll,
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                0,
-                1f,
-            ),
-        )
 
         val inputRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
         }
         inputView = EditText(this).apply {
-            hint = "Message VN97"
+            hint = "Nhắn tin hoặc nhập mục tiêu…"
             maxLines = 4
         }
         inputRow.addView(
@@ -576,7 +340,7 @@ class VN97MainActivity : Activity() {
         )
 
         sendButton = Button(this).apply {
-            text = "Send"
+            text = "Gửi"
             setOnClickListener {
                 if (state.phase in setOf(VN97AppPhase.YIELDED, VN97AppPhase.PAUSED)) resumeYieldedTurn() else submitTurn()
             }
@@ -588,102 +352,75 @@ class VN97MainActivity : Activity() {
                 ViewGroup.LayoutParams.WRAP_CONTENT,
             ),
         )
-        root.addView(
-            inputRow,
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            ),
-        )
 
-        val autonomousRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-        }
         autonomousButton = Button(this).apply {
-            text = "Run autonomously"
+            text = "Bắt đầu nhiệm vụ"
             setOnClickListener { startAutonomousGoal() }
         }
         cancelAutonomousButton = Button(this).apply {
-            text = "Cancel latest goal"
+            text = "Dừng nhiệm vụ gần nhất"
             isEnabled = false
             setOnClickListener { cancelLatestAutonomousGoal() }
         }
-        autonomousRow.addView(
-            autonomousButton,
-            LinearLayout.LayoutParams(
-                0,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                1f,
-            ),
-        )
-        autonomousRow.addView(
-            cancelAutonomousButton,
-            LinearLayout.LayoutParams(
-                0,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                1f,
-            ),
-        )
-        root.addView(
-            autonomousRow,
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            ),
-        )
 
         autonomousStatusView = TextView(this).apply {
             text = "Autonomous goals: none"
             setTextIsSelectable(true)
         }
-        root.addView(
-            autonomousStatusView,
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            ),
-        )
 
         autonomousApprovalView = TextView(this).apply {
             visibility = View.GONE
             setTextIsSelectable(true)
         }
-        root.addView(
-            autonomousApprovalView,
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            ),
-        )
-        val autonomousApprovalRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.END
-        }
         autonomousRejectButton = Button(this).apply {
-            text = "Reject autonomous action"
+            text = "Từ chối hành động tự chủ"
             visibility = View.GONE
             setOnClickListener {
                 resolveAutonomousApproval(false)
             }
         }
         autonomousApproveButton = Button(this).apply {
-            text = "Approve autonomous action"
+            text = "Phê duyệt hành động tự chủ"
             visibility = View.GONE
             setOnClickListener {
                 resolveAutonomousApproval(true)
             }
         }
-        autonomousApprovalRow.addView(autonomousRejectButton)
-        autonomousApprovalRow.addView(autonomousApproveButton)
-        root.addView(
-            autonomousApprovalRow,
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            ),
-        )
 
-        setContentView(root)
+        // Reuse the existing controls and their authority/runtime listeners.
+        val dashboard = VN97Dashboard(this)
+        setContentView(dashboard.build(
+            avatar = avatar,
+            status = statusView,
+            composer = inputRow,
+            approvals = listOf(approvalView, rejectButton, approveButton,
+                autonomousApprovalView, autonomousRejectButton, autonomousApproveButton),
+            pages = listOf(
+                listOf(
+                    dashboard.card("Trò chuyện", "Trao đổi và giao nhiệm vụ cho VN97.", transcriptView),
+                    dashboard.card("Công việc tự chủ", "Nhập mục tiêu trong ô tin nhắn rồi bắt đầu.",
+                        autonomousButton, cancelAutonomousButton, autonomousStatusView),
+                    dashboard.card("Dịch vụ số", "Xử lý CSV, văn bản và danh mục bằng công cụ có sẵn.", digitalServicesButton),
+                ),
+                listOf(
+                    dashboard.card("Trợ lý & nhận thức", "Nút bị mờ khi mô hình hoặc quyền cần thiết chưa sẵn sàng.",
+                        floatingAssistantButton, voicePermissionButton, screenShareButton,
+                        screenAnalyzeButton, cameraAnalyzeButton),
+                    dashboard.card("Điều khiển trò chơi", "Cấp quyền cho ứng dụng đích trước khi chạy.",
+                        gameAccessibilityButton, gameAuthorizeButton, gameRevokeButton,
+                        gameAgentStartButton, gameAgentStopButton, gameControlStatusView),
+                    dashboard.card("Giao dịch mô phỏng", "Theo dõi thử nghiệm bằng tiền mô phỏng.", paperTradingButton),
+                ),
+                listOf(
+                    dashboard.card("Mô hình VN97", "Trạng thái mô hình và nhập gói đã ký.",
+                        provisioningView, importModelButton, advancedProvisioningContainer),
+                    dashboard.card("Phát triển năng lực", "Quản lý năng lực và các bản cải tiến có kiểm soát.",
+                        capabilityAcquisitionButton, selfImprovementButton),
+                    dashboard.card("Chẩn đoán", "Thu thập bằng chứng chạy thực tế trên thiết bị.",
+                        mobileEvidenceButton, r2OrtEvidenceButton),
+                ),
+            ),
+        ))
         refreshFloatingAssistantButton()
         refreshVoicePermissionButton()
         refreshGameControlStatus()
@@ -983,9 +720,9 @@ class VN97MainActivity : Activity() {
         }
         gameAccessibilityButton.text =
             if (connected) {
-                "Game accessibility enabled"
+                "Đã bật quyền trợ năng"
             } else {
-                "Enable game accessibility"
+                "Mở cài đặt trợ năng"
             }
         val agent = VN97GameAgentService.snapshot()
         gameControlStatusView.append(
@@ -1065,9 +802,9 @@ class VN97MainActivity : Activity() {
     private fun refreshVoicePermissionButton() {
         voicePermissionButton.text =
             if (hasMicrophonePermission()) {
-                "Microphone voice enabled"
+                "Đã cấp quyền micro"
             } else {
-                "Enable microphone voice"
+                "Cấp quyền micro"
             }
         voicePermissionButton.isEnabled = !hasMicrophonePermission()
     }
@@ -1313,9 +1050,9 @@ class VN97MainActivity : Activity() {
         val sharing = app.screenCaptureBroker.isActive()
         screenShareButton.text =
             if (sharing) {
-                "Stop screen perception"
+                "Dừng chia sẻ màn hình"
             } else {
-                "Start screen perception"
+                "Chia sẻ màn hình"
             }
         screenShareButton.isEnabled = sharing || ready
         screenAnalyzeButton.isEnabled = ready && sharing
@@ -1354,9 +1091,9 @@ class VN97MainActivity : Activity() {
             permissionGranted &&
                 VN97FloatingAssistantService.isEnabled(this)
         floatingAssistantButton.text = when {
-            enabled -> "Hide floating 3D assistant"
-            permissionGranted -> "Show floating 3D assistant"
-            else -> "Enable floating 3D assistant"
+            enabled -> "Ẩn trợ lý nổi"
+            permissionGranted -> "Hiện trợ lý nổi"
+            else -> "Cấp quyền trợ lý nổi"
         }
     }
 
@@ -2389,7 +2126,7 @@ class VN97MainActivity : Activity() {
         state = next
         statusView.text = state.status
         inputView.isEnabled = state.inputEnabled
-        sendButton.text = if (state.phase in setOf(VN97AppPhase.YIELDED, VN97AppPhase.PAUSED)) "Tiếp tục" else "Send"
+        sendButton.text = if (state.phase in setOf(VN97AppPhase.YIELDED, VN97AppPhase.PAUSED)) "Tiếp tục" else "Gửi"
         sendButton.isEnabled =
             (state.inputEnabled || state.phase in setOf(VN97AppPhase.YIELDED, VN97AppPhase.PAUSED)) &&
                 !autonomousApprovalActive
@@ -2397,7 +2134,7 @@ class VN97MainActivity : Activity() {
             state.phase == VN97AppPhase.READY &&
                 state.inputEnabled &&
                 !autonomousApprovalActive
-        transcriptView.text = state.transcript.joinToString("\n\n")
+        transcriptView.text = state.transcript.joinToString("\n\n").ifBlank { "Cuộc trò chuyện sẽ hiển thị tại đây.\nNếu chưa có mô hình hoạt động, mở mục Hệ thống để xem trạng thái." }
 
         val approval = if (state.phase == VN97AppPhase.WAITING_APPROVAL) {
             app.assistant.pendingApproval()

@@ -10,6 +10,7 @@ on:
     paths:
       - ".github/workflows/m20b-revenue-campaign.yml"
       - "android/app/**"
+      - "android/avatar/**"
       - "android/platform/**"
       - "android/runtime/src/main/java/ai/vn97/runtime/Mamba2OrtExecutor.kt"
       - "android/runtime/src/main/java/ai/vn97/runtime/Mamba2OrtExecutionBuffers.kt"
