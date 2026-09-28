@@ -120,7 +120,10 @@ class VN97R2BundledRuntime(
             }
             requireSafeRelative(relative)
             val out = File(destination, relative)
-            check(out.parentFile?.mkdirs() != false)
+            val parent = checkNotNull(out.parentFile)
+            check(parent.isDirectory || parent.mkdirs()) {
+                "failed to create VN97 R2 asset directory"
+            }
             digest.update(relative.toByteArray(Charsets.UTF_8))
             digest.update(0.toByte())
             assets.open(assetPath).use { input ->

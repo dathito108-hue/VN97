@@ -104,3 +104,5 @@ java -jar "$WORK/m20c-live-revenue-readiness-test.jar"
     -d "$WORK/m20d-exness-signing-test.jar"
 
 java -jar "$WORK/m20d-exness-signing-test.jar"
+
+bash "$HERE/run-r2-bundled.sh"
