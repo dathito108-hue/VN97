@@ -12,6 +12,7 @@ on:
       - "android/app/**"
       - "android/runtime/src/main/java/ai/vn97/runtime/Mamba2OrtExecutor.kt"
       - "android/runtime/src/main/java/ai/vn97/runtime/Mamba2OrtExecutionBuffers.kt"
+      - "android/runtime/src/main/java/ai/vn97/runtime/Mamba2OrtTensorStorage.kt"
   workflow_dispatch:
 
 permissions:

@@ -2,6 +2,7 @@ package ai.vn97.runtime
 
 import ai.onnxruntime.OnnxJavaType
 import ai.onnxruntime.OnnxTensor
+import ai.onnxruntime.platform.Fp16Conversions
 import ai.onnxruntime.OrtEnvironment
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -105,22 +106,40 @@ internal class Mamba2OrtTensorStorage private constructor(
         require(offset >= 0)
         require(count > 0)
         require(offset <= elementCount - count)
-        val source = tensor.floatBuffer
-            ?: error("ORT tensor cannot be converted to FloatBuffer")
+        // These direct buffers back the pinned tensor. getFloatBuffer() would
+        // copy/convert the entire chunk even when only its final row is needed.
         val result = FloatArray(count)
-        for (index in 0 until count) {
-            result[index] = source.get(offset + index)
+        when (dtype) {
+            Mamba2OrtValueDtype.FLOAT32 -> {
+                val source = requireNotNull(floatBuffer)
+                for (index in 0 until count) {
+                    result[index] = source.get(offset + index)
+                }
+            }
+            Mamba2OrtValueDtype.FLOAT16 -> {
+                val source = requireNotNull(shortBuffer)
+                for (index in 0 until count) {
+                    result[index] = Fp16Conversions.mlasFp16ToFloat(
+                        source.get(offset + index)
+                    )
+                }
+            }
         }
         return result
     }
 
-    fun allFinite(): Boolean {
-        val source = tensor.floatBuffer
-            ?: error("ORT tensor cannot be converted to FloatBuffer")
-        for (index in 0 until source.capacity()) {
-            if (!source.get(index).isFinite()) return false
+    fun allFinite(): Boolean = when (dtype) {
+        Mamba2OrtValueDtype.FLOAT32 -> {
+            val source = requireNotNull(floatBuffer)
+            (0 until elementCount).all { source.get(it).isFinite() }
         }
-        return true
+        Mamba2OrtValueDtype.FLOAT16 -> {
+            val source = requireNotNull(shortBuffer)
+            // An all-one binary16 exponent identifies both infinity and NaN.
+            (0 until elementCount).all {
+                (source.get(it).toInt() and 0x7c00) != 0x7c00
+            }
+        }
     }
 
     override fun close() {

@@ -51,6 +51,7 @@ fun main(args: Array<String>) {
                         buffers.put(intArrayOf(7))
                         check(ids.get(0) == 7L && ids.get(1) == 0L && valid.get(0) == 1L)
                         session.run(mapOf("input" to input), mapOf("output" to buffers.logits.tensor)).use { }
+                        check(buffers.logits.allFinite())
                         check(buffers.finalLogits(1).contentEquals(floatArrayOf(0f, 1f, -2f)))
                         check(buffers.finalLogits(2).contentEquals(floatArrayOf(0.5f, 4f, -8f)))
                         check(runCatching { buffers.finalLogits(0) }.isFailure)
@@ -71,6 +72,15 @@ fun main(args: Array<String>) {
                             // A second run overwrites the same pinned logits allocation.
                             session.run(mapOf("input" to state.conv.tensor), mapOf("output" to buffers.logits.tensor)).use { }
                             check(buffers.finalLogits(2).all { it == 0f })
+                            // Keep exceptional values observable; never silently sanitize them.
+                            if (half) shorts.put(0, 0x7c00.toShort()) else floats.put(0, Float.POSITIVE_INFINITY)
+                            session.run(mapOf("input" to input), mapOf("output" to buffers.logits.tensor)).use { }
+                            check(!buffers.logits.allFinite())
+                            check(buffers.finalLogits(1)[0] == Float.POSITIVE_INFINITY)
+                            if (half) shorts.put(0, 0x7e00.toShort()) else floats.put(0, Float.NaN)
+                            session.run(mapOf("input" to input), mapOf("output" to buffers.logits.tensor)).use { }
+                            check(!buffers.logits.allFinite())
+                            check(buffers.finalLogits(1)[0].isNaN())
                         }
                     }
                 }
