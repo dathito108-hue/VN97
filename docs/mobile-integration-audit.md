@@ -37,3 +37,19 @@ Real-model continuation, Activity lifecycle and device interaction tests remain 
 Next priorities: provision the production model; validate chat end to end; connect service
 tools to the planner and verified payment flow; implement missing speech/vision adapters;
 then measure and harden the full mobile lifecycle. Preserve the single VN97 model and M6.
+
+## PAUSED follow-up
+
+The canonical session now has an explicit `resumePausedTurn` entry point. It verifies
+the active turn identity, absence of pending M6 approval, non-negative time and the
+original memory binding before changing the paused planner. It invokes the existing
+controller's resume operation and continues that plan; it does not build a new one.
+The app retains both YIELDED and PAUSED results, distinguishes them in the UI, and
+requires the same resource-limited Continue action in main chat and the floating panel.
+The bounded driver never automatically resumes a PAUSED boundary.
+
+Android JVM regression tests exercise the real session/planner/coordinator with scripted
+inference. They cover completion after a pause without repeated memory retrieval,
+wrong-turn/wrong-memory/invalid-time rejection, completed-turn rejection and an M6
+approval flow where resume is rejected before the normal approve/execute path. These
+are lifecycle tests; they do not validate model intelligence or physical-device behavior.

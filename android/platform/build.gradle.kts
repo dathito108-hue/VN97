@@ -23,4 +23,9 @@ android {
 
 dependencies {
     implementation(project(":runtime"))
+    testImplementation("junit:junit:4.13.2")
+}
+
+tasks.withType<org.gradle.api.tasks.testing.Test>().configureEach {
+    testLogging { events("passed", "failed", "skipped") }
 }

@@ -123,5 +123,13 @@ fun main() {
         error("completed/approval boundaries must not be advanced")
     } === finalSlice)
     check(runCatching { advanceVN97BoundedTurn(first, 0, { it.yielded }, { it }) }.isFailure)
-    println("M10A_APP_STATE_PASS: yielded continuation and bounded driver")
+    val paused = VN97AppReducer.reduce(running, VN97AppEvent.TurnPaused)
+    check(paused.phase == VN97AppPhase.PAUSED && !paused.inputEnabled)
+    expectFailure { VN97AppReducer.reduce(paused, VN97AppEvent.TurnStarted) }
+    val resumedPause = VN97AppReducer.reduce(paused, VN97AppEvent.TurnResumed)
+    check(resumedPause.phase == VN97AppPhase.RUNNING && !resumedPause.inputEnabled)
+    val waitingAfterResume = VN97AppReducer.reduce(resumedPause, VN97AppEvent.ApprovalRequired)
+    check(waitingAfterResume.phase == VN97AppPhase.WAITING_APPROVAL)
+    expectFailure { VN97AppReducer.reduce(waitingAfterResume, VN97AppEvent.TurnResumed) }
+    println("M10A_APP_STATE_PASS: yielded/paused continuation and bounded driver")
 }

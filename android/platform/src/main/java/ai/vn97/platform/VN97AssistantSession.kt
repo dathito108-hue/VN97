@@ -221,6 +221,29 @@ class VN97AssistantSession(
         }
     }
 
+    /** Explicitly resume the same paused planner, preserving completed steps and M6 gates. */
+    @Synchronized
+    fun resumePausedTurn(
+        turn: VN97AssistantTurn,
+        memory: NativeMemoryRetriever? = null,
+        nowNs: Long,
+    ): VN97AssistantTurnUpdate {
+        requireActive(turn)
+        check(pendingApproval == null) { "resolve the pending approval before resuming" }
+        require(nowNs >= 0L) { "nowNs must be non-negative" }
+        val turnMemory = memoryForActiveTurn(memory)
+        check(turn.controller.plan.status == ai.vn97.runtime.NativePlanStatus.PAUSED) {
+            "the active plan is not paused"
+        }
+        return try {
+            turn.controller.resume()
+            drive(turn, turnMemory, nowNs, seed = null)
+        } catch (failure: Throwable) {
+            clearIfActive(turn)
+            throw failure
+        }
+    }
+
     @Synchronized
     fun resolveApproval(
         turn: VN97AssistantTurn,

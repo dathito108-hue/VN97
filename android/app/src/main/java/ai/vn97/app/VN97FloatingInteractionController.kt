@@ -102,7 +102,7 @@ internal class VN97FloatingInteractionController(
                         )
                     }
                     if (!hasApproval && hasYielded) {
-                        next = VN97AppReducer.reduce(next, VN97AppEvent.TurnYielded)
+                        next = VN97AppReducer.reduce(next, if (assistant.hasPausedTurn()) VN97AppEvent.TurnPaused else VN97AppEvent.TurnYielded)
                     }
                     render(next)
                 }
@@ -277,7 +277,7 @@ internal class VN97FloatingInteractionController(
         val send = Button(context).apply {
             text = "Send"
             setOnClickListener {
-                if (state.phase == VN97AppPhase.YIELDED) resumeYieldedTurn() else submitTurn()
+                if (state.phase in setOf(VN97AppPhase.YIELDED, VN97AppPhase.PAUSED)) resumeYieldedTurn() else submitTurn()
             }
         }
         inputView = input
@@ -462,7 +462,7 @@ internal class VN97FloatingInteractionController(
     }
 
     private fun resumeYieldedTurn() {
-        if (closed || state.phase != VN97AppPhase.YIELDED) return
+        if (closed || state.phase !in setOf(VN97AppPhase.YIELDED, VN97AppPhase.PAUSED)) return
         render(VN97AppReducer.reduce(state, VN97AppEvent.TurnResumed))
         worker.execute {
             try {
@@ -472,7 +472,7 @@ internal class VN97FloatingInteractionController(
                 mainHandler.post {
                     if (!closed) {
                         if (assistant.hasYieldedTurn()) {
-                            render(VN97AppReducer.reduce(state, VN97AppEvent.TurnYielded).copy(
+                            render(VN97AppReducer.reduce(state, if (assistant.hasPausedTurn()) VN97AppEvent.TurnPaused else VN97AppEvent.TurnYielded).copy(
                                 status = "Continuation deferred: " + failure::class.java.simpleName +
                                     ". The pending turn is retained.",
                             ))
@@ -555,6 +555,10 @@ internal class VN97FloatingInteractionController(
 
     private fun applyTurnResult(result: VN97AppTurnResult) {
         when (result.update.state) {
+            VN97AssistantTurnState.PAUSED -> render(
+                VN97AppReducer.reduce(state, VN97AppEvent.TurnPaused)
+            )
+
             VN97AssistantTurnState.YIELDED -> render(
                 VN97AppReducer.reduce(state, VN97AppEvent.TurnYielded)
             )
@@ -632,8 +636,8 @@ internal class VN97FloatingInteractionController(
         }
         inputView?.isEnabled = next.inputEnabled
         sendButton?.apply {
-            text = if (next.phase == VN97AppPhase.YIELDED) "Tiếp tục" else "Send"
-            isEnabled = next.inputEnabled || next.phase == VN97AppPhase.YIELDED
+            text = if (next.phase in setOf(VN97AppPhase.YIELDED, VN97AppPhase.PAUSED)) "Tiếp tục" else "Send"
+            isEnabled = next.inputEnabled || next.phase in setOf(VN97AppPhase.YIELDED, VN97AppPhase.PAUSED)
         }
         voiceButton?.apply {
             text = if (voiceCapture.isRecording) "Stop" else "Mic"
@@ -650,7 +654,7 @@ internal class VN97FloatingInteractionController(
             VN97AppPhase.MODEL_REQUIRED -> AssistantMode.SLEEPING
             VN97AppPhase.READY -> AssistantMode.IDLE
             VN97AppPhase.RUNNING -> AssistantMode.THINKING
-            VN97AppPhase.YIELDED -> AssistantMode.IDLE
+            VN97AppPhase.YIELDED, VN97AppPhase.PAUSED -> AssistantMode.IDLE
             VN97AppPhase.WAITING_APPROVAL -> AssistantMode.WAITING_APPROVAL
             VN97AppPhase.ERROR -> AssistantMode.ERROR
         }
@@ -658,7 +662,7 @@ internal class VN97FloatingInteractionController(
             VN97AppPhase.MODEL_REQUIRED -> 0.15f
             VN97AppPhase.READY -> 0.46f
             VN97AppPhase.RUNNING -> 0.72f
-            VN97AppPhase.YIELDED -> 0.40f
+            VN97AppPhase.YIELDED, VN97AppPhase.PAUSED -> 0.40f
             VN97AppPhase.WAITING_APPROVAL -> 0.60f
             VN97AppPhase.ERROR -> 0.28f
         }

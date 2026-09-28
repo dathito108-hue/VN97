@@ -5,6 +5,7 @@ enum class VN97AppPhase {
     READY,
     RUNNING,
     YIELDED,
+    PAUSED,
     WAITING_APPROVAL,
     ERROR,
 }
@@ -23,7 +24,7 @@ data class VN97AppState(
                 "chat input must stay disabled until a trusted model is active"
             }
         }
-        if (phase == VN97AppPhase.RUNNING || phase == VN97AppPhase.YIELDED || phase == VN97AppPhase.WAITING_APPROVAL) {
+        if (phase == VN97AppPhase.RUNNING || phase == VN97AppPhase.YIELDED || phase == VN97AppPhase.PAUSED || phase == VN97AppPhase.WAITING_APPROVAL) {
             require(!inputEnabled) {
                 "chat input must be single-flight while a turn is active"
             }
@@ -35,6 +36,7 @@ sealed interface VN97AppEvent {
     data object TrustedModelActivated : VN97AppEvent
     data object TurnStarted : VN97AppEvent
     data object TurnYielded : VN97AppEvent
+    data object TurnPaused : VN97AppEvent
     data object TurnResumed : VN97AppEvent
     data class VisualObserved(
         val source: String,
@@ -77,8 +79,17 @@ object VN97AppReducer {
             )
         }
 
+        VN97AppEvent.TurnPaused -> {
+            check(state.phase != VN97AppPhase.MODEL_REQUIRED)
+            state.copy(
+                phase = VN97AppPhase.PAUSED,
+                status = "Kế hoạch đang tạm dừng. Nhấn Tiếp tục để tiếp tục cùng kế hoạch.",
+                inputEnabled = false,
+            )
+        }
+
         VN97AppEvent.TurnResumed -> {
-            check(state.phase == VN97AppPhase.YIELDED)
+            check(state.phase == VN97AppPhase.YIELDED || state.phase == VN97AppPhase.PAUSED)
             state.copy(
                 phase = VN97AppPhase.RUNNING,
                 status = "VN97 đang tiếp tục lượt đang dở…",
