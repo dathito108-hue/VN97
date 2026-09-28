@@ -131,3 +131,47 @@ values. Standard `state_dict` round-trip is a research test, not an authenticate
 checkpoint format: never reuse live state after a weight update, and do not
 connect this candidate to production loaders until checkpoint/version binding
 and controlled promotion are implemented. The current mobile APK is unchanged.
+
+## Small language-backbone integration
+
+`language_candidate.py` wraps the actual repository `VN97R2Model` and replaces
+its recurrent blocks with the adaptive-state candidate. It retains the existing
+embedding, tied output, final normalization, layer loop and state carrier; each
+candidate block keeps an RMSNorm/residual path. The experiment uses d_conv=1
+(no convolution history) and two state values per inner channel. This is a
+research adaptation, not weight-equivalent to the current SSM or Mamba lineage.
+The wrapper has a distinct `VN97ASC-LM1` configuration and `VN97ASC-LMCP1`
+checkpoint. Its byte vocabulary is experimental, not a replacement VN97TK1.
+
+Live streams bind to the wrapper instance, architecture and ordinary PyTorch
+parameter version counters. Optimizer/in-place parameter updates and loading
+weights invalidate them; start a fresh stream. Unsupported `.data` manipulation
+is not guarded. This guard is not a production cryptographic authority boundary.
+Checkpoint files bind config/fingerprint and tensor SHA-256 and forbid production
+activation. This is integrity checking, not publisher authentication. Use only
+trusted research artifacts; weights are FP32 and no optimizer/resume state is
+saved. The production capsule loader does not consume these checkpoints.
+
+Four additional tests verify whole/token/chunk logits, language-loss gradients,
+stale/foreign streams, checkpoint round-trip, tamper and activation rejection.
+The existing broad training-package facade is bypassed by a private namespace
+that imports the real repository modules, not mocks.
+
+`evaluate_language_candidate.py` fixes seed 97, 80 Adam steps and all settings
+before evaluation. It trains on 48 original synthetic Vietnamese CSV-task
+records, evaluates eight validation and eight test records, and saves weights,
+dataset, hashes and all split metrics. Full records are disjoint, **templates and
+many byte substrings are shared**. Test metrics are computed after training;
+they never choose a checkpoint or hyperparameter. An untrained copy is measured
+on the same splits after the candidate has finished.
+
+This is an end-to-end training/evaluation pipeline probe. Low next-byte loss on
+this template cannot establish Vietnamese understanding, task execution,
+architecture superiority, source-weight independence of a future larger model,
+or revenue ability. Equal-budget ablations, multiple seeds and a genuinely
+held-out task corpus are still required. A fixed candidate failing those later
+gates must remain non-production regardless of this probe's loss.
+
+Run `python research/vn97_native/evaluate_language_candidate.py --output NEW_DIR`.
+CI preserves the tiny research checkpoint and evidence for seven days; exact
+results must be read from that run's report rather than assumed from this plan.
