@@ -72,7 +72,7 @@ export CUDA_VISIBLE_DEVICES=0
 export PYTHONPATH="$MAMBA_ORACLE:$REPO_ROOT/src:${PYTHONPATH:-}"
 export TOKENIZERS_PARALLELISM=false
 
-python -m vn97.r2.mamba2_kaggle_real_parity   --source-root "$SOURCE_ROOT"   --evidence "$REPO_ROOT/evidence/r2-g03-real-transfer.json"   --output "$OUTPUT_JSON"   --max-prompt-tokens "${VN97_K1_MAX_PROMPT_TOKENS:-12}"   --generation-tokens "${VN97_K1_GENERATION_TOKENS:-4}"   --max-logit-error "${VN97_K1_MAX_LOGIT_ERROR:-0.005}"   --max-hidden-error "${VN97_K1_MAX_HIDDEN_ERROR:-0.005}"   --max-state-error "${VN97_K1_MAX_STATE_ERROR:-0.005}"
+python -m vn97.r2.mamba2_kaggle_real_parity   --source-root "$SOURCE_ROOT"   --evidence "$REPO_ROOT/evidence/r2-g03-real-transfer.json"   --output "$OUTPUT_JSON"   --max-prompt-tokens "${VN97_K1_MAX_PROMPT_TOKENS:-12}"   --generation-tokens "${VN97_K1_GENERATION_TOKENS:-4}"   --max-logit-error "${VN97_K1_MAX_LOGIT_ERROR:-0.005}"   --max-hidden-error "${VN97_K1_MAX_HIDDEN_ERROR:-0.005}"   --max-state-error "${VN97_K1_MAX_STATE_ERROR:-0.005}"   --official-kernel-mode "${VN97_K1_OFFICIAL_KERNEL_MODE:-optimized}"
 
 python - <<PY
 import hashlib, json

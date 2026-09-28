@@ -280,6 +280,7 @@ def run_real_parity(
     max_logit_error: float,
     max_hidden_error: float,
     max_state_error: float,
+    official_kernel_mode: str,
 ) -> dict[str, Any]:
     if not torch.cuda.is_available():
         raise RuntimeError("K1 real parity requires CUDA")
@@ -306,6 +307,13 @@ def run_real_parity(
 
     from transformers import AutoTokenizer
     from mamba_ssm.models.mixer_seq_simple import MambaLMHeadModel
+    import mamba_ssm.modules.mamba2 as official_mamba2_module
+
+    if official_kernel_mode not in {"optimized", "fallback"}:
+        raise ValueError("official kernel mode must be optimized or fallback")
+    if official_kernel_mode == "fallback":
+        official_mamba2_module.causal_conv1d_update = None
+        official_mamba2_module.selective_state_update = None
 
     tokenizer = AutoTokenizer.from_pretrained(
         str(source_root / "tokenizer"),
@@ -451,6 +459,7 @@ def run_real_parity(
         "torch_version": torch.__version__,
         "cuda_version": torch.version.cuda,
         "dtype": "float16",
+        "official_kernel_mode": official_kernel_mode,
         "probe_cases": len(generated_pairs),
         "probe_tokens": total_probe_tokens,
         "generation_tokens_per_case": generation_tokens,
@@ -492,6 +501,11 @@ def main() -> None:
     parser.add_argument("--max-logit-error", type=float, default=5.0e-3)
     parser.add_argument("--max-hidden-error", type=float, default=5.0e-3)
     parser.add_argument("--max-state-error", type=float, default=5.0e-3)
+    parser.add_argument(
+        "--official-kernel-mode",
+        choices=("optimized", "fallback"),
+        default="optimized",
+    )
     args = parser.parse_args()
 
     receipt = run_real_parity(
@@ -503,6 +517,7 @@ def main() -> None:
         max_logit_error=args.max_logit_error,
         max_hidden_error=args.max_hidden_error,
         max_state_error=args.max_state_error,
+        official_kernel_mode=args.official_kernel_mode,
     )
     print(
         json.dumps(
@@ -514,6 +529,7 @@ def main() -> None:
                 "probe_tokens": receipt["probe_tokens"],
                 "generation_exact": receipt["generation_exact"],
                 "metrics": receipt["metrics"],
+                "official_kernel_mode": receipt["official_kernel_mode"],
                 "output": str(args.output),
             },
             sort_keys=True,
