@@ -1,0 +1,100 @@
+name: VN97 G0.3 Full Capsule Verification
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/r2-g03-full-capsule-verification.yml'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: vn97-r2-g03-full-capsule-verification
+  cancel-in-progress: true
+
+jobs:
+  verify-capsule:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Reclaim disk for the 5.4 GB payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc || true
+          sudo rm -rf /usr/local/share/boost /opt/hostedtoolcache/CodeQL || true
+          df -h /
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install the pinned CPU inspection runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check \
+            --index-url https://download.pytorch.org/whl/cpu \
+            'torch==2.10.0'
+          python -m pip install --disable-pip-version-check --no-deps -e .
+          python - <<'PY'
+          import torch
+          assert torch.__version__.startswith('2.10.0')
+          print('torch=', torch.__version__)
+          PY
+
+      - name: Download the surviving identity-bound G0.3 capsule
+        uses: actions/download-artifact@v4
+        with:
+          name: VN97-R2-G03-Mamba2-2.7B-7a2e931de9d48e0f230037796accc40d32fa16cc-36367075535
+          path: ${{ runner.temp }}/g03-capsule
+          repository: dathito108-hue/VN97
+          run-id: 36367075535
+          github-token: ${{ github.token }}
+
+      - name: Hash every byte and load the complete logical tensor inventory
+        shell: bash
+        run: |
+          set -euo pipefail
+          CAPSULE="$RUNNER_TEMP/g03-capsule"
+          test -s "$CAPSULE/weights/pytorch_model.bin"
+          python -m vn97.r2.mamba2_g03_capsule_cli verify \
+            --capsule-root "$CAPSULE" \
+            | tee "$RUNNER_TEMP/g03-full-verification.json"
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          report_path = Path(os.environ['RUNNER_TEMP']) / 'g03-full-verification.json'
+          report = json.loads(report_path.read_text().strip().splitlines()[-1])
+          assert report['status'] == 'VN97_G03_CAPSULE_VERIFIED'
+          assert report['capsule_id'] == '8e1aff6c6b6d2947cb25111e48febae6850100fd782a2f112adcab2e047f674e'
+          assert report['source_weight_sha256'] == '254d89bfef6dd9f44c8e3f54e0730af3f10c482969117cb37fb33486348b00be'
+          assert report['source_weight_size_bytes'] == 5_405_424_282
+          assert report['large_weight_sha256_verified'] is True
+          assert report['logical_tensor_count'] > 0
+          assert report['d_model'] == 2560
+          assert report['n_layers'] == 64
+          assert report['n_heads'] == 80
+          assert report['d_state'] == 128
+          assert report['source_runtime_required'] is False
+          assert report['production_parity_required'] is True
+          assert report['production_activation_authorized'] is False
+          print('G0.3 full payload identity and logical inventory PASS')
+          PY
+
+      - name: Upload compact full-verification evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: VN97-G03-FULL-VERIFICATION-${{ github.sha }}
+          path: ${{ runner.temp }}/g03-full-verification.json
+          if-no-files-found: error
+          retention-days: 14
+
