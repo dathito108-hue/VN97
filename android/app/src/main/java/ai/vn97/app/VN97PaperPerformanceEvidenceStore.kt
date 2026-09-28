@@ -240,19 +240,30 @@ class VN97PaperPerformanceEvidenceStore(
 
     @Synchronized
     fun aggregate(): VN97PaperPerformanceAggregate {
-        val directories = root.listFiles()
+        val sessionIds = root.listFiles()
             ?.filter {
                 it.isDirectory &&
                     !Files.isSymbolicLink(it.toPath()) &&
                     SESSION_RE.matches(it.name)
             }
-            ?.sortedBy { it.name }
+            ?.map { it.name }
+            ?.sorted()
             .orEmpty()
-        require(directories.size <= MAX_SESSIONS) {
+        return aggregate(sessionIds.toSet())
+    }
+
+    @Synchronized
+    fun aggregate(
+        sessionIds: Set<String>,
+    ): VN97PaperPerformanceAggregate {
+        require(sessionIds.size <= MAX_SESSIONS) {
             "paper performance session count exceeds bound"
         }
-        val summaries = directories.mapNotNull { directory ->
-            val records = loadSession(directory.name)
+        require(sessionIds.all(SESSION_RE::matches)) {
+            "paper performance session filter contains invalid identity"
+        }
+        val summaries = sessionIds.sorted().mapNotNull { sessionId ->
+            val records = loadSession(sessionId)
             if (records.isEmpty()) null else summarize(records)
         }
         return VN97PaperPerformanceAggregate(
