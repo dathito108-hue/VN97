@@ -62,6 +62,15 @@ fun main(args: Array<String>) {
                         ).use { state ->
                             check(state.conv.tensor.info.type == expectedType)
                             check(state.ssm.tensor.info.type == expectedType)
+                            val raw = ByteArray(state.conv.rawByteSize) { index ->
+                                (index * 31).toByte()
+                            }
+                            state.conv.writeRawBytes(raw)
+                            check(state.conv.copyRawBytes(raw.size.toLong()).contentEquals(raw))
+                            check(runCatching { state.conv.copyRawBytes(raw.size - 1L) }.isFailure)
+                            check(runCatching {
+                                state.conv.writeRawBytes(raw + byteArrayOf(1))
+                            }.isFailure)
                             // Reuse pinned output directly as next recurrent input, without F32 conversion.
                             session.run(mapOf("input" to buffers.logits.tensor), mapOf("output" to state.conv.tensor)).use { }
                             session.run(mapOf("input" to state.conv.tensor), mapOf("output" to state.ssm.tensor)).use { }

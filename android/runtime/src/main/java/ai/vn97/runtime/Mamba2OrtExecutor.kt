@@ -191,6 +191,77 @@ class VN97Mamba2OrtExecutor private constructor(
     }
 
     @Synchronized
+    fun prefixBinding(tokenizerModelId: String): VN97Mamba2PrefixBinding {
+        requireOpen()
+        return VN97Mamba2PrefixBinding(
+            runtimeId = runtimePackage.runtimeId,
+            graphSha256 = runtimePackage.graphFiles
+                .getValue(runtimePackage.graphFilename).sha256,
+            tokenizerModelId = tokenizerModelId,
+            vocabSize = runtimePackage.vocabSize,
+            stateDtype = runtimePackage.stateDtype,
+            convStateShape = convShape.toList(),
+            ssmStateShape = ssmShape.toList(),
+        )
+    }
+
+    /** Caller chooses the memory ceiling; no prefix snapshot is retained implicitly. */
+    @Synchronized
+    fun captureExactPrefix(
+        tokenizerModelId: String,
+        prefixTokenIds: IntArray,
+        maxStateBytes: Long,
+    ): VN97Mamba2PrefixSnapshot {
+        requireOpen()
+        require(maxStateBytes > 0L)
+        require(prefixTokenIds.size.toLong() == sequencePosition) {
+            "G0.6 prefix tokens do not match the live sequence position"
+        }
+        requireTokens(prefixTokenIds)
+        val current = stateSlots[currentStateSlot]
+        val required = Math.addExact(
+            current.conv.rawByteSize.toLong(),
+            current.ssm.rawByteSize.toLong(),
+        )
+        require(required <= maxStateBytes) {
+            "G0.6 exact-prefix snapshot exceeds caller memory budget"
+        }
+        return VN97Mamba2PrefixSnapshot.capture(
+            binding = prefixBinding(tokenizerModelId),
+            prefixTokenIds = prefixTokenIds,
+            convState = current.conv.copyRawBytes(maxStateBytes),
+            ssmState = current.ssm.copyRawBytes(maxStateBytes - current.conv.rawByteSize),
+        )
+    }
+
+    /** Validates every identity and byte bound before replacing live recurrent state. */
+    @Synchronized
+    fun restoreExactPrefix(
+        snapshot: VN97Mamba2PrefixSnapshot,
+        tokenizerModelId: String,
+        prefixTokenIds: IntArray,
+        maxStateBytes: Long,
+    ) {
+        requireOpen()
+        require(maxStateBytes > 0L)
+        val binding = prefixBinding(tokenizerModelId)
+        require(snapshot.stateBytes <= maxStateBytes) {
+            "G0.6 exact-prefix restore exceeds caller memory budget"
+        }
+        require(snapshot.matches(binding, prefixTokenIds)) {
+            "G0.6 exact-prefix snapshot identity mismatch"
+        }
+        val restored = stateSlots[0]
+        require(restored.conv.rawByteSize.toLong() + restored.ssm.rawByteSize == snapshot.stateBytes) {
+            "G0.6 exact-prefix state layout byte mismatch"
+        }
+        snapshot.restoreInto(restored.conv, restored.ssm)
+        stateSlots[1].zero()
+        currentStateSlot = 0
+        sequencePosition = snapshot.sequencePosition
+    }
+
+    @Synchronized
     fun prefill(
         inputIds: IntArray,
         deadlineMs: Double = 250.0,

@@ -17,6 +17,8 @@ on:
       - "android/runtime/src/main/java/ai/vn97/runtime/Mamba2OrtExecutor.kt"
       - "android/runtime/src/main/java/ai/vn97/runtime/Mamba2OrtExecutionBuffers.kt"
       - "android/runtime/src/main/java/ai/vn97/runtime/Mamba2OrtTensorStorage.kt"
+      - "android/runtime/src/main/java/ai/vn97/runtime/Mamba2ExactPrefixCache.kt"
+      - "android/runtime/host-test/Mamba2ExactPrefixCacheTest.kt"
   workflow_dispatch:
 
 permissions:
