@@ -58,3 +58,18 @@ jobs:
           grep -F 'stateDtype in setOf("float16", "float32")'             android/runtime/src/main/java/ai/vn97/runtime/Mamba2OrtRuntimePackage.kt
           grep -F 'OnnxJavaType.FLOAT16'             android/runtime/src/main/java/ai/vn97/runtime/Mamba2OrtTensorStorage.kt
           grep -F 'Mamba2OrtValueDtype.fromRuntime(runtime.stateDtype)'             android/runtime/src/main/java/ai/vn97/runtime/Mamba2OrtProviderProfiler.kt
+
+      - name: Verify K2Q activity
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -F 'VN97R2OrtEvidenceActivity' android/app/src/main/AndroidManifest.xml
+          grep -F 'R2 Android ORT evidence' android/app/src/main/java/ai/vn97/app/VN97MainActivity.kt
+
+      - name: Upload K2Q debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: VN97-R2-K2Q-device-evidence-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 7
