@@ -1,5 +1,6 @@
 package ai.vn97.platform
 
+import ai.vn97.runtime.NativeActivatedModelInfo
 import ai.vn97.runtime.NativeModelImageCandidateValidator
 import ai.vn97.runtime.VN97ModelImageCandidateValidator
 import android.os.ParcelFileDescriptor
@@ -13,6 +14,10 @@ internal object AndroidVN97ModelImageCandidateValidator :
         candidate: File,
         artifactSha256: ByteArray,
     ) {
+        inspect(candidate, artifactSha256)
+    }
+
+    fun inspect(candidate: File, artifactSha256: ByteArray): NativeActivatedModelInfo {
         val path = candidate.toPath()
         require(
             Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS) &&
@@ -20,7 +25,7 @@ internal object AndroidVN97ModelImageCandidateValidator :
         ) {
             "VN97MI1 candidate must be a non-symlink regular file"
         }
-        ParcelFileDescriptor.open(
+        return ParcelFileDescriptor.open(
             candidate,
             ParcelFileDescriptor.MODE_READ_ONLY,
         ).use { descriptor ->
@@ -40,12 +45,14 @@ internal object AndroidVN97ModelImageCandidateValidator :
             require(info.imageBytes == size) {
                 "native VN97MI1 candidate byte length mismatch"
             }
+            info
         }
     }
 }
 
 class AndroidVN97CapabilityProvisioner(
     context: android.content.Context,
+    candidateInfoCheck: (NativeActivatedModelInfo) -> Unit = {},
 ) {
     private val appContext = context.applicationContext
     val capabilityRoot: File = File(
@@ -65,7 +72,9 @@ class AndroidVN97CapabilityProvisioner(
         requireDirectory(stageRoot, "VN97 capability stage root")
         activationBackend = ai.vn97.runtime.VN97ModelImageActivationBackend(
             root = capabilityRoot,
-            validator = AndroidVN97ModelImageCandidateValidator,
+            validator = VN97ModelImageCandidateValidator { candidate, digest ->
+                candidateInfoCheck(AndroidVN97ModelImageCandidateValidator.inspect(candidate, digest))
+            },
         )
         activationCoordinator = ai.vn97.runtime.VN97CapabilityActivationCoordinator(
             ai.vn97.runtime.VN97CapabilityInventoryStore(capabilityRoot)
