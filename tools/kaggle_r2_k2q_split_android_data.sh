@@ -48,7 +48,19 @@ cp /kaggle/working/recurrent-8.onnx "$OUT_DIR/"
 )
 
 part_count="$(find "$OUT_DIR" -maxdepth 1 -type f -name 'recurrent-8.onnx.data.part*' | wc -l | tr -d ' ')"
-part_bytes="$(find "$OUT_DIR" -maxdepth 1 -type f -name 'recurrent-8.onnx.data.part*' -printf '%s\n' | awk '{s+=$1} END {print s+0}')"
+part_bytes="$(OUT_DIR="$OUT_DIR" python - <<'PY'
+import os
+from pathlib import Path
+
+root = Path(os.environ["OUT_DIR"])
+total = sum(
+    path.stat().st_size
+    for path in root.glob("recurrent-8.onnx.data.part*")
+    if path.is_file()
+)
+print(total)
+PY
+)"
 
 if [[ "$part_bytes" != "$EXPECTED_BYTES" ]]; then
   echo "K2Q split byte total mismatch: $part_bytes != $EXPECTED_BYTES" >&2
