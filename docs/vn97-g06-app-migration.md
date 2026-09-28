@@ -36,7 +36,13 @@ The APK distributor is the bootstrap trust root. Hashes alone are not publisher
 authentication. No arbitrary ZIP or historical CAP is treated as a trusted G06
 deployment. Within one process the installer avoids recopying immutable APK assets when
 reopening a model; the model loader still verifies package bytes. A new process
-or APK gets a fresh installer. The installer validates staging before replacement and preserves
+or APK gets a fresh installer. Before staging, it compares the installed file tree
+and all five deployment descriptors against signed APK assets, then runs full
+installed deployment validation (including graph/weight/tokenizer hashes). An
+unchanged valid installation needs no model payload copy, even in a new process;
+a local identity marker alone cannot authorize this shortcut. Changed descriptors
+or damaged payloads take the staging/repair path. Temporary staging and old backup
+directories are reclaimed after successful validation. The installer validates staging before replacement and preserves
 the previous installation on copy/layout/semantic validation failure. The 8 GiB
 copy ceiling is not evidence that an APK of that size can be distributed or
 installed; full-size G06 model delivery and physical qualification remain gates.

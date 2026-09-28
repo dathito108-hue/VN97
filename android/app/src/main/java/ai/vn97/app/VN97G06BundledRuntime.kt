@@ -3,6 +3,7 @@ package ai.vn97.app
 import android.content.res.AssetManager
 import java.io.File
 import java.io.FileOutputStream
+import java.nio.file.Files
 import java.security.MessageDigest
 
 /**
@@ -58,6 +59,25 @@ class VN97G06BundledRuntime(
             }
             val staging =
                 File(application.noBackupFilesDir, STAGING_DIR)
+
+            // On a fresh process, authenticate the installed descriptors against
+            // the immutable APK before validating every installed payload hash.
+            // A local marker alone is not publisher authentication. Matching
+            // descriptors bind graph/weight and tokenizer bytes through G06/G08,
+            // and bind device tuning/activation through G07/G09/G10.
+            if (runCatching {
+                    check(matchesBundledTree(target, ""))
+                    requireRequiredLayout(target)
+                    validateDeployment(target)
+                }.isSuccess) {
+                deleteRecursivelySafe(staging)
+                deleteRecursivelySafe(backup)
+                installedAssetId = File(target, IDENTITY_FILE)
+                    .takeIf { it.isFile && it.length() == 65L }
+                    ?.readText(Charsets.US_ASCII)?.trim()
+                    ?.takeIf { it.matches(Regex("[0-9a-f]{64}")) }
+                return@synchronized false
+            }
 
             deleteRecursivelySafe(staging)
             check(staging.mkdirs()) {
@@ -130,6 +150,37 @@ class VN97G06BundledRuntime(
                 throw error
             }
         }
+
+    private fun matchesBundledTree(target: File, relative: String): Boolean {
+        if (Files.isSymbolicLink(target.toPath())) return false
+        val assetPath = if (relative.isEmpty()) ASSET_ROOT else "$ASSET_ROOT/$relative"
+        val children = application.assets.list(assetPath)?.toList().orEmpty()
+        if (children.isNotEmpty()) {
+            if (!target.isDirectory) return false
+            val installedNames = target.list()?.toSet() ?: return false
+            val expectedNames = children.toSet()
+            val actualNames = if (relative.isEmpty()) installedNames - IDENTITY_FILE else installedNames
+            if (actualNames != expectedNames) return false
+            return children.all { child ->
+                requireSafeName(child)
+                matchesBundledTree(File(target, child), if (relative.isEmpty()) child else "$relative/$child")
+            }
+        }
+        if (!target.isFile) return false
+        if (relative !in AUTHENTICATED_DESCRIPTORS) return true
+        // Bound descriptor comparison and use small buffers; never read a model
+        // payload from the APK to decide whether it needs copying.
+        application.assets.open(assetPath).buffered().use { bundled ->
+            target.inputStream().buffered().use { installed ->
+                repeat(MAX_DESCRIPTOR_BYTES + 1) {
+                    val expected = bundled.read()
+                    if (installed.read() != expected) return false
+                    if (expected == -1) return true
+                }
+            }
+        }
+        return false
+    }
 
     private fun copyTree(
         assets: AssetManager,
@@ -262,6 +313,14 @@ class VN97G06BundledRuntime(
         private const val STAGING_DIR = ".vn97-g06.staging"
         private const val BACKUP_DIR = ".vn97-g06.backup"
         private const val IDENTITY_FILE = ".apk-assets.sha256"
+        private const val MAX_DESCRIPTOR_BYTES = 1024 * 1024
+        private val AUTHENTICATED_DESCRIPTORS = setOf(
+            "runtime/runtime.vn97m2g06.json",
+            "tokenizer/tokenizer.vn97m2g08.json",
+            "tuning.vn97m2g07.json",
+            "binding.vn97m2g09.json",
+            "promotion.vn97m2g10.json",
+        )
         private const val MAX_TOTAL_BYTES =
             8L * 1024L * 1024L * 1024L
     }
