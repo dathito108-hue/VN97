@@ -116,3 +116,14 @@ bash "$HERE/run-r2-bundled.sh"
 
 java -jar "$WORK/m20e-exness-credential-payload-test.jar"
 
+
+
+"$KOTLINC" \
+    "$ROOT/android/platform/src/main/java/ai/vn97/platform/VN97ExnessPrivateKeyCodec.kt" \
+    "$ROOT/android/platform/src/main/java/ai/vn97/platform/VN97ExnessEndpointPolicy.kt" \
+    "$HERE/M20FExnessKeyEndpointTest.kt" \
+    -Werror \
+    -include-runtime \
+    -d "$WORK/m20f-exness-key-endpoint-test.jar"
+
+java -jar "$WORK/m20f-exness-key-endpoint-test.jar"

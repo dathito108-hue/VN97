@@ -48,6 +48,12 @@ class VN97Application :
         AndroidExnessCredentialVault(applicationContext)
     }
 
+    val exnessConnection: VN97ExnessConnectionManager by lazy(
+        LazyThreadSafetyMode.SYNCHRONIZED
+    ) {
+        VN97ExnessConnectionManager(this)
+    }
+
     val screenCaptureBroker: VN97ScreenCaptureBroker by lazy(
         LazyThreadSafetyMode.SYNCHRONIZED
     ) {
