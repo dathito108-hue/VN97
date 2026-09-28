@@ -445,9 +445,10 @@ def run_k2p(
     for reference in decode_refs:
         conv = np.zeros(conv_shape, dtype=np.float16)
         ssm = np.zeros(ssm_shape, dtype=np.float16)
+        ort_decision: np.ndarray | None = None
 
         for token_id in reference["prompt_token_ids"]:
-            _, conv, ssm = _run_chunk(
+            out, conv, ssm = _run_chunk(
                 session,
                 chunk_size=CHUNK_SIZE,
                 token_ids=[int(token_id)],
@@ -455,45 +456,13 @@ def run_k2p(
                 conv=conv,
                 ssm=ssm,
             )
+            ort_decision = _final_logits(out, 1)
+
+        if ort_decision is None:
+            raise RuntimeError("K2P decode priming produced no logits")
 
         prompt_mismatches = 0
         for step in range(1, DECODE_TOKENS + 1):
-            logits, next_conv, next_ssm = _run_chunk(
-                session,
-                chunk_size=CHUNK_SIZE,
-                token_ids=[
-                    int(reference["generated_token_ids"][step - 1])
-                    if step > 1
-                    else int(reference["generated_token_ids"][0])
-                ],
-                valid_length=1,
-                conv=conv,
-                ssm=ssm,
-            ) if False else (None, None, None)
-
-            # Decision logits are already available after the preceding input.
-            # Re-run no extra token here: prime/teacher-force loop below keeps
-            # exact same-input semantics.
-            if step == 1:
-                # Reconstruct the decision after the last prompt token.
-                conv = np.zeros(conv_shape, dtype=np.float16)
-                ssm = np.zeros(ssm_shape, dtype=np.float16)
-                ort_decision: np.ndarray | None = None
-                for token_id in reference["prompt_token_ids"]:
-                    out, conv, ssm = _run_chunk(
-                        session,
-                        chunk_size=CHUNK_SIZE,
-                        token_ids=[int(token_id)],
-                        valid_length=1,
-                        conv=conv,
-                        ssm=ssm,
-                    )
-                    ort_decision = _final_logits(out, 1)
-                if ort_decision is None:
-                    raise RuntimeError("K2P decode replay produced no logits")
-            else:
-                ort_decision = last_decision
-
             ref_logits = reference["prediction_logits"][step - 1]
             if not np.isfinite(ref_logits).all() or not np.isfinite(ort_decision).all():
                 nonfinite_count += 1
@@ -524,7 +493,7 @@ def run_k2p(
                 conv=conv,
                 ssm=ssm,
             )
-            last_decision = _final_logits(out, 1)
+            ort_decision = _final_logits(out, 1)
 
         decode_summaries.append(
             {
