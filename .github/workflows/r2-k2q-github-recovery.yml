@@ -50,18 +50,20 @@ jobs:
           set -euo pipefail
           python -m pip install --disable-pip-version-check --upgrade pip
           python -m pip install --disable-pip-version-check             --index-url https://download.pytorch.org/whl/cu128             "torch==2.10.0"
-          python -m pip install --disable-pip-version-check             "onnx==1.22.0"             "onnxscript==0.7.0"             "onnxruntime-gpu==1.26.0"
+          python -m pip install --disable-pip-version-check             "onnx==1.22.0"             "onnxscript==0.7.2"             "onnx-ir==0.2.1"             "onnxruntime-gpu==1.26.0"
           python -m pip install --disable-pip-version-check --no-deps -e .
           python - <<'PY'
-          import onnx, onnxscript, onnxruntime, torch
+          import onnx, onnx_ir, onnxscript, onnxruntime, torch
           print("torch=", torch.__version__, "cuda=", torch.version.cuda)
           print("onnx=", onnx.__version__)
           print("onnxscript=", onnxscript.__version__)
+          print("onnx_ir=", onnx_ir.__version__)
           print("onnxruntime=", onnxruntime.__version__)
           assert torch.__version__ == "2.10.0+cu128"
           assert torch.version.cuda == "12.8"
           assert onnx.__version__ == "1.22.0"
-          assert onnxscript.__version__ == "0.7.0"
+          assert onnxscript.__version__ == "0.7.2"
+          assert onnx_ir.__version__ == "0.2.1"
           assert onnxruntime.__version__ == "1.26.0"
           PY
           df -h /
@@ -104,15 +106,34 @@ jobs:
           TARGET_ONNX_BYTES="45773335"
           : > "${RUNNER_TEMP}/g05-candidate-results.txt"
 
-          for ONNXSCRIPT_VERSION in 0.6.2 0.6.1 0.6.0 0.5.7; do
-            echo "Trying onnx=1.22.0 onnxscript=$ONNXSCRIPT_VERSION"
-            rm -rf "$OUT"
-            python -m pip install --disable-pip-version-check -q               "onnx==1.22.0"               "onnxscript==$ONNXSCRIPT_VERSION"
+          # K2P ran in Kaggle v170. That image carried ONNX 1.22.0.
+          # The remaining serialization-sensitive variables are the already
+          # installed ONNXScript/ONNX-IR pair. Test only plausible v170-era
+          # pairs; stop immediately on the historical manifest identity.
+          CANDIDATES=(
+            "0.7.2 0.2.1"
+            "0.7.1 0.2.1"
+            "0.7.0 0.2.1"
+            "0.7.2 0.2.0"
+          )
 
-            python -c 'import onnx,onnxscript; print("candidate onnx=",onnx.__version__,"onnxscript=",onnxscript.__version__)'
+          for CANDIDATE in "${CANDIDATES[@]}"; do
+            read -r ONNXSCRIPT_VERSION ONNX_IR_VERSION <<< "$CANDIDATE"
+            echo "Trying onnx=1.22.0 onnxscript=$ONNXSCRIPT_VERSION onnx_ir=$ONNX_IR_VERSION"
+            rm -rf "$OUT"
+            python -m pip install --disable-pip-version-check -q --force-reinstall --no-deps               "onnxscript==$ONNXSCRIPT_VERSION"               "onnx-ir==$ONNX_IR_VERSION"
+
+            python - <<'PY'
+import onnx, onnx_ir, onnxscript
+print(
+    "candidate onnx=", onnx.__version__,
+    "onnxscript=", onnxscript.__version__,
+    "onnx_ir=", onnx_ir.__version__,
+)
+PY
 
             if ! python -m vn97.r2.mamba2_parallel_onnx_cli export               --capsule-root "$CAPSULE"               --output-dir "$OUT"               --chunk-size 8; then
-              echo "$ONNXSCRIPT_VERSION export_failed" | tee -a "${RUNNER_TEMP}/g05-candidate-results.txt"
+              echo "$ONNXSCRIPT_VERSION/$ONNX_IR_VERSION export_failed" | tee -a "${RUNNER_TEMP}/g05-candidate-results.txt"
               continue
             fi
 
@@ -121,11 +142,11 @@ jobs:
             MANIFEST_ID="$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["manifest_id"])' "$OUT/manifest.vn97m2g05.json")"
             ONNX_BYTES="$(stat -c %s "$OUT/recurrent-8.onnx")"
             DATA_BYTES="$(stat -c %s "$OUT/recurrent-8.onnx.data")"
-            echo "$ONNXSCRIPT_VERSION manifest=$MANIFEST_ID onnx_bytes=$ONNX_BYTES data_bytes=$DATA_BYTES"               | tee -a "${RUNNER_TEMP}/g05-candidate-results.txt"
+            echo "$ONNXSCRIPT_VERSION/$ONNX_IR_VERSION manifest=$MANIFEST_ID onnx_bytes=$ONNX_BYTES data_bytes=$DATA_BYTES"               | tee -a "${RUNNER_TEMP}/g05-candidate-results.txt"
             sha256sum "$OUT/recurrent-8.onnx" "$OUT/recurrent-8.onnx.data"
 
             if [[ "$MANIFEST_ID" == "$TARGET_MANIFEST" ]]; then
-              echo "$ONNXSCRIPT_VERSION" > "${RUNNER_TEMP}/matched-onnxscript.txt"
+              echo "$ONNXSCRIPT_VERSION $ONNX_IR_VERSION" > "${RUNNER_TEMP}/matched-exporter.txt"
               echo "Exact K2P G0.5 serialization recovered."
               break
             fi
@@ -136,8 +157,8 @@ jobs:
           done
 
           cat "${RUNNER_TEMP}/g05-candidate-results.txt"
-          test -s "${RUNNER_TEMP}/matched-onnxscript.txt"
-          echo "matched_onnxscript=$(cat "${RUNNER_TEMP}/matched-onnxscript.txt")"
+          test -s "${RUNNER_TEMP}/matched-exporter.txt"
+          echo "matched_exporter=$(cat "${RUNNER_TEMP}/matched-exporter.txt")"
           df -h /
 
       - name: Build and lock Android G0.6 descriptor
