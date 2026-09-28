@@ -86,7 +86,7 @@ def _write_k2o_receipt(path: Path, *, status: str = "PASS") -> None:
         allow_nan=False,
     ).encode("ascii")
     receipt_id = hashlib.sha256(
-        b"VN97M2K2OHOLDOUT1\\0" + canonical
+        b"VN97M2K2OHOLDOUT1\0" + canonical
     ).hexdigest()
     payload = {**body, "receipt_id": receipt_id}
     path.write_text(
@@ -95,7 +95,7 @@ def _write_k2o_receipt(path: Path, *, status: str = "PASS") -> None:
             sort_keys=True,
             separators=(",", ":"),
             ensure_ascii=True,
-        ) + "\\n",
+        ) + "\n",
         encoding="ascii",
     )
 
