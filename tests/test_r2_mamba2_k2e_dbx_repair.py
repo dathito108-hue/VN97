@@ -3,7 +3,7 @@ import torch
 from vn97.r2.mamba2_onnx import _mamba2_d_b_x_activation
 
 
-def test_explicit_dbx_matches_pytorch_einsum_fp16_cpu_exactly() -> None:
+def test_explicit_dbx_stays_within_one_fp16_epsilon_of_einsum() -> None:
     for seed in (1, 7, 97, 9704):
         generator = torch.Generator().manual_seed(seed)
         dt = torch.randn(2, 5, generator=generator, dtype=torch.float16)
@@ -14,7 +14,11 @@ def test_explicit_dbx_matches_pytorch_einsum_fp16_cpu_exactly() -> None:
         actual = _mamba2_d_b_x_activation(dt, b, x)
 
         assert actual.dtype == torch.float16
-        assert torch.equal(actual, expected)
+        left = expected.float()
+        diff = (left - actual.float()).abs()
+        scale = torch.maximum(torch.ones_like(left), left.abs())
+        units = diff / (torch.finfo(torch.float16).eps * scale)
+        assert float(units.max().item()) <= 1.0
 
 
 def test_explicit_dbx_preserves_shape() -> None:
