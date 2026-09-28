@@ -31,6 +31,8 @@
 > R2-G0.9 composes runtime + device tuning + GPT-NeoX tokenizer into an
 > identity-bound candidate-only cognition path; see
 > `docs/VN97_R2G09_MAMBA2_COGNITION_CANDIDATE.md`.
+> R2-G0.10 adds the real-evidence production promotion gate and Android
+> promotion verifier; see `docs/VN97_R2G10_MAMBA2_PROMOTION.md`.
 
 
 ## Status
