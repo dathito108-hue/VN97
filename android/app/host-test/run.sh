@@ -94,3 +94,13 @@ java -jar "$WORK/m20b-revenue-campaign-test.jar"
     -d "$WORK/m20c-live-revenue-readiness-test.jar"
 
 java -jar "$WORK/m20c-live-revenue-readiness-test.jar"
+
+
+"$KOTLINC" \
+    "$ROOT/android/platform/src/main/java/ai/vn97/platform/VN97ExnessApiSigning.kt" \
+    "$HERE/M20DExnessSigningTest.kt" \
+    -Werror \
+    -include-runtime \
+    -d "$WORK/m20d-exness-signing-test.jar"
+
+java -jar "$WORK/m20d-exness-signing-test.jar"
