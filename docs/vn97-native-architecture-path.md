@@ -1,3 +1,8 @@
+> **Superseded by user direction (2026-09-29):** This alternative fast/slow
+> research track is parked. Develop the existing Mamba2/G0.6 lineage directly;
+> see [the unified direction](vn97-g06-unified-direction.md). Preserve these
+> experiments as history; do not continue or promote them. Training is paused.
+
 # VN97: a measured path to its own mobile architecture
 
 Status: experimental foundation, not a production replacement or a novelty claim.
