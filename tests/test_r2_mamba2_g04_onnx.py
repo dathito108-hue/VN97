@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import numpy as np
+import onnxruntime as ort
 import torch
 
 from vn97.r2.mamba2_onnx import (
@@ -84,6 +86,67 @@ def test_manifest_binds_capsule_and_same_weights() -> None:
     assert manifest["augmentation_effect"] == "exact_zero"
     assert manifest["production_activation_authorized"] is False
     assert len(manifest["bundle_id"]) == 64
+
+
+
+def test_tiny_explicit_state_ort_matches_pytorch(tmp_path: Path) -> None:
+    config = Mamba2ReferenceConfig(
+        d_model=4,
+        d_state=3,
+        d_conv=3,
+        expand=2,
+        head_dim=2,
+        n_groups=1,
+    )
+    tensors = _tiny_tensors(config)
+    graph = tmp_path / "step.onnx"
+    export_tiny_mamba2_step_graph(
+        tensors=tensors,
+        config=config,
+        output_path=graph,
+        batch_size=2,
+    )
+
+    from vn97.r2.mamba2_onnx import Mamba2TinyMixerOnnxAdapter
+    from vn97.r2.mamba2_ssd_reference import initial_layer_state
+
+    adapter = Mamba2TinyMixerOnnxAdapter(tensors, config).eval()
+    generator = torch.Generator().manual_seed(97041)
+    hidden = torch.randn(2, config.d_model, generator=generator)
+    state = initial_layer_state(
+        config,
+        2,
+        device="cpu",
+        dtype=torch.float32,
+    )
+    state.conv.copy_(
+        torch.randn(state.conv.shape, generator=generator) * 0.01
+    )
+    state.ssm.copy_(
+        torch.randn(state.ssm.shape, generator=generator) * 0.01
+    )
+    with torch.inference_mode():
+        expected = adapter(hidden, state.conv, state.ssm)
+
+    session = ort.InferenceSession(
+        str(graph),
+        providers=["CPUExecutionProvider"],
+    )
+    actual = session.run(
+        ["out", "next_conv_state", "next_ssm_state"],
+        {
+            "hidden": hidden.numpy(),
+            "conv_state": state.conv.numpy(),
+            "ssm_state": state.ssm.numpy(),
+        },
+    )
+    for torch_value, ort_value in zip(expected, actual, strict=True):
+        assert np.allclose(
+            torch_value.detach().numpy(),
+            ort_value,
+            rtol=2e-5,
+            atol=2e-6,
+        )
 
 
 def test_tiny_explicit_state_onnx_export(tmp_path: Path) -> None:
