@@ -1,0 +1,28 @@
+name: VN97 R2-K2Q Split Byte Sum Validation
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "tools/kaggle_r2_k2q_split_android_data.sh"
+      - ".github/workflows/r2-k2q-split-byte-sum.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate exact byte summation
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n tools/kaggle_r2_k2q_split_android_data.sh
+          grep -F 'path.stat().st_size' tools/kaggle_r2_k2q_split_android_data.sh
+          if grep -F "awk '{s+=\$1} END {print s+0}'" tools/kaggle_r2_k2q_split_android_data.sh; then
+            echo "floating-point awk byte summation must not be used" >&2
+            exit 1
+          fi
