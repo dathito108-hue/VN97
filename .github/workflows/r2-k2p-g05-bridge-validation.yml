@@ -1,0 +1,54 @@
+name: VN97 R2-K2P G05 Bridge Validation
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/vn97/r2/mamba2_kaggle_k2p_g05_bridge.py"
+      - "tools/kaggle_r2_k2p_g05_mobile_bridge.sh"
+      - "tests/test_r2_mamba2_k2p_g05_bridge.py"
+      - "docs/VN97_R2_K2P_G05_MOBILE_BRIDGE.md"
+      - ".github/workflows/r2-k2p-g05-bridge-validation.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install CPU test dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --upgrade pip
+          python -m pip install --disable-pip-version-check             --index-url https://download.pytorch.org/whl/cpu             "torch==2.10.0"
+          python -m pip install --disable-pip-version-check numpy pytest
+          python -m pip install --disable-pip-version-check --no-deps -e .
+
+      - name: Static validation
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n tools/kaggle_r2_k2p_g05_mobile_bridge.sh
+          python -m py_compile src/vn97/r2/mamba2_kaggle_k2p_g05_bridge.py
+
+      - name: K2P tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          pytest -q             tests/test_r2_mamba2_k2p_g05_bridge.py             tests/test_r2_mamba2_k2o_holdout_gate.py             tests/test_r2_mamba2_g05_parallel.py
+
+      - name: Verify bridge boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -F '"g04_to_g05_mobile_graph_bridge_passed": gate_passed'             src/vn97/r2/mamba2_kaggle_k2p_g05_bridge.py
+          grep -F '"android_execution_measured": False'             src/vn97/r2/mamba2_kaggle_k2p_g05_bridge.py
+          grep -F '"production_activation_authorized": False'             src/vn97/r2/mamba2_kaggle_k2p_g05_bridge.py
