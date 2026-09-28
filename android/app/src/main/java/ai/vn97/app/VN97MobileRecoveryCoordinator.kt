@@ -182,9 +182,12 @@ class VN97MobileRecoveryCoordinator(
                 application.autonomousWork
                     .reconcileAfterSystemRestart()
 
-            VN97MobileRecoveryDomain.PAPER_TRADING ->
+            VN97MobileRecoveryDomain.PAPER_TRADING -> {
                 application.paperTrading
                     .reconcileAfterSystemRestart()
+                application.revenueCampaign
+                    .reconcileAfterSystemRestart()
+            }
         }
     }
 
