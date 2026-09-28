@@ -138,12 +138,13 @@ def _mamba2_d_b_x_activation(
     b_value: torch.Tensor,
     x_heads: torch.Tensor,
 ) -> torch.Tensor:
-    """Exact activation-dtype dBx lowering without ONNX Einsum.
+    """Activation-dtype dBx lowering without a generic ONNX Einsum.
 
-    For the no-reduction equation bh,bn,bhp->bhpn, PyTorch's FP16 CPU
-    semantics match the left-associated product (dt*x)*B. Keeping that
-    explicit prevents ORT from choosing a different Einsum contraction/order
-    while preserving the inherited activation dtype.
+    The no-reduction equation bh,bn,bhp->bhpn is an elementwise product.
+    Making one left-associated order explicit removes ORT's contraction-order
+    freedom while preserving the inherited FP16 dtype. Static regression
+    bounds this algebraic rewrite to one FP16 epsilon of the source Einsum;
+    real K2E evidence decides whether it fixes the observed backend drift.
     """
     return (
         dt_value[:, :, None, None]
