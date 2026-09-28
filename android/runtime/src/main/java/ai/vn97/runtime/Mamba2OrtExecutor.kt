@@ -255,7 +255,8 @@ class VN97Mamba2OrtExecutor private constructor(
         require(restored.conv.rawByteSize.toLong() + restored.ssm.rawByteSize == snapshot.stateBytes) {
             "G0.6 exact-prefix state layout byte mismatch"
         }
-        snapshot.restoreInto(restored.conv, restored.ssm)
+        restored.conv.writeRawBytes(snapshot.convStateBytes())
+        restored.ssm.writeRawBytes(snapshot.ssmStateBytes())
         stateSlots[1].zero()
         currentStateSlot = 0
         sequencePosition = snapshot.sequencePosition

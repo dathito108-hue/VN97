@@ -91,15 +91,9 @@ class VN97Mamba2PrefixSnapshot private constructor(
             expectedBinding.vocabSize,
         )
 
-    internal fun restoreInto(
-        conv: Mamba2OrtTensorStorage,
-        ssm: Mamba2OrtTensorStorage,
-    ) {
-        require(conv.rawByteSize == convState.size)
-        require(ssm.rawByteSize == ssmState.size)
-        conv.writeRawBytes(convState)
-        ssm.writeRawBytes(ssmState)
-    }
+    internal fun convStateBytes(): ByteArray = convState
+
+    internal fun ssmStateBytes(): ByteArray = ssmState
 
     companion object {
         internal fun capture(
