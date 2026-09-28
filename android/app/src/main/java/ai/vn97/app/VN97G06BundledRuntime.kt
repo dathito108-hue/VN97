@@ -22,6 +22,20 @@ class VN97G06BundledRuntime(
 
     fun installIfPresent(required: Boolean): Boolean =
         synchronized(lock) {
+            val target = File(application.noBackupFilesDir, TARGET_DIR)
+            val backup = File(application.noBackupFilesDir, BACKUP_DIR)
+            // Process death can occur after target -> backup but before staging ->
+            // target. Recover before touching assets or deleting any prior bytes.
+            // A completed swap keeps its target; never roll it back just because
+            // the process died before removing the old backup.
+            if (!target.exists() && backup.exists()) {
+                requireRequiredLayout(backup)
+                validateDeployment(backup)
+                check(backup.renameTo(target)) {
+                    "failed to recover prior VN97 G06 runtime"
+                }
+                installedAssetId = null
+            }
             val entries =
                 application.assets
                     .list(ASSET_ROOT)
@@ -34,8 +48,6 @@ class VN97G06BundledRuntime(
                 return@synchronized false
             }
 
-            val target =
-                File(application.noBackupFilesDir, TARGET_DIR)
             // APK assets are immutable for this process. Runtime opening still verifies
             // every declared file; this only avoids a multi-GB staging copy on reopen.
             val cached = installedAssetId
@@ -46,8 +58,6 @@ class VN97G06BundledRuntime(
             }
             val staging =
                 File(application.noBackupFilesDir, STAGING_DIR)
-            val backup =
-                File(application.noBackupFilesDir, BACKUP_DIR)
 
             deleteRecursivelySafe(staging)
             check(staging.mkdirs()) {
