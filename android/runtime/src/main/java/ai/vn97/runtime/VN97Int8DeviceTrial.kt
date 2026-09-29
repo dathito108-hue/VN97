@@ -19,12 +19,18 @@ object VN97Int8DeviceTrial {
         ).also { owned.add(it); it.zero() }
         val report = JSONObject().put("kind", "VN97_INT8_DEVICE_TRIAL_1")
             .put("production_activation_authorized", false).put("quality_qualified", false)
-            .put("synthetic_tokens", true).put("device", android.os.Build.FINGERPRINT)
+            .put("status", "running").put("synthetic_tokens", true).put("device", android.os.Build.FINGERPRINT)
             .put("ort_version", env.version).put("execution_passed", false)
         val cases = JSONArray()
         report.put("cases", cases)
         try {
             OrtSession.SessionOptions().use { options ->
+                // Avoid retaining a large arena and allocating a learned memory pattern on run 2.
+                options.setMemoryPatternOptimization(false)
+                options.setCPUArenaAllocator(false)
+                report.put("memory_pattern", false).put("cpu_arena", false)
+                    .put("phase", "session_load")
+                checkpoint(report.toString(2))
                 options.setIntraOpNumThreads(2)
                 options.setInterOpNumThreads(1)
                 val loadStart = System.nanoTime()
@@ -44,11 +50,15 @@ object VN97Int8DeviceTrial {
                                 if (index < 2) { conv[from].zero(); ssm[from].zero() }
                                 for (i in 0 until 8) ids.put(i, if (i < length) (100 + i).toLong() else 0L)
                                 valid.put(0, length.toLong())
+                                report.put("phase", "inference").put("pending_valid_length", length)
+                                    .put("pss_before_inference_kib", android.os.Debug.getPss())
+                                checkpoint(report.toString(2))
                                 val start = System.nanoTime()
                                 session.run(mapOf("input_ids" to idsTensor, "valid_length" to validTensor,
                                     "conv_state" to conv[from].tensor, "ssm_state" to ssm[from].tensor),
                                     mapOf("logits" to logits.tensor, "next_conv_state" to conv[to].tensor,
                                         "next_ssm_state" to ssm[to].tensor)).use { }
+                                report.put("phase", "validate_outputs")
                                 val elapsed = (System.nanoTime() - start) / 1e6
                                 check(logits.allFinite() && conv[to].allFinite() && ssm[to].allFinite()) { "NaN/Inf trong đầu ra" }
                                 if (length < 8) check(logits.readFloatRange(length * 50288, (8 - length) * 50288).all { it == 0f })
@@ -62,7 +72,7 @@ object VN97Int8DeviceTrial {
                     }
                 }
             }
-            report.put("execution_passed", true)
+            report.put("phase", "completed").put("status", "completed").put("execution_passed", true)
             return report.toString(2)
         } finally { owned.asReversed().forEach { it.close() } }
     }
