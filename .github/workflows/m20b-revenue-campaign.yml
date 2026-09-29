@@ -91,7 +91,7 @@ jobs:
           python3 - <<'PYCODE'
           import gzip, hashlib
           from pathlib import Path
-          graph = gzip.decompress(Path('android/app/src/main/assets/vn97-int8-decode.onnx.gz').read_bytes())
+          graph = gzip.decompress(Path('android/app/src/main/assets/vn97-int8-decode.bin').read_bytes())
           assert len(graph) == 4906371
           assert hashlib.sha256(graph).hexdigest() == '873c862d50cfe7c10b47b5c02e11fc8dea42ad381431570e657a0eba99bdd88e'
           PYCODE
@@ -100,6 +100,22 @@ jobs:
         shell: bash
         run: |
           gradle -p android --no-daemon --stacktrace :app:assembleDebug
+
+      - name: Verify decode asset inside the built APK
+        run: |
+          python3 - <<'PYCODE'
+          import gzip, hashlib, zipfile
+          from pathlib import Path
+          asset = 'vn97-int8-decode.bin'
+          source = Path('android/app/src/main/assets', asset).read_bytes()
+          with zipfile.ZipFile('android/app/build/outputs/apk/debug/app-debug.apk') as apk:
+              packed = apk.read('assets/' + asset)
+          assert packed == source, 'Packaged decoder differs from source'
+          graph = gzip.decompress(packed)
+          assert len(graph) == 4906371
+          assert hashlib.sha256(graph).hexdigest() == '873c862d50cfe7c10b47b5c02e11fc8dea42ad381431570e657a0eba99bdd88e'
+          print('APK decoder asset: exact path, compressed bytes and expanded graph verified')
+          PYCODE
 
       - name: Verify canonical assistant session lifecycle
         shell: bash
