@@ -86,6 +86,16 @@ jobs:
             java -cp "$RUNNER_TEMP/g08-identity.jar:$RUNNER_TEMP/$json_impl.jar" ai.vn97.runtime.G08CanonicalIdentityTestKt tests/data/g08_descriptor_identity.json tests/data/g08_canonical_vectors.json
           done
 
+      - name: Verify bundled experimental decode graph
+        run: |
+          python3 - <<'PYCODE'
+          import gzip, hashlib
+          from pathlib import Path
+          graph = gzip.decompress(Path('android/app/src/main/assets/vn97-int8-decode.onnx.gz').read_bytes())
+          assert len(graph) == 4906371
+          assert hashlib.sha256(graph).hexdigest() == '873c862d50cfe7c10b47b5c02e11fc8dea42ad381431570e657a0eba99bdd88e'
+          PYCODE
+
       - name: Compile debug APK
         shell: bash
         run: |
