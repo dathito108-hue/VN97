@@ -219,10 +219,7 @@ class VN97GptNeoXTokenizer(
     private val addedIds: Set<Int>
     private val addedPattern: Pattern
     private val cache = LinkedHashMap<String, List<String>>()
-    private val pattern = Pattern.compile(
-        GPT_NEOX_PATTERN_G08,
-        Pattern.UNICODE_CHARACTER_CLASS,
-    )
+    private val pattern = compileG08Pretokenizer()
 
     init {
         val parsed = JSONObject(
@@ -561,4 +558,14 @@ private fun quoteCanonicalG08(value: String): String = buildString {
         }
     }
     append('"')
+}
+
+
+/** Explicit Unicode White_Space avoids the unsupported Android UNICODE_CHARACTER_CLASS flag. */
+internal fun compileG08Pretokenizer(): Pattern {
+    val ws = "\\u0009-\\u000d\\u0020\\u0085\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000"
+    return Pattern.compile(
+        "'s|'t|'re|'ve|'m|'ll|'d| ?\\p{L}+| ?\\p{N}+| ?[^" + ws +
+            "\\p{L}\\p{N}]+|[" + ws + "]+(?![^" + ws + "])|[" + ws + "]+"
+    )
 }
