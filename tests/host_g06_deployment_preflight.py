@@ -42,7 +42,7 @@ def fixture(root, evidence):
     tokenizer_dir = root / 'tokenizer'
     tokenizer_dir.mkdir()
     assets = {}
-    for name in ('vocab.json', 'merges.txt'):
+    for name in ('vocab.json', 'merges.txt', 'tokenizer.json', 'tokenizer_config.json', 'special_tokens_map.json'):
         data = b'synthetic inventory bytes'
         (tokenizer_dir / name).write_bytes(data)
         assets[name] = {'bytes': len(data), 'sha256': hashlib.sha256(data).hexdigest()}

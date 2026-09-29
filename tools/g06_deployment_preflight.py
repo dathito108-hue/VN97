@@ -127,8 +127,8 @@ def verify(root: Path, evidence: Path):
         seen.add(name)
         total += payload(root / 'runtime', name, {k: v for k, v in item.items() if k != 'filename'})
     assets = tokenizer.get('assets')
-    if not isinstance(assets, dict) or set(assets) != {'vocab.json', 'merges.txt'}:
-        raise ValueError('G08 tokenizer inventory must contain vocab.json and merges.txt')
+    if not isinstance(assets, dict) or set(assets) != {'vocab.json', 'merges.txt', 'tokenizer.json', 'tokenizer_config.json', 'special_tokens_map.json'}:
+        raise ValueError('G08 tokenizer inventory must contain all five source tokenizer assets')
     for name, record in assets.items():
         total += payload(root / 'tokenizer', name, record)
     return {
