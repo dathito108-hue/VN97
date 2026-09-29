@@ -306,3 +306,75 @@ def test_g05_verifier_rejects_graph_tamper(
         handle.write(b"tamper")
     with pytest.raises(ValueError, match="byte size|hash"):
         verify_g05_bundle(bundle)
+
+
+@pytest.mark.parametrize('valid_length', [1, 3, 8])
+@pytest.mark.parametrize('dtype', [torch.float16, torch.float32])
+def test_state_scan_preserves_each_token_rounding(valid_length, dtype):
+    model = _model().to(dtype=dtype)
+    layer = model.step.layers[0]
+    cfg = model.config
+    generator = torch.Generator().manual_seed(9734)
+    def random(*shape):
+        return torch.randn(*shape, generator=generator).to(dtype)
+    dt = torch.sigmoid(random(1, 8, cfg.n_heads))
+    b = random(1, 8, cfg.d_state)
+    c = random(1, 8, cfg.d_state)
+    x = random(1, 8, cfg.n_heads, cfg.head_dim)
+    initial = random(1, cfg.n_heads, cfg.head_dim, cfg.d_state)
+    before = initial.clone()
+    actual_y, actual_state = model._state_scan(
+        layer, dt, b, c, x, initial, torch.tensor([valid_length]),
+    )
+    # Independent recurrence, deliberately not the new shared helper.
+    state = initial.clone()
+    outputs = []
+    for index in range(valid_length):
+        decay = torch.exp(dt[:, index].float() * -torch.exp(layer.a_log.float()).unsqueeze(0))
+        drive = torch.einsum('bh,bn,bhp->bhpn', dt[:, index], b[:, index], x[:, index])
+        state = (state.float() * decay[:, :, None, None] + drive).to(dtype)
+        outputs.append(torch.einsum('bhpn,bn->bhp', state, c[:, index]))
+    expected_y = torch.zeros_like(actual_y)
+    expected_y[:, :valid_length] = torch.stack(outputs, dim=1)
+    torch.testing.assert_close(actual_y, expected_y, rtol=0, atol=0)
+    torch.testing.assert_close(actual_state, state, rtol=0, atol=0)
+    torch.testing.assert_close(initial, before, rtol=0, atol=0)
+    # Padding may contain arbitrary data: it must not advance state or readout.
+    dt[:, valid_length:] = float('nan')
+    y_padded, state_padded = model._state_scan(
+        layer, dt, b, c, x, initial, torch.tensor([valid_length]),
+    )
+    torch.testing.assert_close(y_padded, expected_y, rtol=0, atol=0)
+    torch.testing.assert_close(state_padded, state, rtol=0, atol=0)
+
+
+def test_fp16_export_preserves_recurrent_continuation(tmp_path):
+    _onnx_runtime()
+    import numpy as np
+    import onnxruntime as ort
+    model = _model().half()
+    bundle = tmp_path / 'fp16'
+    manifest = export_parallel_recurrent_onnx(
+        model, bundle, capsule_id='a' * 64, capsule_manifest_sha256='b' * 64,
+        source_weight_sha256='c' * 64, external_data=True,
+    )
+    assert manifest['parallel_algorithm'] == 'parallel_projection_conv_token_rounded_state_scan'
+    session = ort.InferenceSession(str(bundle / 'recurrent-8.onnx'), providers=['CPUExecutionProvider'])
+    conv, ssm = model.initial_state()
+    ort_conv, ort_ssm = conv.numpy(), ssm.numpy()
+    generator = torch.Generator().manual_seed(9744)
+    with torch.inference_mode():
+        for length in (8, 1, 3):
+            tokens = torch.randint(0, model.config.vocab_size, (1, 8), generator=generator)
+            expected, conv, ssm = repeated_step_reference(
+                model.step, tokens, valid_length=length, conv_state=conv, ssm_state=ssm,
+            )
+            actual, ort_conv, ort_ssm = session.run(None, {
+                'input_ids': tokens.numpy(), 'valid_length': np.asarray([length], dtype=np.int64),
+                'conv_state': ort_conv, 'ssm_state': ort_ssm,
+            })
+            for left, right in ((actual, expected), (ort_conv, conv), (ort_ssm, ssm)):
+                assert np.isfinite(left).all()
+                # Same absolute gate as the full-weight numerical audit.
+                np.testing.assert_allclose(left, right.numpy(), rtol=0, atol=0.002)
+            assert np.count_nonzero(actual[:, length:]) == 0
