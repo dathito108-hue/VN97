@@ -16,7 +16,7 @@ internal object VN97Int8DecodeAsset {
         try {
             val digest = MessageDigest.getInstance("SHA-256")
             var total = 0L
-            GZIPInputStream(assets.open("vn97-int8-decode.onnx.gz")).use { input ->
+            GZIPInputStream(assets.open("vn97-int8-decode.bin")).use { input ->
                 val buffer = ByteArray(65536)
                 while (true) {
                     val count = input.read(buffer)
