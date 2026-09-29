@@ -11,7 +11,7 @@ import org.json.JSONObject
 
 /** Diagnostic only: synthetic token IDs, no tokenizer and no activation authority. */
 object VN97Int8DeviceTrial {
-    fun run(root: File, checkpoint: (String) -> Unit): String {
+    fun run(root: File, cancelled: () -> Boolean = { false }, checkpoint: (String) -> Unit): String {
         val env = OrtEnvironment.getEnvironment()
         val owned = mutableListOf<AutoCloseable>()
         fun tensor(shape: LongArray, count: Int) = Mamba2OrtTensorStorage.create(
@@ -38,6 +38,7 @@ object VN97Int8DeviceTrial {
                     OnnxTensor.createTensor(env, ids, longArrayOf(1, 8)).use { idsTensor ->
                         OnnxTensor.createTensor(env, valid, longArrayOf(1)).use { validTensor ->
                             intArrayOf(1, 8, 1).forEachIndexed { index, length ->
+                                if (cancelled()) throw java.util.concurrent.CancellationException("Đã dừng")
                                 val from = if (index == 2) 1 else 0
                                 val to = 1 - from
                                 if (index < 2) { conv[from].zero(); ssm[from].zero() }
