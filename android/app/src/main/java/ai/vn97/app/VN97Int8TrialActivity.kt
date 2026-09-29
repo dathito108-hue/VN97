@@ -12,6 +12,11 @@ import android.widget.TextView
 import java.io.File
 import java.util.concurrent.Executors
 import ai.vn97.runtime.VN97Int8DeviceTrial
+import ai.vn97.runtime.VN97Int8TextTrial
+import ai.vn97.runtime.Mamba2TokenizerPackage
+import android.widget.EditText
+import android.provider.OpenableColumns
+import java.util.concurrent.atomic.AtomicBoolean
 
 /** Separate process confines native ORT failures and releases model memory on exit. */
 class VN97Int8TrialActivity : Activity() {
@@ -19,6 +24,10 @@ class VN97Int8TrialActivity : Activity() {
     private val buttons = mutableListOf<Button>()
     private lateinit var status: TextView
     private var busy = false
+    private val cancelled = AtomicBoolean(false)
+    private lateinit var prompt: EditText
+    private lateinit var stopButton: Button
+    private val tokenizerRoot get() = File(root, "tokenizer")
     private val root get() = File(noBackupFilesDir, "int8-device-trial")
     private val model get() = File(root, VN97Int8Archive.ID)
     private val receipt get() = File(root, "receipt.json")
@@ -28,7 +37,7 @@ class VN97Int8TrialActivity : Activity() {
         root.mkdirs()
         val layout = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(24, 32, 24, 24) }
         layout.addView(TextView(this).apply {
-            text = "VN97 — thử INT8 trên thiết bị\nGói 3,01 GB; cần thêm 3,2 GB trống để nhập. Đây là lượng tử hóa trọng số, không phải điện toán lượng tử. Chưa bật trò chuyện hoặc tự tiến hóa."
+            text = "VN97 — thử INT8 trên thiết bị\nGói 3,01 GB; cần thêm 3,2 GB trống để nhập. Đây là lượng tử hóa trọng số, không phải điện toán lượng tử. Có thể thử viết tiếp văn bản tối đa 16 token. Chưa chứng nhận chất lượng hoặc bật tự tiến hóa."
             textSize = 18f
         })
         fun button(label: String, action: () -> Unit) {
@@ -40,13 +49,47 @@ class VN97Int8TrialActivity : Activity() {
                 type = "*/*"; addCategory(Intent.CATEGORY_OPENABLE)
             }, 97)
         }
+        button("Nhập ZIP tokenizer G08 (khoảng 1 MB)") {
+            startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                type = "*/*"; addCategory(Intent.CATEGORY_OPENABLE)
+            }, 99)
+        }
+        button("Hoặc chọn 6 tệp tokenizer đã giải nén") {
+            startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                type = "*/*"; addCategory(Intent.CATEGORY_OPENABLE)
+                putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+            }, 98)
+        }
+        prompt = EditText(this).apply {
+            hint = "Nhập đoạn văn để mô hình viết tiếp (tối đa 128 token)"
+            minLines = 2
+            filters = arrayOf(android.text.InputFilter.LengthFilter(2048))
+        }
+        layout.addView(prompt)
+        button("Thử viết tiếp bằng INT8") {
+            val text = prompt.text.toString()
+            work {
+                check(model.isDirectory) { "Hãy nhập ZIP INT8 trước." }
+                saveReceipt("{\"status\":\"verifying\",\"execution_passed\":false}")
+                VN97Int8Archive.verify(model) { cancelled.get() }
+                VN97Int8TextTrial.run(model, tokenizerRoot, text, { cancelled.get() }) { value ->
+                    saveReceipt(value)
+                    runOnUiThread { status.text = value }
+                }
+            }
+        }
+        stopButton = Button(this).apply {
+            text = "Dừng sau lượt đang chạy"; isEnabled = false
+            setOnClickListener { cancelled.set(true); text = "Đã yêu cầu dừng; nút Quay lại đóng ngay phiên thử" }
+        }
+        layout.addView(stopButton)
         button("Chạy kiểm tra 1 / 8 / 1 token") {
             work {
                 check(model.isDirectory) { "Hãy nhập ZIP INT8 trước." }
-                receipt.writeText("{\"status\":\"running_or_interrupted\",\"production_activation_authorized\":false}")
-                VN97Int8Archive.verify(model)
-                val result = VN97Int8DeviceTrial.run(model) { receipt.writeText(it) }
-                receipt.writeText(result)
+                saveReceipt("{\"status\":\"running_or_interrupted\",\"production_activation_authorized\":false}")
+                VN97Int8Archive.verify(model) { cancelled.get() }
+                val result = VN97Int8DeviceTrial.run(model, { cancelled.get() }) { saveReceipt(it) }
+                saveReceipt(result)
                 result
             }
         }
@@ -55,7 +98,7 @@ class VN97Int8TrialActivity : Activity() {
         }
         button("Xóa gói thử nghiệm") { work { model.deleteRecursively(); receipt.delete(); "Đã xóa gói thử nghiệm." } }
         status = TextView(this).apply {
-            text = if (receipt.exists()) receipt.readText() else "Sẵn sàng nhập gói INT8. Kết quả là chẩn đoán thực thi, không phải chứng nhận chất lượng."
+            text = if (receipt.exists()) android.util.AtomicFile(receipt).openRead().bufferedReader().use { it.readText() } else "Sẵn sàng nhập gói INT8. Kết quả là chẩn đoán thực thi, không phải chứng nhận chất lượng."
             setTextIsSelectable(true)
         }
         layout.addView(status)
@@ -63,11 +106,19 @@ class VN97Int8TrialActivity : Activity() {
     }
     private fun work(action: () -> String) {
         if (busy) return
+        cancelled.set(false)
+        stopButton.isEnabled = true; stopButton.text = "Dừng sau lượt đang chạy"
+        prompt.isEnabled = false
         busy = true; buttons.forEach { it.isEnabled = false }; status.text = "Đang xử lý… giữ màn hình này mở."
         window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         worker.execute {
-            val result = try { action() } catch (e: Exception) { "Không hoàn tất: ${e.message}" }
+            val result = try { action() } catch (e: Exception) {
+                org.json.JSONObject().put("status", if (e is java.util.concurrent.CancellationException) "cancelled" else "failed").put("execution_passed", false)
+                    .put("production_activation_authorized", false).put("error", e.message).toString(2)
+                    .also { saveReceipt(it) }
+            }
             runOnUiThread {
+                stopButton.isEnabled = false; prompt.isEnabled = true
                 busy = false; buttons.forEach { it.isEnabled = true }; status.text = result
                 window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             }
@@ -76,11 +127,87 @@ class VN97Int8TrialActivity : Activity() {
     @Deprecated("Android activity result bridge")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == 99 && resultCode == RESULT_OK) {
+            val uri = data?.data ?: return
+            work {
+                require(!tokenizerRoot.exists()) { "Tokenizer đã có. Có thể dùng ngay." }
+                val stage = File(root, "tokenizer-staging")
+                stage.deleteRecursively(); check(stage.mkdirs())
+                try {
+                    val allowed = Mamba2TokenizerPackage.REQUIRED_ASSETS + Mamba2TokenizerPackage.FILENAME
+                    val seen = mutableSetOf<String>()
+                    java.util.zip.ZipInputStream(contentResolver.openInputStream(uri)!!).use { zip ->
+                        val buffer = ByteArray(65536)
+                        while (true) {
+                            val entry = zip.nextEntry ?: break
+                            val name = entry.name.removePrefix("g06-candidate/tokenizer/")
+                            require(!entry.isDirectory && name in allowed && seen.add(name)) { "ZIP tokenizer chứa tệp không hợp lệ" }
+                            var total = 0L
+                            File(stage, name).outputStream().use { out ->
+                                while (true) {
+                                    if (cancelled.get()) throw java.util.concurrent.CancellationException()
+                                    val n = zip.read(buffer); if (n < 0) break
+                                    total += n; require(total <= 16L * 1024 * 1024)
+                                    out.write(buffer, 0, n)
+                                }
+                            }
+                        }
+                    }
+                    require(seen == allowed) { "ZIP tokenizer thiếu tệp" }
+                    VN97Int8TextTrial.tokenizer(stage)
+                    check(stage.renameTo(tokenizerRoot))
+                    "Đã xác minh tokenizer G08. Có thể thử viết tiếp văn bản."
+                } finally { stage.deleteRecursively() }
+            }
+            return
+        }
+        if (requestCode == 98 && resultCode == RESULT_OK) {
+            val selected = data?.clipData
+            val uris = if (selected != null) (0 until selected.itemCount).map { selected.getItemAt(it).uri }
+                else listOfNotNull(data?.data)
+            work { importTokenizer(uris); "Đã xác minh tokenizer G08. Có thể thử viết tiếp văn bản." }
+            return
+        }
         val uri = data?.data ?: return
         if (requestCode == 97 && resultCode == RESULT_OK) work {
-            contentResolver.openInputStream(uri)!!.use { VN97Int8Archive.install(it, root) }
+            contentResolver.openInputStream(uri)!!.use { VN97Int8Archive.install(it, root) { cancelled.get() } }
             "Đã xác minh và nhập INT8. Nhấn Chạy kiểm tra để đo trên máy này."
         }
+    }
+    private fun saveReceipt(value: String) {
+        val atomic = android.util.AtomicFile(receipt)
+        val stream = atomic.startWrite()
+        try { stream.write(value.toByteArray(Charsets.UTF_8)); atomic.finishWrite(stream) }
+        catch (e: Exception) { atomic.failWrite(stream); throw e }
+    }
+    private fun importTokenizer(uris: List<android.net.Uri>) {
+        val allowed = Mamba2TokenizerPackage.REQUIRED_ASSETS + Mamba2TokenizerPackage.FILENAME
+        require(uris.size == allowed.size) { "Chọn đủ 6 tệp trong thư mục tokenizer G08." }
+        require(!tokenizerRoot.exists()) { "Tokenizer đã có. Có thể dùng ngay." }
+        val stage = File(root, "tokenizer-staging")
+        stage.deleteRecursively(); check(stage.mkdirs())
+        try {
+            val seen = mutableSetOf<String>()
+            for (uri in uris) {
+                if (cancelled.get()) throw java.util.concurrent.CancellationException()
+                val name = contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use {
+                    check(it.moveToFirst()); it.getString(0)
+                } ?: error("Không đọc được tên tệp")
+                require(name in allowed && seen.add(name)) { "Tên tệp không hợp lệ hoặc bị trùng: $name" }
+                contentResolver.openInputStream(uri)!!.use { input ->
+                    File(stage, name).outputStream().use { out ->
+                        val buffer = ByteArray(65536); var total = 0L
+                        while (true) {
+                            val n = input.read(buffer); if (n < 0) break
+                            total += n; require(total <= 16L * 1024 * 1024) { "Tệp tokenizer quá lớn" }
+                            out.write(buffer, 0, n)
+                        }
+                    }
+                }
+            }
+            VN97Int8TextTrial.tokenizer(stage)
+            check(stage.renameTo(tokenizerRoot))
+        } finally { stage.deleteRecursively() }
     }
     override fun onDestroy() {
         worker.shutdownNow()
