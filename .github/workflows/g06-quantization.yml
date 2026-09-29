@@ -1,0 +1,84 @@
+name: VN97 G06 Weight-only Quantization
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'tools/g06_quantize.py'
+      - 'tests/test_g06_quantize.py'
+      - '.github/workflows/g06-quantization.yml'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  kernels:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      OMP_NUM_THREADS: '2'
+      MKL_NUM_THREADS: '2'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned CPU toolchain
+        run: |
+          python -m pip install --index-url https://download.pytorch.org/whl/cpu 'torch==2.10.0'
+          python -m pip install 'onnx==1.22.0' 'onnxruntime==1.26.0' 'onnxscript==0.7.2' 'onnx-ir==1.0.0' 'pytest>=8,<9'
+          python -m pip install --no-deps -e .
+      - name: Test INT8 and mixed INT4 recurrent graphs
+        run: python -m pytest tests/test_g06_quantize.py -q
+  candidates:
+    needs: kernels
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      OMP_NUM_THREADS: '2'
+      MKL_NUM_THREADS: '2'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reclaim ephemeral runner disk
+        run: sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/share/boost /opt/hostedtoolcache/CodeQL
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install quantizer
+        run: |
+          python -m pip install 'onnx==1.22.0' 'onnxruntime==1.26.0' 'onnx-ir==1.0.0'
+          python -c 'from onnxruntime.quantization.matmul_nbits_quantizer import MatMulNBitsQuantizer'
+      - uses: actions/download-artifact@v4
+        with:
+          name: VN97-G06-UNQUALIFIED-CANDIDATE-36509427632
+          path: ${{ runner.temp }}/source
+          repository: dathito108-hue/VN97
+          run-id: 36509427632
+          github-token: ${{ github.token }}
+      - name: Build INT8 projection candidate
+        run: python tools/g06_quantize.py --source "$RUNNER_TEMP/source/runtime" --output "$RUNNER_TEMP/int8" --mode int8
+      - uses: actions/upload-artifact@v4
+        with:
+          name: VN97-G06-INT8-UNQUALIFIED-${{ github.run_id }}
+          path: ${{ runner.temp }}/int8
+          compression-level: 0
+          retention-days: 7
+      - name: Build mixed INT4 INT8 projection candidate
+        run: python tools/g06_quantize.py --source "$RUNNER_TEMP/source/runtime" --output "$RUNNER_TEMP/mixed-int4" --mode mixed-int4
+      - uses: actions/upload-artifact@v4
+        with:
+          name: VN97-G06-MIXED-INT4-UNQUALIFIED-${{ github.run_id }}
+          path: ${{ runner.temp }}/mixed-int4
+          compression-level: 0
+          retention-days: 7
+      - name: Collect compact reports
+        if: always()
+        run: |
+          mkdir -p "$RUNNER_TEMP/reports"
+          for mode in int8 mixed-int4; do
+            if [ -f "$RUNNER_TEMP/$mode/quantization.json" ]; then cp "$RUNNER_TEMP/$mode/quantization.json" "$RUNNER_TEMP/reports/$mode.json"; fi
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: VN97-G06-QUANTIZATION-REPORTS-${{ github.run_id }}
+          path: ${{ runner.temp }}/reports
+          retention-days: 14
