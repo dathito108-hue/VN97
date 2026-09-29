@@ -1,0 +1,47 @@
+name: VN97 G08 Candidate Tokenizer Parity
+on:
+  pull_request:
+    branches: [main]
+    paths: ['.github/workflows/g08-candidate-parity.yml', 'tools/g08_candidate_parity.py']
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: vn97-g08-candidate-parity
+  cancel-in-progress: true
+jobs:
+  parity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned CPU reference tools
+        run: |
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu 'torch==2.10.0'
+          python -m pip install --disable-pip-version-check 'tokenizers==0.20.3'
+      - name: Download exact re-export candidate
+        uses: actions/download-artifact@v4
+        with:
+          name: VN97-G06-UNQUALIFIED-CANDIDATE-36503256758
+          path: ${{ runner.temp }}/g06-candidate
+          repository: dathito108-hue/VN97
+          run-id: 36503256758
+          github-token: ${{ github.token }}
+      - name: Compare G08 Python with pinned official tokenizer
+        run: |
+          python tools/g08_candidate_parity.py --candidate "$RUNNER_TEMP/g06-candidate" --output "$RUNNER_TEMP/g08-audit/report.json"
+      - name: Preserve audit and compact tokenizer for subsequent checks
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: VN97-G08-TOKENIZER-AUDIT-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/g08-audit
+            ${{ runner.temp }}/g06-candidate/tokenizer
+          if-no-files-found: warn
+          retention-days: 14
