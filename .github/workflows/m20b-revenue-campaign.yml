@@ -81,7 +81,7 @@ jobs:
         run: |
           curl --fail --location --retry 2 https://repo.maven.apache.org/maven2/com/vaadin/external/google/android-json/0.0.20131108.vaadin1/android-json-0.0.20131108.vaadin1.jar -o "$RUNNER_TEMP/android-json.jar"
           curl --fail --location --retry 2 https://repo.maven.apache.org/maven2/org/json/json/20240303/json-20240303.jar -o "$RUNNER_TEMP/jvm-json.jar"
-          kotlinc android/runtime/src/main/java/ai/vn97/runtime/Mamba2GptNeoXTokenizer.kt android/runtime/host-test/G08CanonicalIdentityTest.kt -cp "$RUNNER_TEMP/android-json.jar" -Werror -include-runtime -d "$RUNNER_TEMP/g08-identity.jar"
+          kotlinc android/runtime/src/main/java/ai/vn97/runtime/Mamba2GptNeoXTokenizer.kt android/runtime/host-test/G08CanonicalIdentityTest.kt -cp "$RUNNER_TEMP/jvm-json.jar" -Werror -include-runtime -d "$RUNNER_TEMP/g08-identity.jar"
           for json_impl in android-json jvm-json; do
             java -cp "$RUNNER_TEMP/g08-identity.jar:$RUNNER_TEMP/$json_impl.jar" ai.vn97.runtime.G08CanonicalIdentityTestKt tests/data/g08_descriptor_identity.json tests/data/g08_canonical_vectors.json
           done
