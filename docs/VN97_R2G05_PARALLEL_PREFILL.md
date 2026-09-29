@@ -1,8 +1,8 @@
-# VN97 R2-G0.5 — Single-graph parallel SSD prefill
+# VN97 G06 lineage — Single-graph chunk execution
 
-R2-G0.5 adds the first parallel prompt-processing path for the Mamba-2-derived
-VN97 core while preserving the same weights and recurrent-state semantics that
-were locked in G0.4.
+G0.5 introduced chunk execution for the Mamba-2-derived VN97 core. After
+PR323/324, G06 retains batched projections and convolution, with a token-ordered
+SSM update that preserves the canonical FP16 rounding boundaries.
 
 The central constraint is simple:
 
@@ -25,28 +25,49 @@ G0.5 therefore uses one fixed-maximum recurrent graph:
 The same graph serves both modes:
 
 - `valid_length=1` -> recurrent decode;
-- `valid_length=max_chunk` -> full parallel prefill;
+- `valid_length=max_chunk` -> batched prefill with ordered state updates;
 - intermediate values -> prompt tail/remainder.
 
 Only one ONNX graph owns the inherited weight initializers/external data.
 
-## Parallel SSD factorization
+## Current precision-preserving execution
 
-Inside each Mamba-2 layer G0.5 computes the whole valid prefix using the
-one-chunk SSD factorization from the Mamba-2 formulation:
+Each layer uses the following operations in the same graph:
 
-1. project all token positions;
-2. compute the depthwise causal convolution in one grouped Conv operation;
-3. apply softplus dt and diagonal A discretization;
-4. build the lower-triangular segment transition matrix;
-5. compute intra-chunk B/X -> C output contributions in parallel;
-6. compute the initial recurrent-state contribution to all positions;
-7. compute the exact chunk-boundary final SSD state;
-8. add D skip, gated RMSNorm and output projection.
+1. project token positions together;
+2. evaluate causal convolution windows in parallel with activation-dtype
+   multiplication, reduction and bias addition, matching the step kernel;
+3. compute softplus dt;
+4. update the SSM in token order using the shared step operation: FP32 decay,
+   activation-dtype dBx, then rounding of each updated state;
+5. read each token output from that rounded state;
+6. add D skip, gated RMSNorm and the batched output projection.
 
-The convolution final state is selected after exactly `valid_length` updates.
-Invalid suffix positions are masked and receive `dt=0`, so they do not advance
-the recurrent SSD state.
+The manifest reports
+`parallel_projection_conv_token_rounded_state_scan`.
+This is one model and one graph, not separate fast/slow intelligence branches.
+The convolution state is selected after exactly `valid_length` updates.
+The SSM explicitly retains the previous state and zeroes its readout for invalid
+suffixes. The fixed graph still evaluates candidate updates at padded positions;
+skipping that computation remains a decode performance task.
+
+Before PR323/324, convolution used fused Conv and the SSM used one-chunk SSD
+factorization. That formulation rounded state only at chunk end, which differed
+from FP16 token recurrence. The old exported candidate must not be relabeled
+as the repaired graph; re-export changes its identity and requires new checks.
+
+## Measured scope of the repair
+
+Run `36508779240` on head `05beba0a9f058e0a51c5363cd03a487b842ca59e` compared
+verified original 2.7B weights against frozen sequential PyTorch references.
+All logits, convolution states and SSM states matched exactly for reset length 1,
+reset length 8 and continuation length 1. Eighteen small-fixture tests also passed,
+including ONNX FP16 continuation at the unchanged 0.002 absolute-error gate.
+
+These are finite test cases, not a proof of all-input equivalence. Full-weight
+ONNX backend parity and physical Android qualification remain separate gates.
+Single hosted-CPU timings do not establish mobile speed, and no production
+activation is authorized by these results.
 
 ## Decode is the same graph
 
