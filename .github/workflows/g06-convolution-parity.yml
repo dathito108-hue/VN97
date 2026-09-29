@@ -6,10 +6,12 @@ on:
       - 'src/vn97/r2/mamba2_parallel_onnx.py'
       - 'src/vn97/r2/mamba2_onnx.py'
       - 'tests/test_r2_mamba2_g05_parallel.py'
+      - 'tools/g06_state_precision_audit.py'
       - 'tests/host_g06_convolution_parity.py'
       - '.github/workflows/g06-convolution-parity.yml'
 permissions:
   contents: read
+  actions: read
 jobs:
   parity:
     runs-on: ubuntu-latest
@@ -33,3 +35,51 @@ jobs:
           OMP_NUM_THREADS: '2'
           MKL_NUM_THREADS: '2'
         run: python -m pytest tests/test_r2_mamba2_g05_parallel.py -q
+  full-weight:
+    needs: parity
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      OMP_NUM_THREADS: '2'
+      MKL_NUM_THREADS: '2'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Reclaim ephemeral runner disk
+        run: sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/share/boost /opt/hostedtoolcache/CodeQL
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install reference engine
+        run: |
+          python -m pip install --index-url https://download.pytorch.org/whl/cpu 'torch==2.10.0'
+          python -m pip install 'numpy>=2,<3'
+      - name: Download verified original weights
+        uses: actions/download-artifact@v4
+        with:
+          name: VN97-R2-G03-Mamba2-2.7B-7a2e931de9d48e0f230037796accc40d32fa16cc-36367075535
+          path: ${{ runner.temp }}/g03-capsule
+          repository: dathito108-hue/VN97
+          run-id: 36367075535
+          github-token: ${{ github.token }}
+      - name: Reuse measured sequential references
+        uses: actions/download-artifact@v4
+        with:
+          name: VN97-G06-NUMERIC-REFERENCES-36506402873
+          path: ${{ runner.temp }}/reference
+          repository: dathito108-hue/VN97
+          run-id: 36506402873
+          github-token: ${{ github.token }}
+      - name: Check full-weight numerical gate
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/evidence"
+          python tools/g06_state_precision_audit.py --capsule "$RUNNER_TEMP/g03-capsule" --reference "$RUNNER_TEMP/reference" --report "$RUNNER_TEMP/evidence/state-repair.json" 2>&1 | tee "$RUNNER_TEMP/evidence/audit.log"
+      - name: Preserve result even if numerical gate fails
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: VN97-G06-STATE-REPAIR-${{ github.run_id }}
+          path: ${{ runner.temp }}/evidence
+          retention-days: 14
