@@ -70,3 +70,16 @@ steps and leaving execution_passed false. Session/tensor cleanup still runs.
 This only guards boundaries; Android can still kill a process during a native
 call or load. It does not reduce the model's resident weight footprint or prove
 that 8 GB devices can complete under arbitrary competing memory pressure.
+
+
+## Optional prepacking memory trial
+
+**Thử giảm RAM** sets `session.disable_prepacking=1` for the text session only.
+Default is off; the synthetic probe and production route are unchanged. The
+receipt records `disable_prepacking`. Existing graph and weight files are reused.
+On hosted ORT 1.26, run 36546810018, specialized decode's process peak RSS fell
+from 4,120,480 to 3,809,584 KiB (~304 MiB, 7.5%). Warm means were 3.646s packed
+and 3.683s unpacked. All convolution/SSM states matched exactly over four carried
+steps, but logits differed by up to 0.0078125. This is not exact parity or quality
+qualification. Android ORT 1.30 memory, speed and output behavior remain unmeasured.
+Use with the specialized checkbox for the corresponding phone comparison.

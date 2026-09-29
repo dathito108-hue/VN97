@@ -17,7 +17,7 @@ object VN97Int8TextTrial {
         return VN97GptNeoXTokenizer(info)
     }
     fun run(root: File, tokenizerRoot: File, prompt: String, cancelled: () -> Boolean,
-            decodeGraph: File? = null, memorySnapshot: (() -> VN97TrialMemory.Sample)? = null, checkpoint: (String) -> Unit): String {
+            decodeGraph: File? = null, disablePrepacking: Boolean = false, memorySnapshot: (() -> VN97TrialMemory.Sample)? = null, checkpoint: (String) -> Unit): String {
         require(prompt.length in 1..2048) { "Câu nhập dài tối đa 2048 ký tự." }
         val tokenizer = tokenizer(tokenizerRoot)
         val tokens = tokenizer.encode(prompt)
@@ -53,6 +53,8 @@ object VN97Int8TextTrial {
                 // Avoid retaining a large arena and allocating a learned memory pattern on run 2.
                 options.setMemoryPatternOptimization(false)
                 options.setCPUArenaAllocator(false)
+                if (disablePrepacking) options.addConfigEntry("session.disable_prepacking", "1")
+                report.put("disable_prepacking", disablePrepacking)
                 report.put("memory_pattern", false).put("cpu_arena", false)
                     .put("phase", "session_load")
                 checkpoint(report.toString(2))

@@ -81,15 +81,21 @@ class VN97Int8TrialActivity : Activity() {
             isChecked = false
         }
         layout.addView(optimizedDecode)
+        val reduceMemory = android.widget.CheckBox(this).apply {
+            text = "Thử giảm RAM (kết quả văn bản có thể khác)"
+            isChecked = false
+        }
+        layout.addView(reduceMemory)
         textRun = button("Thử viết tiếp bằng INT8") {
             val text = prompt.text.toString()
             val useOptimizedDecode = optimizedDecode.isChecked
+            val disablePrepacking = reduceMemory.isChecked
             work {
                 check(model.isDirectory) { "Hãy nhập ZIP INT8 trước." }
                 saveReceipt("{\"status\":\"verifying\",\"execution_passed\":false}")
                 VN97Int8Archive.verify(model) { cancelled.get() }
                 val graph = if (useOptimizedDecode) VN97Int8DecodeAsset.prepare(assets, model) else null
-                VN97Int8TextTrial.run(model, tokenizerRoot, text, { cancelled.get() }, decodeGraph = graph, memorySnapshot = ::memorySnapshot) { value ->
+                VN97Int8TextTrial.run(model, tokenizerRoot, text, { cancelled.get() }, decodeGraph = graph, disablePrepacking = disablePrepacking, memorySnapshot = ::memorySnapshot) { value ->
                     saveReceipt(value)
                     runOnUiThread { status.text = value }
                 }
