@@ -76,13 +76,20 @@ class VN97Int8TrialActivity : Activity() {
             filters = arrayOf(android.text.InputFilter.LengthFilter(2048))
         }
         layout.addView(prompt)
+        val optimizedDecode = android.widget.CheckBox(this).apply {
+            text = "Thử giải mã tối ưu (đọc đầu vào từng token; cần đo trên máy)"
+            isChecked = false
+        }
+        layout.addView(optimizedDecode)
         textRun = button("Thử viết tiếp bằng INT8") {
             val text = prompt.text.toString()
+            val useOptimizedDecode = optimizedDecode.isChecked
             work {
                 check(model.isDirectory) { "Hãy nhập ZIP INT8 trước." }
                 saveReceipt("{\"status\":\"verifying\",\"execution_passed\":false}")
                 VN97Int8Archive.verify(model) { cancelled.get() }
-                VN97Int8TextTrial.run(model, tokenizerRoot, text, { cancelled.get() }) { value ->
+                val graph = if (useOptimizedDecode) VN97Int8DecodeAsset.prepare(assets, model) else null
+                VN97Int8TextTrial.run(model, tokenizerRoot, text, { cancelled.get() }, decodeGraph = graph) { value ->
                     saveReceipt(value)
                     runOnUiThread { status.text = value }
                 }

@@ -1,0 +1,48 @@
+{
+  "schema": "VN97_DECODE_BENCHMARK_1",
+  "cases_max_abs": [
+    {
+      "logits": 0.0,
+      "conv": 0.0,
+      "ssm": 0.0
+    },
+    {
+      "logits": 0.0,
+      "conv": 0.0,
+      "ssm": 0.0
+    },
+    {
+      "logits": 0.0,
+      "conv": 0.0,
+      "ssm": 0.0
+    },
+    {
+      "logits": 0.0,
+      "conv": 0.0,
+      "ssm": 0.0
+    }
+  ],
+  "exact_match": true,
+  "baseline": {
+    "seconds": [
+      6.898554214000001,
+      6.8609199040000135,
+      6.082957743999998,
+      6.381267971
+    ],
+    "ort": "1.26.0"
+  },
+  "decode": {
+    "seconds": [
+      5.008727276000002,
+      4.564208681000025,
+      4.575150361999988,
+      4.536544408999987
+    ],
+    "ort": "1.26.0"
+  },
+  "warm_speedup": 1.4130799977367383,
+  "device_measured": false,
+  "quality_qualified": false,
+  "production_activation_authorized": false
+}

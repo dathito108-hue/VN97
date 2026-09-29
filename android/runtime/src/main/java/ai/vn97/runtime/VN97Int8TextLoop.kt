@@ -10,7 +10,9 @@ object VN97Int8TextLoop {
         cancelled: () -> Boolean,
         infer: (IntArray) -> FloatArray,
         onToken: (IntArray) -> Unit,
+        prefillChunk: Int = 8,
     ): IntArray {
+        require(prefillChunk == 1 || prefillChunk == 8)
         require(prompt.size in 1..MAX_PROMPT_TOKENS) { "Câu nhập phải có 1–128 token." }
         require(prompt.all { it in 0 until 50277 } && eos in 0 until 50277)
         val output = mutableListOf<Int>()
@@ -20,9 +22,9 @@ object VN97Int8TextLoop {
             return (0 until 50277).maxByOrNull { row[it] }!!
         }
         var next = -1
-        for (offset in prompt.indices step 8) {
+        for (offset in prompt.indices step prefillChunk) {
             checkCancelled()
-            next = choose(infer(prompt.copyOfRange(offset, minOf(offset + 8, prompt.size))))
+            next = choose(infer(prompt.copyOfRange(offset, minOf(offset + prefillChunk, prompt.size))))
         }
         repeat(MAX_NEW_TOKENS) {
             checkCancelled()

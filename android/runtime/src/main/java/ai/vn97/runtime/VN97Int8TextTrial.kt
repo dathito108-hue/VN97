@@ -17,7 +17,7 @@ object VN97Int8TextTrial {
         return VN97GptNeoXTokenizer(info)
     }
     fun run(root: File, tokenizerRoot: File, prompt: String, cancelled: () -> Boolean,
-            checkpoint: (String) -> Unit): String {
+            decodeGraph: File? = null, checkpoint: (String) -> Unit): String {
         require(prompt.length in 1..2048) { "Câu nhập dài tối đa 2048 ký tự." }
         val tokenizer = tokenizer(tokenizerRoot)
         val tokens = tokenizer.encode(prompt)
@@ -29,6 +29,8 @@ object VN97Int8TextTrial {
             .put("execution_passed", false).put("status", "running")
             .put("prompt_tokens", tokens.size).put("max_new_tokens", VN97Int8TextLoop.MAX_NEW_TOKENS)
             .put("generated_text", "").put("sampling", "greedy").put("cpu_threads", 2)
+        report.put("decode_mode", if (decodeGraph == null) "chunk8" else "specialized_valid1")
+            .put("prefill_chunk", if (decodeGraph == null) 8 else 1)
         val steps = JSONArray(); report.put("steps", steps)
         val owned = mutableListOf<AutoCloseable>()
         fun tensor(shape: LongArray, count: Int) = Mamba2OrtTensorStorage.create(
@@ -48,7 +50,7 @@ object VN97Int8TextTrial {
                 options.setIntraOpNumThreads(2); options.setInterOpNumThreads(1)
                 if (cancelled()) throw java.util.concurrent.CancellationException()
                 val loadStart = System.nanoTime()
-                env.createSession(File(root, "candidate.onnx").absolutePath, options).use { session ->
+                env.createSession((decodeGraph ?: File(root, "candidate.onnx")).absolutePath, options).use { session ->
                     report.put("session_load_ms", (System.nanoTime() - loadStart) / 1e6)
                     val conv = Array(2) { tensor(longArrayOf(64, 1, 5376, 4), 1376256) }
                     val ssm = Array(2) { tensor(longArrayOf(64, 1, 80, 64, 128), 41943040) }
@@ -66,8 +68,10 @@ object VN97Int8TextTrial {
                                     .put("pss_before_inference_kib", android.os.Debug.getPss())
                                 checkpoint(report.toString(2))
                                 val start = System.nanoTime()
-                                session.run(mapOf("input_ids" to input, "valid_length" to length,
-                                    "conv_state" to conv[from].tensor, "ssm_state" to ssm[from].tensor),
+                                val inputs = mutableMapOf("input_ids" to input,
+                                    "conv_state" to conv[from].tensor, "ssm_state" to ssm[from].tensor)
+                                if (decodeGraph == null) inputs["valid_length"] = length
+                                session.run(inputs,
                                     mapOf("logits" to logits.tensor, "next_conv_state" to conv[to].tensor,
                                         "next_ssm_state" to ssm[to].tensor)).use { }
                                 report.put("phase", "validate_outputs")
@@ -82,7 +86,7 @@ object VN97Int8TextTrial {
                                 report.put("generated_tokens", generated.size)
                                     .put("generated_text", tokenizer.decode(generated, skipEos = true))
                                 checkpoint(report.toString(2))
-                            })
+                            }, prefillChunk = if (decodeGraph == null) 8 else 1)
                             report.put("generated_tokens", result.size)
                                 .put("stop_reason", if (result.size == VN97Int8TextLoop.MAX_NEW_TOKENS) "token_limit" else "eos")
                         }

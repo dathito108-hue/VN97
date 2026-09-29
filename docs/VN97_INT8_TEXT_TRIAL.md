@@ -37,3 +37,25 @@ Device reports show one completed inference followed by process loss, in both sy
 Trial sessions now disable ORT memory-pattern optimization and CPU arena retention. This may trade speed for lower retained/peak allocations and requires device measurement. Model bytes, precision, thread count and qualification gates are unchanged.
 
 Checkpoints are emitted before session load and each inference, with phase and pre-run PSS. Saved receipts include process PID/time. On reopening, an unfinished report from a different process is displayed as interrupted and augmented with matching Android process-exit information where available (Android 11+). Native crash, low-memory kill, ANR and signal are reported distinctly. No missing reason is inferred to be OOM and no run restarts automatically. Older receipts without a PID cannot be matched reliably.
+
+## Optional specialized decode trial (PR335 evidence)
+
+Enable **Thử giải mã tối ưu** before starting the text trial. The APK bundles a
+362,649-byte gzip graph, expands it beside the already verified INT8 weights,
+and verifies its 4,906,371-byte length and SHA-256 before opening it. No model
+weight download or second ORT session is required. Unchecked keeps the baseline.
+
+This first specialization fixes valid_length=1 and prunes inactive scan branches;
+the token tensor and projections still have width eight. It is not a fully
+width-one export. Graph nodes drop from 14,434 to 7,699. External weights are
+unchanged. In hosted ORT 1.26 CPU testing, all logits and both states match exactly
+across four carried steps; warm execution improves 1.413x (6.442s to 4.559s).
+Evidence: `VN97_INT8_DECODE_BENCHMARK.json`, Actions run 36540624675.
+This does not establish Android ORT 1.30 parity or speed.
+
+Only one session is resident: this trial also ingests the prompt token by token.
+Longer prompts can therefore take more time before first output. The report
+identifies `decode_mode=specialized_valid1` and `prefill_chunk=1`. Compare the
+same short prompt, generated-token count, thermal conditions and per-step PSS
+against unchecked mode on the phone. Quality and production activation remain
+false. The normal 1/8/1 synthetic probe is unchanged.

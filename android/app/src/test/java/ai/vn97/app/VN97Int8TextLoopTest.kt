@@ -49,4 +49,14 @@ class VN97Int8TextLoopTest {
         val result = VN97Int8TextLoop.generate(intArrayOf(100), 0, { false }, { row(0) }, { error("No output expected") })
         assertEquals(0, result.size)
     }
+    @org.junit.Test
+    fun specializedPrefillFeedsEveryPromptTokenInOrder() {
+        val calls = mutableListOf<IntArray>()
+        val result = VN97Int8TextLoop.generate(intArrayOf(100, 101, 102), 0, { false }, {
+            calls.add(it)
+            row(if (calls.size < 3) 42 else 0)
+        }, { error("EOS should stop before emitting") }, prefillChunk = 1)
+        org.junit.Assert.assertTrue(result.isEmpty())
+        org.junit.Assert.assertEquals(listOf(100, 101, 102), calls.map { it.single() })
+    }
 }
