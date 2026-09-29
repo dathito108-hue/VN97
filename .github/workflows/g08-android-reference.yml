@@ -1,0 +1,73 @@
+name: VN97 G08 Real Python and Kotlin Parity
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/g08-android-reference.yml'
+      - 'tools/g08_reference_cases.py'
+      - 'tools/g08_python_fixture_check.py'
+      - 'tests/data/g08_multilingual_corpus.json'
+      - 'src/vn97/r2/gpt_neox_tokenizer.py'
+      - 'android/runtime/src/main/java/ai/vn97/runtime/Mamba2GptNeoXTokenizer.kt'
+      - 'android/runtime/host-test/G08RealTokenizerParityTest.kt'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: g08-real-reference-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+jobs:
+  parity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install pinned reference libraries
+        run: |
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu 'torch==2.10.0'
+          python -m pip install --disable-pip-version-check 'tokenizers==0.20.3'
+          curl --fail --location --retry 2 https://repo.maven.apache.org/maven2/org/json/json/20240303/json-20240303.jar -o "$RUNNER_TEMP/json.jar"
+      - uses: actions/download-artifact@v4
+        with:
+          name: VN97-G08-TOKENIZER-AUDIT-36504664417
+          path: ${{ runner.temp }}/source
+          repository: dathito108-hue/VN97
+          run-id: 36504664417
+          github-token: ${{ github.token }}
+      - name: Generate pinned official reference cases
+        run: |
+          python tools/g08_reference_cases.py --tokenizer-root "$RUNNER_TEMP/source/g06-candidate/tokenizer" --corpus tests/data/g08_multilingual_corpus.json --output "$RUNNER_TEMP/evidence/reference.json"
+      - name: Check real Python G08
+        id: python
+        continue-on-error: true
+        run: |
+          python tools/g08_python_fixture_check.py --tokenizer-root "$RUNNER_TEMP/source/g06-candidate/tokenizer" --reference "$RUNNER_TEMP/evidence/reference.json" --output "$RUNNER_TEMP/evidence/python.json"
+      - name: Check real Android tokenizer source on JVM
+        id: kotlin
+        continue-on-error: true
+        run: |
+          kotlinc android/runtime/src/main/java/ai/vn97/runtime/Mamba2GptNeoXTokenizer.kt android/runtime/host-test/G08RealTokenizerParityTest.kt -cp "$RUNNER_TEMP/json.jar" -Werror -include-runtime -d "$RUNNER_TEMP/parity.jar"
+          java -cp "$RUNNER_TEMP/parity.jar:$RUNNER_TEMP/json.jar" ai.vn97.runtime.G08RealTokenizerParityTestKt "$RUNNER_TEMP/source/g06-candidate/tokenizer" "$RUNNER_TEMP/evidence/reference.json" "$RUNNER_TEMP/evidence/kotlin.json"
+      - name: Require both implementations to match
+        env:
+          PYTHON_OUTCOME: ${{ steps.python.outcome }}
+          KOTLIN_OUTCOME: ${{ steps.kotlin.outcome }}
+        run: |
+          test "$PYTHON_OUTCOME" = success
+          test "$KOTLIN_OUTCOME" = success
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: VN97-G08-REAL-PARITY-${{ github.run_id }}
+          path: ${{ runner.temp }}/evidence
+          if-no-files-found: warn
+          retention-days: 14

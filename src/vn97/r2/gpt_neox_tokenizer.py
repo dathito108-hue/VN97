@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import hashlib
 import json
+import re
 from pathlib import Path
 import unicodedata
 from typing import Mapping, Sequence
@@ -217,7 +218,17 @@ class GptNeoXBpeTokenizer:
     merges: tuple[tuple[str, str], ...]
     eos_token: str = "<|endoftext|>"
 
+    added_tokens: dict[str, int] | None = None
+    normalize_nfc: bool = False
+
     def __post_init__(self) -> None:
+        if self.eos_token not in self.vocab:
+            raise ValueError("GPT-NeoX EOS token missing from vocabulary")
+        self.added_tokens = dict(self.added_tokens or {self.eos_token: self.vocab[self.eos_token]})
+        if any(not token or self.vocab.get(token) != token_id for token, token_id in self.added_tokens.items()):
+            raise ValueError("GPT-NeoX added token differs from vocabulary")
+        self._added_ids = set(self.added_tokens.values())
+        self._added_pattern = re.compile("(" + "|".join(re.escape(token) for token in sorted(self.added_tokens, key=len, reverse=True)) + ")")
         self._inverse = {value: key for key, value in self.vocab.items()}
         if len(self._inverse) != len(self.vocab):
             raise ValueError("GPT-NeoX vocabulary IDs are not unique")
@@ -238,10 +249,27 @@ class GptNeoXBpeTokenizer:
         *,
         eos_token: str = "<|endoftext|>",
     ) -> "GptNeoXBpeTokenizer":
+        added = None
+        normalize_nfc = False
+        configuration = vocab_file.parent / "tokenizer.json"
+        if configuration.is_file():
+            metadata = json.loads(configuration.read_text(encoding="utf-8"))
+            if metadata.get("normalizer") != {"type": "NFC"}:
+                raise ValueError("GPT-NeoX requires the pinned NFC normalizer")
+            normalize_nfc = True
+            added = {}
+            for entry in metadata["added_tokens"]:
+                if any(entry.get(flag) is not False for flag in ("single_word", "lstrip", "rstrip")):
+                    raise ValueError("unsupported GPT-NeoX added-token matching flags")
+                if entry["content"] in added:
+                    raise ValueError("duplicate GPT-NeoX added token")
+                added[entry["content"]] = entry["id"]
         return cls(
             _read_vocab(vocab_file),
             _read_merges(merges_file),
             eos_token=eos_token,
+            added_tokens=added,
+            normalize_nfc=normalize_nfc,
         )
 
     @property
@@ -313,12 +341,13 @@ class GptNeoXBpeTokenizer:
         if not text:
             return []
         output: list[int] = []
-        parts = text.split(self.eos_token)
-        for index, part in enumerate(parts):
-            if part:
+        if self.normalize_nfc:
+            text = unicodedata.normalize("NFC", text)
+        for part in self._added_pattern.split(text):
+            if part in self.added_tokens:
+                output.append(self.added_tokens[part])
+            elif part:
                 output.extend(self._encode_ordinary(part))
-            if index + 1 < len(parts):
-                output.append(self.eos_token_id)
         return output
 
     def decode_bytes(
@@ -336,8 +365,8 @@ class GptNeoXBpeTokenizer:
                 raise ValueError(
                     f"GPT-NeoX token ID out of vocabulary: {token_id}"
                 )
-            if token == self.eos_token:
-                if skip_eos:
+            if token_id in self._added_ids:
+                if token == self.eos_token and skip_eos:
                     continue
                 output.extend(token.encode("utf-8"))
                 continue

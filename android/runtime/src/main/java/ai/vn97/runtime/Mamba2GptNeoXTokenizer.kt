@@ -4,6 +4,7 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileInputStream
 import java.nio.file.Files
+import java.text.Normalizer
 import java.security.MessageDigest
 import java.util.regex.Pattern
 import org.json.JSONArray
@@ -214,6 +215,9 @@ class VN97GptNeoXTokenizer(
     private val mergeRanks: Map<Pair<String, String>, Int>
     private val byteEncoder: Array<String>
     private val byteDecoder: Map<Char, Int>
+    private val addedTokens: Map<String, Int>
+    private val addedIds: Set<Int>
+    private val addedPattern: Pattern
     private val cache = LinkedHashMap<String, List<String>>()
     private val pattern = Pattern.compile(
         GPT_NEOX_PATTERN_G08,
@@ -250,6 +254,25 @@ class VN97GptNeoXTokenizer(
         require(vocab[packageInfo.eosToken] == packageInfo.eosTokenId)
         require(vocab[packageInfo.unkToken] == packageInfo.unkTokenId)
 
+        val metadata = JSONObject(packageInfo.assets.getValue("tokenizer.json").file.readText(Charsets.UTF_8))
+        require(metadata.getJSONObject("normalizer").toString() == JSONObject().put("type", "NFC").toString()) {
+            "G0.8 requires the pinned NFC normalizer"
+        }
+        val added = linkedMapOf<String, Int>()
+        val entries = metadata.getJSONArray("added_tokens")
+        for (i in 0 until entries.length()) {
+            val entry = entries.getJSONObject(i)
+            require(listOf("single_word", "lstrip", "rstrip").all { !entry.getBoolean(it) })
+            val token = entry.getString("content")
+            val id = entry.getInt("id")
+            require(token.isNotEmpty() && vocab[token] == id && !added.containsKey(token))
+            added[token] = id
+        }
+        require(added[packageInfo.eosToken] == packageInfo.eosTokenId)
+        addedTokens = added.toMap()
+        addedIds = added.values.toSet()
+        addedPattern = Pattern.compile(added.keys.sortedByDescending { it.length }.joinToString("|") { Pattern.quote(it) })
+
         val ranks = linkedMapOf<Pair<String, String>, Int>()
         var rank = 0
         packageInfo.mergesFile.forEachLine(Charsets.UTF_8) { raw ->
@@ -280,24 +303,15 @@ class VN97GptNeoXTokenizer(
     fun encode(text: String): IntArray {
         if (text.isEmpty()) return IntArray(0)
         val output = ArrayList<Int>()
+        val normalized = Normalizer.normalize(text, Normalizer.Form.NFC)
+        val matcher = addedPattern.matcher(normalized)
         var cursor = 0
-        while (cursor <= text.length) {
-            val special = text.indexOf(
-                packageInfo.eosToken,
-                startIndex = cursor,
-            )
-            val end = if (special >= 0) special else text.length
-            if (end > cursor) {
-                encodeOrdinary(
-                    text.substring(cursor, end),
-                    output,
-                )
-            }
-            if (special < 0) break
-            output += packageInfo.eosTokenId
-            cursor = special + packageInfo.eosToken.length
-            if (cursor == text.length) break
+        while (matcher.find()) {
+            if (matcher.start() > cursor) encodeOrdinary(normalized.substring(cursor, matcher.start()), output)
+            output += addedTokens.getValue(matcher.group())
+            cursor = matcher.end()
         }
+        if (cursor < normalized.length) encodeOrdinary(normalized.substring(cursor), output)
         return output.toIntArray()
     }
 
@@ -340,8 +354,8 @@ class VN97GptNeoXTokenizer(
                 "G0.8 token ID outside tokenizer vocabulary"
             }
             val token = requireNotNull(inverse[tokenId])
-            if (tokenId == packageInfo.eosTokenId) {
-                if (!skipEos) {
+            if (tokenId in addedIds) {
+                if (tokenId != packageInfo.eosTokenId || !skipEos) {
                     output.write(token.toByteArray(Charsets.UTF_8))
                 }
                 continue
