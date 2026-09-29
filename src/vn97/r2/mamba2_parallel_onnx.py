@@ -176,6 +176,24 @@ class VN97Mamba2ParallelChunkOnnx(nn.Module):
             negative_inf,
         )
 
+    def _causal_convolution_affine(self, layer, conv_window: torch.Tensor) -> torch.Tensor:
+        # Match the step kernel's activation-dtype product, reduction, and bias
+        # rounding. A fused conv1d does not preserve those FP16 boundaries.
+        # Stack fixed windows so tokens are still evaluated in parallel.
+        windows = torch.stack(
+            [conv_window[..., i:i + self.config.d_conv]
+             for i in range(self.chunk_size)],
+            dim=2,
+        )
+        weight = layer.conv_weight[:, 0, :].to(
+            device=windows.device, dtype=windows.dtype,
+        )
+        affine = torch.sum(windows * weight[None, :, None, :], dim=-1)
+        affine = affine + layer.conv_bias.to(
+            device=affine.device, dtype=affine.dtype,
+        )[None, :, None]
+        return affine.transpose(1, 2)
+
     def _parallel_layer(
         self,
         layer,
@@ -222,13 +240,7 @@ class VN97Mamba2ParallelChunkOnnx(nn.Module):
             ),
             dim=-1,
         )
-        xbc = F.conv1d(
-            conv_window,
-            layer.conv_weight,
-            layer.conv_bias,
-            groups=cfg.conv_dim,
-        ).transpose(1, 2)
-        xbc = F.silu(xbc)
+        xbc = F.silu(self._causal_convolution_affine(layer, conv_window))
 
         history = torch.cat(
             (conv_state, xbc_channels),
