@@ -24,7 +24,22 @@ internal object VN97Int8Archive {
             require(digest.digest().joinToString("") { "%02x".format(it) } == spec.second) { "Sai SHA-256 $name" }
         }
     }
-    fun install(input: InputStream, parent: File, cancelled: () -> Boolean = { false }): File {
+    val fileLimits = payload.mapValues { it.value.first } + ("quantization.json" to 65536L)
+    fun install(input: InputStream, parent: File, cancelled: () -> Boolean = { false },
+                progress: (String) -> Unit = {}): File = staged(parent, cancelled, progress) { stage ->
+        VN97TrialFiles.unzip(input, stage, fileLimits, cancelled, progress)
+    }
+    fun installFiles(files: Map<String, () -> InputStream>, parent: File,
+                     cancelled: () -> Boolean = { false }, progress: (String) -> Unit = {}): File {
+        VN97TrialFiles.requireComplete(files.keys, fileLimits.keys)
+        return staged(parent, cancelled, progress) { stage ->
+            files.forEach { (name, open) ->
+                open().use { VN97TrialFiles.copy(it, File(stage, name), fileLimits.getValue(name), cancelled, progress) }
+            }
+        }
+    }
+    private fun staged(parent: File, cancelled: () -> Boolean, progress: (String) -> Unit,
+                       extract: (File) -> Unit): File {
         parent.mkdirs()
         val target = File(parent, ID)
         require(!target.exists()) { "Đã có bản INT8. Có thể chạy thử hoặc xóa trước khi nhập lại." }
@@ -33,26 +48,8 @@ internal object VN97Int8Archive {
         check(stage.mkdirs())
         try {
             require(parent.usableSpace > 3_200_000_000L) { "Cần ít nhất 3,2 GB trống ngoài tệp ZIP." }
-            val seen = mutableSetOf<String>()
-            ZipInputStream(input).use { zip ->
-                val buffer = ByteArray(1024 * 1024)
-                while (true) {
-                    val entry = zip.nextEntry ?: break
-                    val limit = payload[entry.name]?.first ?: if (entry.name == "quantization.json") 65536L else error("Tệp không được phép: ${entry.name}")
-                    require(!entry.isDirectory && seen.add(entry.name)) { "Tệp trùng hoặc thư mục không hợp lệ" }
-                    var count = 0L
-                    File(stage, entry.name).outputStream().use { out ->
-                        while (true) {
-                            if (cancelled()) throw java.util.concurrent.CancellationException("Đã dừng")
-                            val n = zip.read(buffer); if (n < 0) break
-                            count += n
-                            require(count <= limit) { "Tệp vượt giới hạn" }
-                            out.write(buffer, 0, n)
-                        }
-                    }
-                }
-            }
-            require(seen == payload.keys + "quantization.json") { "Gói INT8 thiếu tệp" }
+            extract(stage)
+            progress("Đã nhận đủ 3 tệp. Đang xác minh SHA-256 của mô hình 3 GB…")
             verify(stage, cancelled)
             check(stage.renameTo(target)) { "Không thể hoàn tất nhập" }
             return target

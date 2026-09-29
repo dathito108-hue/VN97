@@ -6,7 +6,7 @@ This debug-only trial uses the existing pinned G06 INT8 candidate. It performs t
 
 1. Install the verified debug APK from this change's Android CI artifact.
 2. On the first dashboard page, press **Nạp mô hình INT8 (.zip)** to open the system file picker directly. Use **Mở mô hình INT8 đã nạp** to return to the trial. The existing performance-evidence route also remains available.
-3. Import `VN97-G06-INT8-UNQUALIFIED-36512587857` ZIP (3.01 GB). Existing imports remain usable.
+3. Import `VN97-G06-INT8-UNQUALIFIED-36512587857` ZIP (3.01 GB). ZIP files may contain the three files at root or together under a wrapper directory. Alternatively press **Hoặc nhập 3 tệp mô hình đã giải nén** and select `candidate.onnx`, `candidate.onnx.data`, and `quantization.json` together. Existing imports remain usable.
 4. Import `VN97-G08-TOKENIZER-AUDIT-36504664417` ZIP (about 1.16 MB):
    https://github.com/dathito108-hue/VN97/actions/runs/36504664417/artifacts/11006213380
    Alternatively select all six extracted files in `g06-candidate/tokenizer`.
@@ -25,3 +25,7 @@ The tokenizer is bound to ID `27ce0a2f005befaa98ec4ee05d5d83a71aac1bcc5e4dd00032
 - Reports include generated text, model/tokenizer identity, device, ORT version, load time, inference time and sampled PSS. Treat copied reports as potentially private.
 
 The chunk-8 graph still executes padded work for single-token decode. This change makes text behavior testable; it does not claim a speedup or quality qualification. Physical S21 FE results are still required.
+
+## Import diagnostics
+
+The screen separately shows model and tokenizer readiness. Run buttons remain disabled until their packages have been committed. Import displays copied MB and the SHA-256 verification stage. Non-ZIP inputs, wrong-package entries, and missing filenames produce distinct messages; arbitrary single model files must use the three-file selector. Staging is removed on failure and only promoted after pinned payload hashes pass. No inference qualification criteria are relaxed.
