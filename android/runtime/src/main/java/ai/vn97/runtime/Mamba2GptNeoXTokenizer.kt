@@ -136,7 +136,7 @@ data class Mamba2TokenizerPackage(
                         .toByteArray(Charsets.US_ASCII)
             )
             require(tokenizerId == expectedId) {
-                "G0.8 tokenizer descriptor identity mismatch"
+                "G0.8 tokenizer descriptor identity mismatch: expected=$tokenizerId computed=$expectedId"
             }
 
             val assetJson = json.getJSONObject("assets")
@@ -510,7 +510,7 @@ private fun sha256G08(bytes: ByteArray): String =
             "%02x".format(it.toInt() and 0xff)
         }
 
-private fun canonicalJsonG08(value: Any?): String {
+internal fun canonicalJsonG08(value: Any?): String {
     return when (value) {
         JSONObject.NULL, null -> "null"
         is JSONObject -> {
@@ -519,7 +519,7 @@ private fun canonicalJsonG08(value: Any?): String {
                 postfix = "}",
                 separator = ",",
             ) { key ->
-                JSONObject.quote(key) + ":" +
+                quoteCanonicalG08(key) + ":" +
                     canonicalJsonG08(value.get(key))
             }
         }
@@ -532,7 +532,7 @@ private fun canonicalJsonG08(value: Any?): String {
                 canonicalJsonG08(value.get(index))
             }
         }
-        is String -> JSONObject.quote(value)
+        is String -> quoteCanonicalG08(value)
         is Boolean -> if (value) "true" else "false"
         is Int, is Long, is Short, is Byte -> value.toString()
         else -> error(
@@ -540,4 +540,25 @@ private fun canonicalJsonG08(value: Any?): String {
                 value::class.java.name
         )
     }
+}
+
+
+/** Python json.dumps(ensure_ascii=True) string encoding, independent of Android org.json. */
+private fun quoteCanonicalG08(value: String): String = buildString {
+    append('"')
+    for (ch in value) {
+        when (ch) {
+            '"' -> append("\\\"")
+            '\\' -> append("\\\\")
+            '\b' -> append("\\b")
+            '\u000c' -> append("\\f")
+            '\n' -> append("\\n")
+            '\r' -> append("\\r")
+            '\t' -> append("\\t")
+            else -> if (ch.code < 0x20 || ch.code > 0x7e) {
+                append("\\u").append(ch.code.toString(16).padStart(4, '0'))
+            } else append(ch)
+        }
+    }
+    append('"')
 }

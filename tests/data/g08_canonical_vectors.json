@@ -1,0 +1,38 @@
+[
+  {
+    "value": "EleutherAI/gpt-neox-20b",
+    "canonical": "\"EleutherAI/gpt-neox-20b\""
+  },
+  {
+    "value": "a/b</script>",
+    "canonical": "\"a/b</script>\""
+  },
+  {
+    "value": "Ti\u1ebfng Vi\u1ec7t \ud83d\ude00",
+    "canonical": "\"Ti\\u1ebfng Vi\\u1ec7t \\ud83d\\ude00\""
+  },
+  {
+    "value": "\u0000\b\f\n\r\t\u001f\u007f",
+    "canonical": "\"\\u0000\\b\\f\\n\\r\\t\\u001f\\u007f\""
+  },
+  {
+    "value": "\\\"",
+    "canonical": "\"\\\\\\\"\""
+  },
+  {
+    "value": {
+      "z": [
+        true,
+        false,
+        null,
+        42
+      ],
+      "a": "/Vi\u1ec7t"
+    },
+    "canonical": "{\"a\":\"/Vi\\u1ec7t\",\"z\":[true,false,null,42]}"
+  },
+  {
+    "value": "\u2028\u2029",
+    "canonical": "\"\\u2028\\u2029\""
+  }
+]
