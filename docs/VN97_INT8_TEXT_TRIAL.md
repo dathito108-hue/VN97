@@ -59,3 +59,14 @@ identifies `decode_mode=specialized_valid1` and `prefill_chunk=1`. Compare the
 same short prompt, generated-token count, thermal conditions and per-step PSS
 against unchecked mode on the phone. Quality and production activation remain
 false. The normal 1/8/1 synthetic probe is unchanged.
+
+## System RAM pressure
+
+Both trials sample Android ActivityManager before loading the session and before
+each native inference. Receipts include available/total RAM, the system low-memory
+threshold and a 256 MiB reserve. A lowMemory flag or available RAM below threshold
+plus reserve stops the loop with `status=memory_pressure`, retaining text and
+steps and leaving execution_passed false. Session/tensor cleanup still runs.
+This only guards boundaries; Android can still kill a process during a native
+call or load. It does not reduce the model's resident weight footprint or prove
+that 8 GB devices can complete under arbitrary competing memory pressure.

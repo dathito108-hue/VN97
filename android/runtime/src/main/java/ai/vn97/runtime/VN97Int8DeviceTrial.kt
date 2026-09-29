@@ -11,7 +11,7 @@ import org.json.JSONObject
 
 /** Diagnostic only: synthetic token IDs, no tokenizer and no activation authority. */
 object VN97Int8DeviceTrial {
-    fun run(root: File, cancelled: () -> Boolean = { false }, checkpoint: (String) -> Unit): String {
+    fun run(root: File, cancelled: () -> Boolean = { false }, memorySnapshot: (() -> VN97TrialMemory.Sample)? = null, checkpoint: (String) -> Unit): String {
         val env = OrtEnvironment.getEnvironment()
         val owned = mutableListOf<AutoCloseable>()
         fun tensor(shape: LongArray, count: Int) = Mamba2OrtTensorStorage.create(
@@ -23,6 +23,15 @@ object VN97Int8DeviceTrial {
             .put("ort_version", env.version).put("execution_passed", false)
         val cases = JSONArray()
         report.put("cases", cases)
+        fun checkMemory() {
+            val sample = memorySnapshot?.invoke() ?: return
+            report.put("system_memory", JSONObject()
+                .put("available_bytes", sample.availableBytes).put("threshold_bytes", sample.thresholdBytes)
+                .put("total_bytes", sample.totalBytes).put("low_memory", sample.lowMemory)
+                .put("reserve_bytes", VN97TrialMemory.RESERVE_BYTES))
+            checkpoint(report.toString(2))
+            if (VN97TrialMemory.underPressure(sample)) throw VN97TrialMemory.Pressure()
+        }
         try {
             OrtSession.SessionOptions().use { options ->
                 // Avoid retaining a large arena and allocating a learned memory pattern on run 2.
@@ -33,6 +42,7 @@ object VN97Int8DeviceTrial {
                 checkpoint(report.toString(2))
                 options.setIntraOpNumThreads(2)
                 options.setInterOpNumThreads(1)
+                checkMemory()
                 val loadStart = System.nanoTime()
                 env.createSession(File(root, "candidate.onnx").absolutePath, options).use { session ->
                     report.put("session_load_ms", (System.nanoTime() - loadStart) / 1e6)
@@ -53,6 +63,7 @@ object VN97Int8DeviceTrial {
                                 report.put("phase", "inference").put("pending_valid_length", length)
                                     .put("pss_before_inference_kib", android.os.Debug.getPss())
                                 checkpoint(report.toString(2))
+                                checkMemory()
                                 val start = System.nanoTime()
                                 session.run(mapOf("input_ids" to idsTensor, "valid_length" to validTensor,
                                     "conv_state" to conv[from].tensor, "ssm_state" to ssm[from].tensor),
@@ -74,6 +85,9 @@ object VN97Int8DeviceTrial {
             }
             report.put("phase", "completed").put("status", "completed").put("execution_passed", true)
             return report.toString(2)
+        } catch (e: VN97TrialMemory.Pressure) {
+            report.put("status", "memory_pressure").put("error", e.message)
+            return report.toString(2).also(checkpoint)
         } finally { owned.asReversed().forEach { it.close() } }
     }
 }
