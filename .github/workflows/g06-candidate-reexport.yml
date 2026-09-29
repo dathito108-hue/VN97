@@ -1,0 +1,111 @@
+name: VN97 G06 Candidate Re-export
+
+on:
+  pull_request:
+    branches: [main]
+    paths: ['.github/workflows/g06-candidate-reexport.yml']
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: vn97-g06-candidate-reexport
+  cancel-in-progress: true
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Reclaim ephemeral runner space
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/share/boost /opt/hostedtoolcache/CodeQL
+          df -h /
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned CPU exporter
+        run: |
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu 'torch==2.10.0'
+          python -m pip install --disable-pip-version-check 'onnx==1.22.0' 'onnxscript==0.7.2' 'onnx-ir==0.2.1'
+          python -m pip install --disable-pip-version-check --no-deps -e .
+          mkdir -p "$RUNNER_TEMP/g06-evidence"
+          python -m pip freeze > "$RUNNER_TEMP/g06-evidence/toolchain.txt"
+      - name: Reuse pinned surviving G03 capsule
+        uses: actions/download-artifact@v4
+        with:
+          name: VN97-R2-G03-Mamba2-2.7B-7a2e931de9d48e0f230037796accc40d32fa16cc-36367075535
+          path: ${{ runner.temp }}/g03-capsule
+          repository: dathito108-hue/VN97
+          run-id: 36367075535
+          github-token: ${{ github.token }}
+      - name: Fully verify source bytes before export
+        run: |
+          set -euo pipefail
+          python -m vn97.r2.mamba2_g03_capsule_cli verify --capsule-root "$RUNNER_TEMP/g03-capsule" | tee "$RUNNER_TEMP/g06-evidence/g03-verification.json"
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          r = json.loads((Path(os.environ['RUNNER_TEMP']) / 'g06-evidence/g03-verification.json').read_text().strip().splitlines()[-1])
+          assert r['capsule_id'] == '8e1aff6c6b6d2947cb25111e48febae6850100fd782a2f112adcab2e047f674e'
+          assert r['source_weight_sha256'] == '254d89bfef6dd9f44c8e3f54e0730af3f10c482969117cb37fb33486348b00be'
+          assert r['large_weight_sha256_verified'] is True
+          assert r['production_activation_authorized'] is False
+          PY
+      - name: Export one unqualified G06 candidate and G08 tokenizer
+        run: |
+          set -euo pipefail
+          OUT="$RUNNER_TEMP/g06-candidate"
+          mkdir -p "$OUT/runtime" "$OUT/tokenizer"
+          python -m vn97.r2.mamba2_parallel_onnx_cli export --capsule-root "$RUNNER_TEMP/g03-capsule" --output-dir "$OUT/runtime" --chunk-size 8 | tee "$RUNNER_TEMP/g06-evidence/export.log"
+          python -m vn97.r2.mamba2_parallel_onnx_cli verify --bundle-dir "$OUT/runtime" | tee "$RUNNER_TEMP/g06-evidence/g05-verification.json"
+          python -m vn97.r2.mamba2_android_runtime_cli --bundle-dir "$OUT/runtime" | tee "$RUNNER_TEMP/g06-evidence/g06-descriptor.json"
+          cp "$RUNNER_TEMP/g03-capsule/tokenizer/"* "$OUT/tokenizer/"
+          python -m vn97.r2.gpt_neox_tokenizer_cli build-from-g03 --capsule-root "$RUNNER_TEMP/g03-capsule" --output "$OUT/tokenizer/tokenizer.vn97m2g08.json" | tee "$RUNNER_TEMP/g06-evidence/g08-descriptor.json"
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          root = Path(os.environ['RUNNER_TEMP'])
+          runtime = json.loads((root / 'g06-candidate/runtime/runtime.vn97m2g06.json').read_text())
+          tokenizer = json.loads((root / 'g06-candidate/tokenizer/tokenizer.vn97m2g08.json').read_text())
+          assert runtime['capsule_id'] == tokenizer['capsule_id'] == '8e1aff6c6b6d2947cb25111e48febae6850100fd782a2f112adcab2e047f674e'
+          assert runtime['source_weight_sha256'] == '254d89bfef6dd9f44c8e3f54e0730af3f10c482969117cb37fb33486348b00be'
+          assert runtime['state_dtype'] == 'float16'
+          assert runtime['production_activation_authorized'] is False
+          assert tokenizer['production_activation_authorized'] is False
+          report = {
+              'schema': 'VN97G06CANDIDATE1', 'status': 'EXPORTED_NOT_QUALIFIED',
+              'runtime_id': runtime['runtime_id'], 'g05_manifest_id': runtime['g05_manifest_id'],
+              'tokenizer_id': tokenizer['tokenizer_id'], 'source_weight_sha256': runtime['source_weight_sha256'],
+              'historical_runtime_id': 'a00feb6b05be1e9219fc9d6bdd6c6ecd9a14fc930202e9689d8c416c6d153762',
+              'historical_identity_recovered': runtime['runtime_id'] == 'a00feb6b05be1e9219fc9d6bdd6c6ecd9a14fc930202e9689d8c416c6d153762',
+              'numerical_parity_verified': False, 'device_measured': False,
+              'production_activation_authorized': False,
+              'remaining': ['full numerical/state parity', 'official tokenizer parity', 'G07 physical tuning', 'G09 binding', 'G10 qualification'],
+          }
+          for path in (root / 'g06-candidate/CANDIDATE.json', root / 'g06-evidence/CANDIDATE.json'):
+              path.write_text(json.dumps(report, indent=2) + '\n')
+          for name in ('manifest.vn97m2g05.json', 'runtime.vn97m2g06.json'):
+              (root / 'g06-evidence' / name).write_bytes((root / 'g06-candidate/runtime' / name).read_bytes())
+          print(json.dumps(report, sort_keys=True))
+          PY
+      - name: Preserve candidate for numerical and device qualification
+        uses: actions/upload-artifact@v4
+        with:
+          name: VN97-G06-UNQUALIFIED-CANDIDATE-${{ github.run_id }}
+          path: ${{ runner.temp }}/g06-candidate
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 7
+      - name: Preserve compact evidence even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: VN97-G06-REEXPORT-EVIDENCE-${{ github.run_id }}
+          path: ${{ runner.temp }}/g06-evidence
+          if-no-files-found: warn
+          retention-days: 14
