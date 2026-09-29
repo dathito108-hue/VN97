@@ -5,7 +5,7 @@ This debug-only trial uses the existing pinned G06 INT8 candidate. It performs t
 ## Installation
 
 1. Install the verified debug APK from this change's Android CI artifact.
-2. Open **Đo hiệu năng mô hình → Thử nghiệm INT8 trên thiết bị**.
+2. On the first dashboard page, press **Nạp mô hình INT8 (.zip)** to open the system file picker directly. Use **Mở mô hình INT8 đã nạp** to return to the trial. The existing performance-evidence route also remains available.
 3. Import `VN97-G06-INT8-UNQUALIFIED-36512587857` ZIP (3.01 GB). Existing imports remain usable.
 4. Import `VN97-G08-TOKENIZER-AUDIT-36504664417` ZIP (about 1.16 MB):
    https://github.com/dathito108-hue/VN97/actions/runs/36504664417/artifacts/11006213380

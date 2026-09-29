@@ -45,9 +45,7 @@ class VN97Int8TrialActivity : Activity() {
             buttons.add(b); layout.addView(b)
         }
         button("Nhập ZIP INT8") {
-            startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-                type = "*/*"; addCategory(Intent.CATEGORY_OPENABLE)
-            }, 97)
+            chooseModelZip()
         }
         button("Nhập ZIP tokenizer G08 (khoảng 1 MB)") {
             startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
@@ -103,6 +101,14 @@ class VN97Int8TrialActivity : Activity() {
         }
         layout.addView(status)
         setContentView(ScrollView(this).apply { addView(layout) })
+        if (savedInstanceState == null && intent.getBooleanExtra("open_model_zip_picker", false)) {
+            chooseModelZip()
+        }
+    }
+    private fun chooseModelZip() {
+        startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            type = "*/*"; addCategory(Intent.CATEGORY_OPENABLE)
+        }, 97)
     }
     private fun work(action: () -> String) {
         if (busy) return

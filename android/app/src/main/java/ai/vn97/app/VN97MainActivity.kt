@@ -167,6 +167,20 @@ class VN97MainActivity : Activity() {
             }
         }
 
+        val int8ImportButton = Button(this).apply {
+            text = "Nạp mô hình INT8 (.zip)"
+            setOnClickListener {
+                startActivity(Intent(this@VN97MainActivity, VN97Int8TrialActivity::class.java)
+                    .putExtra("open_model_zip_picker", true))
+            }
+        }
+        val int8TrialButton = Button(this).apply {
+            text = "Mở mô hình INT8 đã nạp"
+            setOnClickListener {
+                startActivity(Intent(this@VN97MainActivity, VN97Int8TrialActivity::class.java))
+            }
+        }
+
         val digitalServicesButton = Button(this).apply {
             text = "Dịch vụ số"
             setOnClickListener {
@@ -301,6 +315,10 @@ class VN97MainActivity : Activity() {
                 autonomousApprovalView, autonomousRejectButton, autonomousApproveButton),
             pages = listOf(
                 listOf(
+                    dashboard.card("Nạp mô hình từ tệp ZIP", "Thử nghiệm INT8: chọn ZIP mô hình, sau đó nạp tokenizer G08 và thử viết tiếp văn bản.",
+                        int8ImportButton, int8TrialButton).apply {
+                            visibility = if (BuildConfig.VN97_TURNKEY_REQUIRED) View.GONE else View.VISIBLE
+                        },
                     dashboard.card("Trò chuyện", "Trao đổi và giao nhiệm vụ cho VN97.", transcriptView),
                     dashboard.card("Công việc tự chủ", "Nhập mục tiêu trong ô tin nhắn rồi bắt đầu.",
                         autonomousButton, cancelAutonomousButton, autonomousStatusView),
@@ -316,7 +334,7 @@ class VN97MainActivity : Activity() {
                     dashboard.card("Giao dịch mô phỏng", "Theo dõi thử nghiệm bằng tiền mô phỏng.", paperTradingButton),
                 ),
                 listOf(
-                    dashboard.card("Mô hình VN97", "Lõi duy nhất: G06. Cần bản phân phối có runtime ONNX, tokenizer và bằng chứng tương thích. Nhập CAP/MI1 và checkpoint fast/slow đã ngừng; không dùng các nút nhập cũ để thay lõi G06.",
+                    dashboard.card("Mô hình VN97", "Nạp ZIP INT8 thử nghiệm tại thẻ Nạp mô hình trên trang chính. Lõi chính thức: G06. Cần bản phân phối có runtime ONNX, tokenizer và bằng chứng tương thích. Nhập CAP/MI1 và checkpoint fast/slow đã ngừng; không dùng các nút nhập cũ để thay lõi G06.",
                         provisioningView),
                     dashboard.card("Phát triển năng lực", "Quản lý năng lực và các bản cải tiến có kiểm soát.",
                         capabilityAcquisitionButton),
