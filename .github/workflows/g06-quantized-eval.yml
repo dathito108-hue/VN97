@@ -1,0 +1,54 @@
+name: VN97 G06 Quantized Execution Evaluation
+on:
+  pull_request:
+    branches: [main]
+    paths: ['.github/workflows/g06-quantized-eval.yml', 'tools/g06_quantized_eval.py']
+permissions:
+  contents: read
+  actions: read
+jobs:
+  evaluate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - mode: int8
+            artifact: VN97-G06-INT8-UNQUALIFIED-36512587857
+          - mode: mixed-int4
+            artifact: VN97-G06-MIXED-INT4-UNQUALIFIED-36512587857
+    env:
+      OMP_NUM_THREADS: '2'
+      MKL_NUM_THREADS: '2'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install 'onnxruntime==1.26.0'
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ runner.temp }}/candidate
+          repository: dathito108-hue/VN97
+          run-id: 36512587857
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: VN97-G06-NUMERIC-REFERENCES-36506402873
+          path: ${{ runner.temp }}/reference
+          repository: dathito108-hue/VN97
+          run-id: 36506402873
+          github-token: ${{ github.token }}
+      - name: Execute verified full-weight candidate
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/evidence"
+          python tools/g06_quantized_eval.py --candidate "$RUNNER_TEMP/candidate" --reference "$RUNNER_TEMP/reference" --mode '${{ matrix.mode }}' --output "$RUNNER_TEMP/evidence/evaluation.json" 2>&1 | tee "$RUNNER_TEMP/evidence/execution.log"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: VN97-G06-QUANT-EVAL-${{ matrix.mode }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/evidence
+          retention-days: 14
