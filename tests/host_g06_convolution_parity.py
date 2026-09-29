@@ -27,16 +27,16 @@ class ConvolutionParity(unittest.TestCase):
                             conv_bias=torch.randn(24, generator=generator).to(dtype),
                         )
                         context = SimpleNamespace(config=SimpleNamespace(d_conv=width), chunk_size=chunk)
-                        actual = Chunk._causal_convolution(context, layer, window)
+                        actual = Chunk._causal_convolution_affine(context, layer, window)
                         expected = torch.stack([
-                            F.silu(torch.sum(window[..., i:i + width] * layer.conv_weight[:, 0, :], dim=-1)
-                                   + layer.conv_bias)
+                            torch.sum(window[..., i:i + width] * layer.conv_weight[:, 0, :], dim=-1)
+                            + layer.conv_bias
                             for i in range(chunk)
                         ], dim=1)
                         self.assertEqual(actual.dtype, dtype)
                         torch.testing.assert_close(actual, expected, rtol=0, atol=0)
                         if dtype == torch.float16:
-                            fused = F.silu(F.conv1d(window, layer.conv_weight, layer.conv_bias, groups=24)).transpose(1, 2)
+                            fused = F.conv1d(window, layer.conv_weight, layer.conv_bias, groups=24).transpose(1, 2)
                             self.assertGreater((fused - expected).abs().max().item(), 0,
                                                'fixture must detect the previous fused rounding mismatch')
 
