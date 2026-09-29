@@ -200,6 +200,32 @@ class VN97Mamba2OnnxLayer(nn.Module):
             out * self.mixer_norm.float()
         ).to(dtype=value.dtype)
 
+    def _ssm_update(self, dt_value, b_value, c_value, x_heads, ssm_state):
+        """Shared token update: preserve activation and state rounding boundaries."""
+        a = -torch.exp(self.a_log.float())
+        d_a = torch.exp(dt_value.float() * a.unsqueeze(0))
+        # Preserve the official Mamba-2 fallback activation precision
+        # for dBx. dA remains float32 through A_log, while dt/B/x multiply
+        # in the inherited activation dtype before the recurrent add.
+        d_b_x = torch.einsum(
+            "bh,bn,bhp->bhpn",
+            dt_value,
+            b_value,
+            x_heads,
+        )
+        next_ssm = (
+            ssm_state.float()
+            * d_a[:, :, None, None]
+            + d_b_x
+        ).to(dtype=ssm_state.dtype)
+
+        y = torch.einsum(
+            "bhpn,bn->bhp",
+            next_ssm.to(dtype=x_heads.dtype),
+            c_value.to(dtype=x_heads.dtype),
+        )
+        return y, next_ssm
+
     def forward(
         self,
         hidden: torch.Tensor,
@@ -258,7 +284,6 @@ class VN97Mamba2OnnxLayer(nn.Module):
             dim=-1,
         )
 
-        a = -torch.exp(self.a_log.float())
         dt_value = F.softplus(
             dt
             + self.dt_bias.to(
@@ -266,32 +291,14 @@ class VN97Mamba2OnnxLayer(nn.Module):
                 dtype=dt.dtype,
             )
         )
-        d_a = torch.exp(dt_value.float() * a.unsqueeze(0))
 
         x_heads = x.reshape(
             x.shape[0],
             cfg.n_heads,
             cfg.head_dim,
         )
-        # Preserve the official Mamba-2 fallback activation precision
-        # for dBx. dA remains float32 through A_log, while dt/B/x multiply
-        # in the inherited activation dtype before the recurrent add.
-        d_b_x = torch.einsum(
-            "bh,bn,bhp->bhpn",
-            dt_value,
-            b_value,
-            x_heads,
-        )
-        next_ssm = (
-            ssm_state.float()
-            * d_a[:, :, None, None]
-            + d_b_x
-        ).to(dtype=ssm_state.dtype)
-
-        y = torch.einsum(
-            "bhpn,bn->bhp",
-            next_ssm.to(dtype=x_heads.dtype),
-            c_value.to(dtype=x_heads.dtype),
+        y, next_ssm = self._ssm_update(
+            dt_value, b_value, c_value, x_heads, ssm_state,
         )
         y = (
             y

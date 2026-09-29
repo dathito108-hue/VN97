@@ -1,9 +1,11 @@
-name: VN97 G06 Convolution Precision
+name: VN97 G06 Kernel Precision
 on:
   pull_request:
     branches: [main]
     paths:
       - 'src/vn97/r2/mamba2_parallel_onnx.py'
+      - 'src/vn97/r2/mamba2_onnx.py'
+      - 'tests/test_r2_mamba2_g05_parallel.py'
       - 'tests/host_g06_convolution_parity.py'
       - '.github/workflows/g06-convolution-parity.yml'
 permissions:

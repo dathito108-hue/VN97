@@ -69,10 +69,10 @@ def _dtype_name(dtype: torch.dtype) -> str:
 
 
 class VN97Mamba2ParallelChunkOnnx(nn.Module):
-    """One fixed maximum chunk using a parallel one-chunk SSD factorization.
+    """One fixed chunk with parallel projections and precision-preserving state scan.
 
     valid_length chooses a prefix in [1, chunk_size]. Invalid suffix positions
-    have dt=0 and masked hidden/residual values, so they do not advance the SSM.
+    have masked hidden/residual values and explicitly retain the previous SSM state.
     The convolution final state is selected after exactly valid_length updates.
 
     With valid_length=1 this same graph is the recurrent decode graph.
@@ -92,33 +92,6 @@ class VN97Mamba2ParallelChunkOnnx(nn.Module):
             )
         self.step = step
         self.chunk_size = int(chunk_size)
-
-        strict = torch.tril(
-            torch.ones(
-                chunk_size,
-                chunk_size,
-                dtype=torch.bool,
-            ),
-            diagonal=-1,
-        )
-        lower = torch.tril(
-            torch.ones(
-                chunk_size,
-                chunk_size,
-                dtype=torch.bool,
-            ),
-            diagonal=0,
-        )
-        self.register_buffer(
-            "_strict_lower_mask",
-            strict,
-            persistent=False,
-        )
-        self.register_buffer(
-            "_lower_mask",
-            lower,
-            persistent=False,
-        )
 
     @property
     def config(self) -> Mamba2OnnxConfig:
@@ -148,33 +121,22 @@ class VN97Mamba2ParallelChunkOnnx(nn.Module):
         mask = positions < valid_length[0]
         return mask.to(dtype=dtype).reshape(1, self.chunk_size, 1)
 
-    def _segment_sum(
-        self,
-        a_discrete: torch.Tensor,
-    ) -> torch.Tensor:
-        # a_discrete: [batch, heads, length].
-        repeated = a_discrete.unsqueeze(-1).expand(
-            -1,
-            -1,
-            -1,
-            self.chunk_size,
-        )
-        zeros = torch.zeros_like(repeated)
-        strict = torch.where(
-            self._strict_lower_mask[None, None, :, :],
-            repeated,
-            zeros,
-        )
-        cumulative = torch.cumsum(strict, dim=-2)
-        negative_inf = torch.full_like(
-            cumulative,
-            -torch.inf,
-        )
-        return torch.where(
-            self._lower_mask[None, None, :, :],
-            cumulative,
-            negative_inf,
-        )
+    def _state_scan(self, layer, dt_value, b_value, c_value, x_heads,
+                    ssm_state, valid_length):
+        # FP16 rounding after each transition is not associative. Keep the
+        # projection/convolution batched, but use the canonical token update
+        # for the state and readout in this same fixed-size graph.
+        state = ssm_state
+        outputs = []
+        for index in range(self.chunk_size):
+            y, candidate = layer._ssm_update(
+                dt_value[:, index], b_value[:, index], c_value[:, index],
+                x_heads[:, index], state,
+            )
+            active = index < valid_length[0]
+            state = torch.where(active, candidate, state)
+            outputs.append(torch.where(active, y, torch.zeros_like(y)))
+        return torch.stack(outputs, dim=1), state
 
     def _causal_convolution_affine(self, layer, conv_window: torch.Tensor) -> torch.Tensor:
         # Match the step kernel's activation-dtype product, reduction, and bias
@@ -286,75 +248,9 @@ class VN97Mamba2ParallelChunkOnnx(nn.Module):
         )
         dt_value = dt_value * mask.to(dtype=dt_value.dtype)
 
-        a = -torch.exp(layer.a_log.float())
-        a_discrete = (
-            dt_value.float()
-            * a.reshape(1, 1, cfg.n_heads)
+        y, next_ssm = self._state_scan(
+            layer, dt_value, b_value, c_value, x_heads, ssm_state, valid_length,
         )
-        x_discrete = (
-            x_heads.float()
-            * dt_value.float().unsqueeze(-1)
-        )
-
-        # Official 2.7B uses ngroups=1: B/C are shared across all heads.
-        b_heads = b_value.float().unsqueeze(2).expand(
-            -1,
-            -1,
-            cfg.n_heads,
-            -1,
-        )
-        c_heads = c_value.float().unsqueeze(2).expand(
-            -1,
-            -1,
-            cfg.n_heads,
-            -1,
-        )
-
-        a_by_head = a_discrete.permute(0, 2, 1)
-        a_cumsum = torch.cumsum(a_by_head, dim=-1)
-        transition = torch.exp(
-            self._segment_sum(a_by_head)
-        )
-
-        # Intra-chunk causal contribution.
-        y_diag = torch.einsum(
-            "blhn,bshn,bhls,bshp->blhp",
-            c_heads,
-            b_heads,
-            transition,
-            x_discrete,
-        )
-
-        # Initial state contribution to every output position.
-        state_decay_out = torch.exp(a_cumsum)
-        y_initial = torch.einsum(
-            "blhn,bhpn,bhl->blhp",
-            c_heads,
-            ssm_state.float(),
-            state_decay_out,
-        )
-
-        # Final state after the whole fixed chunk. Invalid suffix dt=0 means
-        # the final cumsum is exactly the state after valid_length tokens.
-        decay_to_end = torch.exp(
-            a_cumsum[:, :, -1:].expand_as(a_cumsum)
-            - a_cumsum
-        )
-        chunk_state = torch.einsum(
-            "blhn,bhl,blhp->bhpn",
-            b_heads,
-            decay_to_end,
-            x_discrete,
-        )
-        initial_decay = torch.exp(
-            a_cumsum[:, :, -1]
-        )[:, :, None, None]
-        next_ssm = (
-            ssm_state.float() * initial_decay
-            + chunk_state
-        ).to(dtype=ssm_state.dtype)
-
-        y = (y_diag + y_initial).to(dtype=x_heads.dtype)
         y = (
             y
             + layer.d_skip.to(
@@ -638,7 +534,7 @@ def export_parallel_recurrent_onnx(
         "single_weight_graph": True,
         "decode_via_valid_length_one": True,
         "parallel_prefill_ready": True,
-        "parallel_algorithm": "one_chunk_ssd_factorization",
+        "parallel_algorithm": "parallel_projection_conv_token_rounded_state_scan",
         "same_weights_semantics": True,
         "quantization_used": False,
         "external_data_requested": bool(external_data),
