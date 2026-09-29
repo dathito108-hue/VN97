@@ -39,6 +39,12 @@ object VN97Int8TextTrial {
             val env = OrtEnvironment.getEnvironment()
             report.put("ort_version", env.version)
             OrtSession.SessionOptions().use { options ->
+                // Avoid retaining a large arena and allocating a learned memory pattern on run 2.
+                options.setMemoryPatternOptimization(false)
+                options.setCPUArenaAllocator(false)
+                report.put("memory_pattern", false).put("cpu_arena", false)
+                    .put("phase", "session_load")
+                checkpoint(report.toString(2))
                 options.setIntraOpNumThreads(2); options.setInterOpNumThreads(1)
                 if (cancelled()) throw java.util.concurrent.CancellationException()
                 val loadStart = System.nanoTime()
@@ -56,11 +62,15 @@ object VN97Int8TextTrial {
                                 val to = 1 - from
                                 for (i in 0 until 8) ids.put(i, if (i < chunk.size) chunk[i].toLong() else 0L)
                                 valid.put(0, chunk.size.toLong())
+                                report.put("phase", "inference").put("pending_valid_length", chunk.size)
+                                    .put("pss_before_inference_kib", android.os.Debug.getPss())
+                                checkpoint(report.toString(2))
                                 val start = System.nanoTime()
                                 session.run(mapOf("input_ids" to input, "valid_length" to length,
                                     "conv_state" to conv[from].tensor, "ssm_state" to ssm[from].tensor),
                                     mapOf("logits" to logits.tensor, "next_conv_state" to conv[to].tensor,
                                         "next_ssm_state" to ssm[to].tensor)).use { }
+                                report.put("phase", "validate_outputs")
                                 val ms = (System.nanoTime() - start) / 1e6
                                 check(logits.allFinite() && conv[to].allFinite() && ssm[to].allFinite()) { "NaN/Inf trong kết quả" }
                                 from = to
@@ -79,7 +89,7 @@ object VN97Int8TextTrial {
                     }
                 }
             }
-            report.put("execution_passed", true).put("status", "completed")
+            report.put("phase", "completed").put("status", "completed").put("execution_passed", true).put("status", "completed")
         } catch (e: Exception) {
             report.put("status", if (e is java.util.concurrent.CancellationException) "cancelled" else "failed")
                 .put("error_class", e.javaClass.simpleName).put("error", e.message ?: "Không hoàn tất")

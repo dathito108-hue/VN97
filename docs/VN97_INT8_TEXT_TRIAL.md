@@ -29,3 +29,11 @@ The chunk-8 graph still executes padded work for single-token decode. This chang
 ## Import diagnostics
 
 The screen separately shows model and tokenizer readiness. Run buttons remain disabled until their packages have been committed. Import displays copied MB and the SHA-256 verification stage. Non-ZIP inputs, wrong-package entries, and missing filenames produce distinct messages; arbitrary single model files must use the three-file selector. Staging is removed on failure and only promoted after pinned payload hashes pass. No inference qualification criteria are relaxed.
+
+## Interrupted second-run investigation
+
+Device reports show one completed inference followed by process loss, in both synthetic and text trials. Post-run PSS is about 3.7 GB; this alone does not prove an out-of-memory kill.
+
+Trial sessions now disable ORT memory-pattern optimization and CPU arena retention. This may trade speed for lower retained/peak allocations and requires device measurement. Model bytes, precision, thread count and qualification gates are unchanged.
+
+Checkpoints are emitted before session load and each inference, with phase and pre-run PSS. Saved receipts include process PID/time. On reopening, an unfinished report from a different process is displayed as interrupted and augmented with matching Android process-exit information where available (Android 11+). Native crash, low-memory kill, ANR and signal are reported distinctly. No missing reason is inferred to be OOM and no run restarts automatically. Older receipts without a PID cannot be matched reliably.

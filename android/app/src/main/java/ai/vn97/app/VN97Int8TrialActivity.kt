@@ -108,7 +108,7 @@ class VN97Int8TrialActivity : Activity() {
         }
         button("Xóa gói thử nghiệm") { work { model.deleteRecursively(); receipt.delete(); "Đã xóa gói thử nghiệm." } }
         status = TextView(this).apply {
-            text = if (receipt.exists()) android.util.AtomicFile(receipt).openRead().bufferedReader().use { it.readText() } else "Sẵn sàng nhập gói INT8. Kết quả là chẩn đoán thực thi, không phải chứng nhận chất lượng."
+            text = if (receipt.exists()) restoredReceipt() else "Sẵn sàng nhập gói INT8. Kết quả là chẩn đoán thực thi, không phải chứng nhận chất lượng."
             setTextIsSelectable(true)
         }
         layout.addView(status)
@@ -208,10 +208,41 @@ class VN97Int8TrialActivity : Activity() {
         textRun.isEnabled = !busy && modelReady && tokenizerReady
         probeRun.isEnabled = !busy && modelReady
     }
+    private fun restoredReceipt(): String {
+        return runCatching {
+            val report = org.json.JSONObject(android.util.AtomicFile(receipt).openRead().bufferedReader().use { it.readText() })
+            var exit: org.json.JSONObject? = null
+            if (VN97TrialRecovery.interrupted(report, android.os.Process.myPid()) && android.os.Build.VERSION.SDK_INT >= 30) {
+                exit = runCatching {
+                    val manager = getSystemService(ACTIVITY_SERVICE) as android.app.ActivityManager
+                    val previous = manager.getHistoricalProcessExitReasons(packageName, report.getInt("writer_pid"), 8)
+                        .firstOrNull { it.processName == "$packageName:quant_trial" && it.timestamp >= report.optLong("saved_at_ms") }
+                    previous?.let {
+                        org.json.JSONObject().put("reason_code", it.reason).put("description", it.description)
+                            .put("timestamp_ms", it.timestamp).put("pss_kib", it.pss).put("rss_kib", it.rss)
+                            .put("reason", when (it.reason) {
+                                android.app.ApplicationExitInfo.REASON_LOW_MEMORY -> "low_memory"
+                                android.app.ApplicationExitInfo.REASON_CRASH_NATIVE -> "native_crash"
+                                android.app.ApplicationExitInfo.REASON_CRASH -> "java_crash"
+                                android.app.ApplicationExitInfo.REASON_ANR -> "anr"
+                                android.app.ApplicationExitInfo.REASON_SIGNALED -> "signal"
+                                android.app.ApplicationExitInfo.REASON_USER_REQUESTED -> "user_requested"
+                                else -> "other"
+                            })
+                    }
+                }.getOrNull()
+            }
+            VN97TrialRecovery.recover(report, android.os.Process.myPid(), exit).toString(2)
+        }.getOrElse { "Không đọc được báo cáo phiên trước: ${it.message}" }
+    }
     private fun saveReceipt(value: String) {
         val atomic = android.util.AtomicFile(receipt)
         val stream = atomic.startWrite()
-        try { stream.write(value.toByteArray(Charsets.UTF_8)); atomic.finishWrite(stream) }
+        try {
+            val report = org.json.JSONObject(value).put("writer_pid", android.os.Process.myPid())
+                .put("saved_at_ms", System.currentTimeMillis())
+            stream.write(report.toString(2).toByteArray(Charsets.UTF_8)); atomic.finishWrite(stream)
+        }
         catch (e: Exception) { atomic.failWrite(stream); throw e }
     }
     private fun importTokenizer(uris: List<android.net.Uri>) {
