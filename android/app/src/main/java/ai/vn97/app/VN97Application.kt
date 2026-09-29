@@ -103,8 +103,14 @@ class VN97Application :
         }
     }
 
+    private fun isQuantTrialProcess(): Boolean =
+        if (android.os.Build.VERSION.SDK_INT >= 28) Application.getProcessName().endsWith(":quant_trial")
+        else (getSystemService(ACTIVITY_SERVICE) as android.app.ActivityManager)
+            .runningAppProcesses?.any { it.pid == android.os.Process.myPid() && it.processName.endsWith(":quant_trial") } == true
+
     override fun onCreate() {
         super.onCreate()
+        if (isQuantTrialProcess()) return
         runtimeResources
         mobileRecovery
             .scheduleProcessStartRecovery()
@@ -114,6 +120,7 @@ class VN97Application :
         level: Int,
     ) {
         super.onTrimMemory(level)
+        if (isQuantTrialProcess()) return
         runCatching {
             runtimeResources
                 .onTrimMemory(level)
@@ -122,6 +129,7 @@ class VN97Application :
 
     override fun onLowMemory() {
         super.onLowMemory()
+        if (isQuantTrialProcess()) return
         runCatching {
             runtimeResources
                 .onLowMemory()
