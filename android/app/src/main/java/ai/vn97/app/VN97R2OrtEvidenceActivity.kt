@@ -66,6 +66,11 @@ class VN97R2OrtEvidenceActivity : Activity() {
             ),
         )
 
+        content.addView(Button(this).apply {
+            text = "Thử nghiệm INT8 trên thiết bị"
+            setOnClickListener { startActivity(Intent(this@VN97R2OrtEvidenceActivity, VN97Int8TrialActivity::class.java)) }
+        })
+
         importButton = Button(this).apply {
             text = "Import G0.6 runtime / split data parts"
             setOnClickListener { chooseRuntimeFiles() }
