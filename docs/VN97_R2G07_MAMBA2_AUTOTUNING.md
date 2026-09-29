@@ -8,7 +8,7 @@ the inherited Mamba-2 weights or recurrent equations.
 G0.5/G0.6 use one recurrent graph for both prompt prefill and decode:
 
 - valid_length=1: recurrent decode;
-- valid_length=8/16/32: progressively larger parallel SSD prefill workloads.
+- valid_length=8/16/32: progressively larger batched prefill workloads (token-ordered SSM since PR324).
 
 Profiling only by ONNX filename would hide these cost differences because every
 workload uses the same recurrent-N.onnx file. G0.7 therefore records provider
