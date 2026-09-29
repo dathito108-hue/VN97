@@ -1,0 +1,32 @@
+name: VN97 INT8 Prepacking Memory Probe
+on:
+  pull_request:
+    branches: [main]
+    paths: ['tools/g06_prepack_memory.py', '.github/workflows/g06-prepack-memory.yml']
+permissions:
+  contents: read
+  actions: read
+jobs:
+  measure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install 'onnxruntime==1.26.0'
+      - uses: actions/download-artifact@v4
+        with:
+          name: VN97-G06-INT8-UNQUALIFIED-36512587857
+          path: ${{ runner.temp }}/candidate
+          repository: dathito108-hue/VN97
+          run-id: 36512587857
+          github-token: ${{ github.token }}
+      - run: python tools/g06_prepack_memory.py --root "$RUNNER_TEMP/candidate" --out "$RUNNER_TEMP/memory"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: VN97-INT8-PREPACK-MEMORY-${{ github.run_id }}
+          path: ${{ runner.temp }}/memory/*.json
+          retention-days: 14

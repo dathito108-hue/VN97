@@ -89,7 +89,7 @@ class VN97Int8TrialActivity : Activity() {
                 saveReceipt("{\"status\":\"verifying\",\"execution_passed\":false}")
                 VN97Int8Archive.verify(model) { cancelled.get() }
                 val graph = if (useOptimizedDecode) VN97Int8DecodeAsset.prepare(assets, model) else null
-                VN97Int8TextTrial.run(model, tokenizerRoot, text, { cancelled.get() }, decodeGraph = graph) { value ->
+                VN97Int8TextTrial.run(model, tokenizerRoot, text, { cancelled.get() }, decodeGraph = graph, memorySnapshot = ::memorySnapshot) { value ->
                     saveReceipt(value)
                     runOnUiThread { status.text = value }
                 }
@@ -105,7 +105,7 @@ class VN97Int8TrialActivity : Activity() {
                 check(model.isDirectory) { "Hãy nhập ZIP INT8 trước." }
                 saveReceipt("{\"status\":\"running_or_interrupted\",\"production_activation_authorized\":false}")
                 VN97Int8Archive.verify(model) { cancelled.get() }
-                val result = VN97Int8DeviceTrial.run(model, { cancelled.get() }) { saveReceipt(it) }
+                val result = VN97Int8DeviceTrial.run(model, { cancelled.get() }, memorySnapshot = ::memorySnapshot) { saveReceipt(it) }
                 saveReceipt(result)
                 result
             }
@@ -201,6 +201,11 @@ class VN97Int8TrialActivity : Activity() {
             contentResolver.openInputStream(uri)!!.use { VN97Int8Archive.install(it, root, { cancelled.get() }, ::showProgress) }
             "Đã xác minh và nhập INT8. Nhấn Chạy kiểm tra để đo trên máy này."
         }
+    }
+    private fun memorySnapshot(): ai.vn97.runtime.VN97TrialMemory.Sample {
+        val info = android.app.ActivityManager.MemoryInfo()
+        (getSystemService(ACTIVITY_SERVICE) as android.app.ActivityManager).getMemoryInfo(info)
+        return ai.vn97.runtime.VN97TrialMemory.Sample(info.availMem, info.threshold, info.totalMem, info.lowMemory)
     }
     private fun showProgress(value: String) { runOnUiThread { status.text = value } }
     private fun displayName(uri: android.net.Uri): String =

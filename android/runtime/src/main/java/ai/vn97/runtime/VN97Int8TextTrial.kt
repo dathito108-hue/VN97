@@ -17,7 +17,7 @@ object VN97Int8TextTrial {
         return VN97GptNeoXTokenizer(info)
     }
     fun run(root: File, tokenizerRoot: File, prompt: String, cancelled: () -> Boolean,
-            decodeGraph: File? = null, checkpoint: (String) -> Unit): String {
+            decodeGraph: File? = null, memorySnapshot: (() -> VN97TrialMemory.Sample)? = null, checkpoint: (String) -> Unit): String {
         require(prompt.length in 1..2048) { "Câu nhập dài tối đa 2048 ký tự." }
         val tokenizer = tokenizer(tokenizerRoot)
         val tokens = tokenizer.encode(prompt)
@@ -36,6 +36,15 @@ object VN97Int8TextTrial {
         fun tensor(shape: LongArray, count: Int) = Mamba2OrtTensorStorage.create(
             OrtEnvironment.getEnvironment(), Mamba2OrtValueDtype.FLOAT16, shape, count,
         ).also { owned.add(it); it.zero() }
+        fun checkMemory() {
+            val sample = memorySnapshot?.invoke() ?: return
+            report.put("system_memory", JSONObject()
+                .put("available_bytes", sample.availableBytes).put("threshold_bytes", sample.thresholdBytes)
+                .put("total_bytes", sample.totalBytes).put("low_memory", sample.lowMemory)
+                .put("reserve_bytes", VN97TrialMemory.RESERVE_BYTES))
+            checkpoint(report.toString(2))
+            if (VN97TrialMemory.underPressure(sample)) throw VN97TrialMemory.Pressure()
+        }
         try {
             checkpoint(report.toString(2))
             val env = OrtEnvironment.getEnvironment()
@@ -49,6 +58,7 @@ object VN97Int8TextTrial {
                 checkpoint(report.toString(2))
                 options.setIntraOpNumThreads(2); options.setInterOpNumThreads(1)
                 if (cancelled()) throw java.util.concurrent.CancellationException()
+                checkMemory()
                 val loadStart = System.nanoTime()
                 env.createSession((decodeGraph ?: File(root, "candidate.onnx")).absolutePath, options).use { session ->
                     report.put("session_load_ms", (System.nanoTime() - loadStart) / 1e6)
@@ -67,6 +77,7 @@ object VN97Int8TextTrial {
                                 report.put("phase", "inference").put("pending_valid_length", chunk.size)
                                     .put("pss_before_inference_kib", android.os.Debug.getPss())
                                 checkpoint(report.toString(2))
+                                checkMemory()
                                 val start = System.nanoTime()
                                 val inputs = mutableMapOf("input_ids" to input,
                                     "conv_state" to conv[from].tensor, "ssm_state" to ssm[from].tensor)
@@ -95,7 +106,7 @@ object VN97Int8TextTrial {
             }
             report.put("phase", "completed").put("status", "completed").put("execution_passed", true).put("status", "completed")
         } catch (e: Exception) {
-            report.put("status", if (e is java.util.concurrent.CancellationException) "cancelled" else "failed")
+            report.put("status", when (e) { is VN97TrialMemory.Pressure -> "memory_pressure"; is java.util.concurrent.CancellationException -> "cancelled"; else -> "failed" })
                 .put("error_class", e.javaClass.simpleName).put("error", e.message ?: "Không hoàn tất")
         } finally { owned.asReversed().forEach { it.close() } }
         return report.toString(2).also(checkpoint)
