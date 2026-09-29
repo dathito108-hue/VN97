@@ -75,6 +75,11 @@ def _write_tokenizer(root: Path) -> GptNeoXBpeTokenizer:
         json.dumps(
             {
                 "version": "1.0",
+                "normalizer": {"type": "NFC"},
+                "added_tokens": [{"id": vocab[eos], "content": eos,
+                                  "single_word": False, "lstrip": False,
+                                  "rstrip": False, "normalized": False,
+                                  "special": True}],
                 "model": {"type": "BPE"},
                 "pre_tokenizer": {"type": "ByteLevel"},
             },
@@ -122,6 +127,7 @@ def test_gpt_neox_bpe_roundtrip_and_space_sensitive_tokens(
     assert tokenizer.decode(hello_space) == " Hello"
     assert tokenizer.decode(tokenizer.encode("Hello world")) == "Hello world"
     assert tokenizer.decode(tokenizer.encode("xin chào")) == "xin chào"
+    assert tokenizer.decode(tokenizer.encode("a\u0301")) == "á"
     special = tokenizer.eos_token
     assert tokenizer.encode(special) == [tokenizer.eos_token_id]
     assert tokenizer.decode([tokenizer.eos_token_id]) == special
