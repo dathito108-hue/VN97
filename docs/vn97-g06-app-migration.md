@@ -99,3 +99,25 @@ token at a token-limit stop has not entered recurrent state. Each independent
 cognition operation still resets state. Diagnostic `measurePrefillDecode` keeps
 its explicit requested number of measured decode calls. Host tests cover a
 one-token response, multiple tokens, immediate/late EOS and step failure.
+
+## Release package preflight
+
+Release now requires Python 3.10+ (`VN97_PYTHON` may override `python3`) and
+`VN97_G06_EVIDENCE_DIR`, containing `manifest.vn97m2g05.json`, `model-parity.json`,
+`token-parity.json`, and `mobile-qualification.json`. Keep these original export
+and qualification receipts; do not generate placeholders to satisfy packaging.
+The same check can run before a build:
+
+```sh
+python3 tools/g06_deployment_preflight.py --root /path/to/vn97-g06 --evidence-dir /path/to/evidence
+```
+
+It checks bounded JSON parsing, descriptor identities, G05→G06 and G06/G07/G08→G09
+consistency using the existing compilers, reproduces G10 from its supplied
+receipts, and streams hashes of all declared graph/weight/tokenizer payloads.
+Missing inputs or mismatches return `BLOCKED` and a nonzero exit code. A successful
+`PACKAGE_INTEGRITY_PASS` is only consistency of supplied files/claims, not proof
+of their origin, actual ONNX execution, tokenizer correctness or a new physical
+measurement. Signed APK distribution and Android's full runtime/device gates
+remain required. The check never issues production authorization. Debug builds
+without a deployment remain possible and do not imply model readiness.

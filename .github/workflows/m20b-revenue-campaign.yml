@@ -17,6 +17,12 @@ on:
       - "native/include/vn97/runtime.h"
       - "native/tests/external_identity_test.cpp"
       - "tests/host_g06_app_route.py"
+      - "tests/host_g06_deployment_preflight.py"
+      - "tools/g06_deployment_preflight.py"
+      - "src/vn97/r2/mamba2_android_runtime.py"
+      - "src/vn97/r2/mamba2_bundle_contract.py"
+      - "src/vn97/r2/mamba2_cognition_bridge.py"
+      - "src/vn97/r2/mamba2_promotion.py"
   workflow_dispatch:
 
 permissions:
@@ -62,6 +68,7 @@ jobs:
         run: |
           python3 tests/host_g06_app_route.py
           python3 tests/host_mamba2_runtime_contract.py
+          python3 tests/host_g06_deployment_preflight.py
           for test in external_identity_test runtime_test; do
             g++ -std=c++17 -O1 -pthread -I native/include "native/tests/$test.cpp" native/src/runtime.cpp native/src/language.cpp native/src/packed_ternary.cpp native/src/recurrent.cpp native/src/selective.cpp -o "$RUNNER_TEMP/$test"
             "$RUNNER_TEMP/$test"

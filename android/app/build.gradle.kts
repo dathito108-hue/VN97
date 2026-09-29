@@ -580,6 +580,24 @@ val verifyG06TurnkeyRuntime by tasks.registering {
         check(chunks.isNotEmpty()) {
             "VN97 G06 release requires at least one chunk ONNX graph."
         }
+        val evidenceDir = providers.environmentVariable("VN97_G06_EVIDENCE_DIR").orNull
+        check(!evidenceDir.isNullOrBlank()) {
+            "VN97 G06 release requires VN97_G06_EVIDENCE_DIR with the G05 manifest and model/token/mobile qualification receipts."
+        }
+        val preflight = providers.exec {
+            commandLine(
+                providers.environmentVariable("VN97_PYTHON").orNull ?: "python3",
+                rootProject.projectDir.parentFile.resolve("tools/g06_deployment_preflight.py").absolutePath,
+                "--root", root.absolutePath,
+                "--evidence-dir", evidenceDir,
+            )
+            isIgnoreExitValue = true
+        }
+        val result = preflight.result.get()
+        logger.lifecycle(preflight.standardOutput.asText.get())
+        check(result.exitValue == 0) {
+            "VN97 G06 deployment preflight failed: " + preflight.standardError.asText.get()
+        }
     }
 }
 
