@@ -45,12 +45,20 @@ jobs:
           repository: dathito108-hue/VN97
           run-id: 36367075535
           github-token: ${{ github.token }}
-      - name: Generate real repeated-step references in separate process
+      - name: Reuse measured repeated-step references
+        uses: actions/download-artifact@v4
+        with:
+          name: VN97-G06-NUMERIC-REFERENCES-36506402873
+          path: ${{ runner.temp }}/reference
+          repository: dathito108-hue/VN97
+          run-id: 36506402873
+          github-token: ${{ github.token }}
+      - name: Isolate native parallel SSD rounding from ONNX
         id: reference
         run: |
           set -euo pipefail
-          python tools/g06_numeric_audit.py reference --capsule "$RUNNER_TEMP/g03-capsule" --output "$RUNNER_TEMP/reference" 2>&1 | tee "$RUNNER_TEMP/audit/reference.log"
-          cp "$RUNNER_TEMP/reference/reference.json" "$RUNNER_TEMP/audit/"
+          python tools/g06_numeric_audit.py parallel-reference --capsule "$RUNNER_TEMP/g03-capsule" --reference "$RUNNER_TEMP/reference" 2>&1 | tee "$RUNNER_TEMP/audit/parallel-reference.log"
+          cp "$RUNNER_TEMP/reference/reference.json" "$RUNNER_TEMP/reference/parallel-reference.json" "$RUNNER_TEMP/audit/"
           rm -rf "$RUNNER_TEMP/g03-capsule"
       - name: Download exact G06 candidate
         uses: actions/download-artifact@v4

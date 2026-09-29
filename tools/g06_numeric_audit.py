@@ -47,6 +47,44 @@ def reference(capsule_root, out):
     (out / 'reference.json').write_text(json.dumps(report, indent=2) + '\n')
 
 
+def parallel_reference(capsule_root, reference_dir):
+    import numpy as np
+    import torch
+    import g06_deployment_preflight
+    capsule_module = importlib.import_module('_g06_contracts.mamba2_g03_capsule')
+    model_module = importlib.import_module('_g06_contracts.mamba2_onnx')
+    parallel_module = importlib.import_module('_g06_contracts.mamba2_parallel_onnx')
+    torch.set_num_threads(2)
+    torch.set_num_interop_threads(1)
+    ref = json.loads((reference_dir / 'reference.json').read_text())
+    assert ref['capsule_id'] == CAPSULE and ref['source_weight_sha256'] == SOURCE
+    capsule = capsule_module.load_g03_capsule(capsule_root, verify_large_weight_sha256=True)
+    assert capsule.manifest.capsule_id() == CAPSULE and capsule.manifest.source_weight_sha256 == SOURCE
+    step = model_module.VN97Mamba2StepOnnx(model_module.Mamba2OnnxConfig.from_source_spec(capsule.spec), capsule.tensors).eval()
+    model = parallel_module.VN97Mamba2ParallelChunkOnnx(step, chunk_size=8).eval()
+    conv = ssm = None
+    results = []
+    with torch.inference_mode():
+        for case in ref['cases']:
+            folder = reference_dir / str(case['index'])
+            if case['reset']:
+                conv = torch.from_numpy(np.load(folder / 'conv_input.npy', allow_pickle=False))
+                ssm = torch.from_numpy(np.load(folder / 'ssm_input.npy', allow_pickle=False))
+            tokens = torch.from_numpy(np.load(folder / 'input_ids.npy', allow_pickle=False))
+            logits, conv, ssm = model(tokens, torch.tensor([case['valid_length']], dtype=torch.long), conv, ssm)
+            metrics = {}
+            for name, value in (('logits', logits), ('conv_state', conv), ('ssm_state', ssm)):
+                actual = value.detach().cpu().numpy()
+                np.save(folder / ('parallel_' + name + '.npy'), actual, allow_pickle=False)
+                metrics[name] = difference(actual, np.load(folder / (name + '.npy'), mmap_mode='r', allow_pickle=False))
+            result = {**case, 'parallel_vs_repeated_max_abs_error': metrics}
+            results.append(result)
+            print(json.dumps(result), flush=True)
+    report = {'schema': 'VN97G06PARALLELREF1', 'capsule_id': CAPSULE, 'source_weight_sha256': SOURCE,
+              'torch_version': torch.__version__, 'cases': results, 'production_activation_authorized': False}
+    (reference_dir / 'parallel-reference.json').write_text(json.dumps(report, indent=2) + '\n')
+
+
 def difference(actual, expected):
     import numpy as np
     if actual.shape != expected.shape or actual.dtype != expected.dtype:
@@ -94,8 +132,23 @@ def compare(candidate, reference_dir, report_path):
         })
         metrics = {name: difference(actual, np.load(folder / (name + '.npy'), mmap_mode='r', allow_pickle=False))
                    for name, actual in (('logits', logits), ('conv_state', conv), ('ssm_state', ssm))}
-        results.append({**case, 'case_wall_seconds': time.perf_counter() - started, 'max_abs_error': metrics,
-                        'passed': all(value <= 0.002 for value in metrics.values())})
+        result = {**case, 'case_wall_seconds': time.perf_counter() - started, 'max_abs_error': metrics,
+                  'passed': all(value <= 0.002 for value in metrics.values())}
+        valid = case['valid_length']
+        expected_logits = np.load(folder / 'logits.npy', mmap_mode='r', allow_pickle=False)
+        result['argmax_ids'] = {'repeated': expected_logits[:, :valid].argmax(axis=-1).tolist(),
+                                'onnx': logits[:, :valid].argmax(axis=-1).tolist()}
+        parallel_report_path = reference_dir / 'parallel-reference.json'
+        if parallel_report_path.is_file():
+            parallel_report = json.loads(parallel_report_path.read_text())
+            assert parallel_report['capsule_id'] == CAPSULE and parallel_report['source_weight_sha256'] == SOURCE
+            result['onnx_vs_parallel_max_abs_error'] = {
+                name: difference(actual, np.load(folder / ('parallel_' + name + '.npy'), mmap_mode='r', allow_pickle=False))
+                for name, actual in (('logits', logits), ('conv_state', conv), ('ssm_state', ssm))}
+            result['parallel_vs_repeated_max_abs_error'] = parallel_report['cases'][case['index']]['parallel_vs_repeated_max_abs_error']
+            parallel_logits = np.load(folder / 'parallel_logits.npy', mmap_mode='r', allow_pickle=False)
+            result['argmax_ids']['parallel'] = parallel_logits[:, :valid].argmax(axis=-1).tolist()
+        results.append(result)
         print(json.dumps(results[-1]), flush=True)
     report = {'schema': 'VN97G06NUMAUDIT1', 'runtime_id': RUNTIME, 'capsule_id': CAPSULE,
               'source_weight_sha256': SOURCE, 'onnxruntime_version': ort.__version__,
@@ -115,6 +168,9 @@ def main():
     ref = sub.add_parser('reference')
     ref.add_argument('--capsule', type=Path, required=True)
     ref.add_argument('--output', type=Path, required=True)
+    parallel = sub.add_parser('parallel-reference')
+    parallel.add_argument('--capsule', type=Path, required=True)
+    parallel.add_argument('--reference', type=Path, required=True)
     audit = sub.add_parser('compare')
     audit.add_argument('--candidate', type=Path, required=True)
     audit.add_argument('--reference', type=Path, required=True)
@@ -122,6 +178,9 @@ def main():
     args = parser.parse_args()
     if args.mode == 'reference':
         reference(args.capsule, args.output)
+        return 0
+    if args.mode == 'parallel-reference':
+        parallel_reference(args.capsule, args.reference)
         return 0
     return 0 if compare(args.candidate, args.reference, args.report) else 1
 
