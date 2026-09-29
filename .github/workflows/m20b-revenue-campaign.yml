@@ -17,6 +17,8 @@ on:
       - "native/include/vn97/runtime.h"
       - "native/tests/external_identity_test.cpp"
       - "tests/host_g06_app_route.py"
+      - "tests/data/g08_descriptor_identity.json"
+      - "tests/data/g08_canonical_vectors.json"
       - "tests/host_g06_deployment_preflight.py"
       - "tools/g06_deployment_preflight.py"
       - "src/vn97/r2/mamba2_android_runtime.py"
@@ -72,6 +74,16 @@ jobs:
           for test in external_identity_test runtime_test; do
             g++ -std=c++17 -O1 -pthread -I native/include "native/tests/$test.cpp" native/src/runtime.cpp native/src/language.cpp native/src/packed_ternary.cpp native/src/recurrent.cpp native/src/selective.cpp -o "$RUNNER_TEMP/$test"
             "$RUNNER_TEMP/$test"
+          done
+
+      - name: Verify G08 identity with Android and JVM JSON implementations
+        shell: bash
+        run: |
+          curl --fail --location --retry 2 https://repo.maven.apache.org/maven2/com/vaadin/external/google/android-json/0.0.20131108.vaadin1/android-json-0.0.20131108.vaadin1.jar -o "$RUNNER_TEMP/android-json.jar"
+          curl --fail --location --retry 2 https://repo.maven.apache.org/maven2/org/json/json/20240303/json-20240303.jar -o "$RUNNER_TEMP/jvm-json.jar"
+          kotlinc android/runtime/src/main/java/ai/vn97/runtime/Mamba2GptNeoXTokenizer.kt android/runtime/host-test/G08CanonicalIdentityTest.kt -cp "$RUNNER_TEMP/android-json.jar" -Werror -include-runtime -d "$RUNNER_TEMP/g08-identity.jar"
+          for json_impl in android-json jvm-json; do
+            java -cp "$RUNNER_TEMP/g08-identity.jar:$RUNNER_TEMP/$json_impl.jar" ai.vn97.runtime.G08CanonicalIdentityTestKt tests/data/g08_descriptor_identity.json tests/data/g08_canonical_vectors.json
           done
 
       - name: Compile debug APK

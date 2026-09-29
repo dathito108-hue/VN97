@@ -1,0 +1,48 @@
+{
+  "add_prefix_space": false,
+  "algorithm": "gpt2_byte_level_bpe_ranked_merges",
+  "assets": {
+    "merges.txt": {
+      "bytes": 456583,
+      "sha256": "0a1f07b1d32153dcdf48f57189b0c217a69b11e11a3bee8a053861987e1640e4"
+    },
+    "special_tokens_map.json": {
+      "bytes": 90,
+      "sha256": "c0b3c279b6ecdb71996a86ffb4d4ab94dfdb5df95f00bac9515688faef2ff5dd"
+    },
+    "tokenizer.json": {
+      "bytes": 2113710,
+      "sha256": "c24618a1b3e6a38167beff1c72cffd126c3a66254347304b50547d12c5f25624"
+    },
+    "tokenizer_config.json": {
+      "bytes": 156,
+      "sha256": "6c50f7b37042a059c71a347be27bc53cc4fcb0f6c8166b00712f3937c91e6bc7"
+    },
+    "vocab.json": {
+      "bytes": 1077392,
+      "sha256": "4529c7dbac8210536fdda3b82c499bd4fba0a1bf529dd571fef92448ff3f440c"
+    }
+  },
+  "bos_token": "<|endoftext|>",
+  "bos_token_id": 0,
+  "capsule_id": "8e1aff6c6b6d2947cb25111e48febae6850100fd782a2f112adcab2e047f674e",
+  "eos_token": "<|endoftext|>",
+  "eos_token_id": 0,
+  "invalid_padded_token_end_exclusive": 50288,
+  "invalid_padded_token_start": 50277,
+  "merge_count": 50009,
+  "pretokenizer_pattern": "'s|'t|'re|'ve|'m|'ll|'d| ?\\p{L}+| ?\\p{N}+| ?[^\\s\\p{L}\\p{N}]+|\\s+(?!\\S)|\\s+",
+  "production_activation_authorized": false,
+  "runtime_logits_size": 50288,
+  "same_token_ids_required": true,
+  "sampling_must_mask_padded_ids": true,
+  "schema": "VN97M2G08TOK1",
+  "source_runtime_required": false,
+  "source_tokenizer_model_id": "EleutherAI/gpt-neox-20b",
+  "source_tokenizer_revision": "364ae95407723fadd1d47b023c1efb92a4d891c3",
+  "token_id_space": 50277,
+  "tokenizer_class": "GPTNeoXTokenizer",
+  "tokenizer_id": "27ce0a2f005befaa98ec4ee05d5d83a71aac1bcc5e4dd00032e33a17615ca575",
+  "unk_token": "<|endoftext|>",
+  "unk_token_id": 0
+}
