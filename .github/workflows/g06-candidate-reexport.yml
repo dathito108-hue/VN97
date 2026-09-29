@@ -3,7 +3,7 @@ name: VN97 G06 Candidate Re-export
 on:
   pull_request:
     branches: [main]
-    paths: ['.github/workflows/g06-candidate-reexport.yml']
+    paths: ['.github/workflows/g06-candidate-reexport.yml', 'tools/g06_repaired_onnx_audit.py']
 
 permissions:
   contents: read
@@ -17,6 +17,9 @@ jobs:
   export:
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    env:
+      OMP_NUM_THREADS: '2'
+      MKL_NUM_THREADS: '2'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -31,7 +34,7 @@ jobs:
       - name: Install pinned CPU exporter
         run: |
           python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu 'torch==2.10.0'
-          python -m pip install --disable-pip-version-check 'onnx==1.22.0' 'onnxscript==0.7.2' 'onnx-ir==0.2.1'
+          python -m pip install --disable-pip-version-check 'onnx==1.22.0' 'onnxscript==0.7.2' 'onnx-ir==0.2.1' 'onnxruntime==1.26.0'
           python -m pip install --disable-pip-version-check --no-deps -e .
           mkdir -p "$RUNNER_TEMP/g06-evidence"
           python -m pip freeze > "$RUNNER_TEMP/g06-evidence/toolchain.txt"
@@ -101,6 +104,25 @@ jobs:
           compression-level: 0
           if-no-files-found: error
           retention-days: 7
+      - name: Release source workspace after preserving the new candidate
+        run: rm -rf "$RUNNER_TEMP/g03-capsule"
+      - name: Reuse frozen sequential reference outputs
+        uses: actions/download-artifact@v4
+        with:
+          name: VN97-G06-NUMERIC-REFERENCES-36506402873
+          path: ${{ runner.temp }}/reference
+          repository: dathito108-hue/VN97
+          run-id: 36506402873
+          github-token: ${{ github.token }}
+      - name: Audit real ONNX state-repair candidate
+        run: |
+          set -uo pipefail
+          audit_status=0
+          python tools/g06_repaired_onnx_audit.py --candidate "$RUNNER_TEMP/g06-candidate" --reference "$RUNNER_TEMP/reference" --report "$RUNNER_TEMP/g06-evidence/onnx-default.json" 2>&1 | tee "$RUNNER_TEMP/g06-evidence/onnx-default.log" || audit_status=$?
+          if [ "$audit_status" -ne 0 ]; then
+            python tools/g06_repaired_onnx_audit.py --candidate "$RUNNER_TEMP/g06-candidate" --reference "$RUNNER_TEMP/reference" --report "$RUNNER_TEMP/g06-evidence/onnx-no-optimization.json" --disable-optimizations 2>&1 | tee "$RUNNER_TEMP/g06-evidence/onnx-no-optimization.log" || true
+          fi
+          exit "$audit_status"
       - name: Preserve compact evidence even on failure
         if: always()
         uses: actions/upload-artifact@v4
