@@ -24,7 +24,7 @@ jobs:
       - name: Install pinned CPU toolchain
         run: |
           python -m pip install --index-url https://download.pytorch.org/whl/cpu 'torch==2.10.0'
-          python -m pip install 'onnx==1.22.0' 'onnxruntime==1.26.0' 'onnxscript==0.7.2' 'pytest>=8,<9'
+          python -m pip install 'onnx==1.22.0' 'onnxruntime==1.26.0' 'onnxscript==0.7.2' 'onnx-ir==1.0.0' 'pytest>=8,<9'
           python -m pip install --no-deps -e .
       - name: Test INT8 and mixed INT4 recurrent graphs
         run: python -m pytest tests/test_g06_quantize.py -q
@@ -43,7 +43,9 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install quantizer
-        run: python -m pip install 'onnx==1.22.0' 'onnxruntime==1.26.0'
+        run: |
+          python -m pip install 'onnx==1.22.0' 'onnxruntime==1.26.0' 'onnx-ir==1.0.0'
+          python -c 'from onnxruntime.quantization.matmul_nbits_quantizer import MatMulNBitsQuantizer'
       - uses: actions/download-artifact@v4
         with:
           name: VN97-G06-UNQUALIFIED-CANDIDATE-36509427632
